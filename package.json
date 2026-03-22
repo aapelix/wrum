@@ -1,0 +1,11 @@
+{
+  "name": "wrum",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "client": "cd packages/game && bun run dev",
+    "server": "cd packages/server && bun run dev"
+  }
+}
