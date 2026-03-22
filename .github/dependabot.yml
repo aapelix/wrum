@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "bun"
+    directory: "/packages/game"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "bun"
+    directory: "/packages/server"
+    schedule:
+      interval: "weekly"
