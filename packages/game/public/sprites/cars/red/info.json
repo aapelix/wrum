@@ -1,0 +1,23 @@
+{
+  "bodyLayers": 7,
+  "tireLayers": 3,
+  "rotateTires": [false, true, false, true],
+  "tireOffsets": [
+    {
+      "x": -3.6,
+      "y": 4
+    },
+    {
+      "x": -3.6,
+      "y": -4
+    },
+    {
+      "x": 3.6,
+      "y": 4
+    },
+    {
+      "x": 3.6,
+      "y": -4
+    }
+  ]
+}

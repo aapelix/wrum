@@ -1,18 +1,23 @@
 import kaplay from "kaplay";
 import "kaplay/global";
-import { addStack } from "./stack";
+import { addCar, loadAllCarAssets } from "./car/car";
+
+const ws = new WebSocket("ws://localhost:8080");
+ws.addEventListener("open", () => {
+  debug.log("WebSocket connection opened");
+});
 
 kaplay({
   scale: 4,
   crisp: true,
 });
 
-loadRoot("./"); // A good idea for Itch.io publishing later
-const red_body = loadSprite("red_body", "sprites/cars/red/body.png", {
-  sliceX: 7,
-  sliceY: 1,
-});
+loadRoot("./");
+await loadAllCarAssets();
 
-addStack(120, 120, red_body);
+const car = addCar(120, 120, "test_id", "red");
+car.onKeyPress((key) => {
+  debug.log("pressed", key);
+});
 
 onClick(() => addKaboom(mousePos()));
