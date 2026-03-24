@@ -1,6 +1,9 @@
 import kaplay from "kaplay";
 import "kaplay/global";
-import { addCar, loadAllCarAssets } from "./car/car";
+import "./auth/scene/login";
+import { loadAllCarAssets } from "./car/car";
+import { loadScenes } from "./scene";
+import { authClient } from "./auth/client";
 
 const apiUrl = import.meta.env.VITE_API_URL;
 
@@ -18,14 +21,25 @@ ws.addEventListener("open", () => {
 kaplay({
   scale: 4,
   crisp: true,
+  font: "happy",
 });
+
+setLayers(["ui", "game"], "game");
+
+loadBitmapFont("happy", "/fonts/happy_28x36.png", 28, 36);
 
 loadRoot("./");
+loadScenes();
 await loadAllCarAssets();
 
-const car = addCar(120, 120, "test_id", "red");
-car.onKeyPress((key) => {
-  debug.log("pressed", key);
-});
+const { data: session, error } = await authClient.getSession();
 
-onClick(() => addKaboom(mousePos()));
+if (error) {
+  go("error", error);
+}
+
+if (session) {
+  go("main");
+} else {
+  go("login");
+}
