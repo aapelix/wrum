@@ -1,0 +1,20 @@
+name: autofix.ci
+on:
+  pull_request:
+  push:
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: ESLint
+        run: bunx eslint . --fix
+      - name: Prettier
+        run: bunx prettier --write .
+      - uses: autofix-ci/action@7a166d7532b277f34e16238930461bf77f9d7ed8
