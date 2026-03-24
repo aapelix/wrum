@@ -1,11 +1,26 @@
 export const carTypes = ["red"] as const;
 export type CarType = (typeof carTypes)[number];
 
-type JoinData = { carType: CarType };
-type LeaveData = { userId: string };
-type UpdateData = { userId: string; x: number; y: number };
+export type ClientJoinData = { carType: CarType; lobbyId: string };
+export type ClientLeaveData = { reason: string };
+export type ClientUpdateData = { throttle: number; steering: number };
 
-export type Message =
-  | { type: "join"; data: JoinData }
-  | { type: "leave"; data: LeaveData }
-  | { type: "update"; data: UpdateData };
+export type ClientMessage =
+  | { type: "join"; data: ClientJoinData }
+  | { type: "leave"; data: ClientLeaveData }
+  | { type: "update"; data: ClientUpdateData };
+
+// server join, leave etc...
+export type ServerUpdateData = {
+  players: {
+    id: string;
+    carType: CarType;
+    x: number;
+    y: number;
+    rotation: number;
+  }[];
+};
+
+export type ServerMessage =
+  | { type: "update"; data: ServerUpdateData }
+  | { type: "error"; data: { message: string } };

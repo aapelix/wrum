@@ -5,19 +5,6 @@ import { loadAllCarAssets } from "./car/car";
 import { loadScenes } from "./scene";
 import { authClient } from "./auth/client";
 
-const apiUrl = import.meta.env.VITE_API_URL;
-
-if (!apiUrl) {
-  throw new Error("VITE_API_URL is not defined");
-}
-
-const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-const ws = new WebSocket(`${protocol}//${apiUrl}/conn`);
-
-ws.addEventListener("open", () => {
-  debug.log("WebSocket connection opened");
-});
-
 kaplay({
   scale: 4,
   crisp: true,
@@ -39,7 +26,7 @@ if (error) {
 }
 
 if (session) {
-  go("main");
+  go("main", session.user);
 } else {
   go("login");
 }

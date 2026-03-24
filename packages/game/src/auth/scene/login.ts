@@ -50,6 +50,12 @@ export function loadLoginScene() {
   scene("otp", (email) => {
     let otp = "";
 
+    add([
+      text("Enter the code sent to you", { size: 9 }),
+      pos(w / 2, h / 2 - 50),
+      anchor("center"),
+    ]);
+
     addInput(w / 2, h / 2 - 25, 105, 15, "", (s) => {
       otp = s;
     });
@@ -70,7 +76,7 @@ export function loadLoginScene() {
           go("error", error);
           return;
         } else if (data !== null) {
-          go("main");
+          go("main", data.user);
         }
       },
       9

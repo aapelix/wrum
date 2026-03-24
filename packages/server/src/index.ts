@@ -1,17 +1,32 @@
 import "dotenv/config";
 import { auth } from "./lib/auth";
+import type { ClientMessage } from "@wrum/shared";
+import type { WebSocketData } from "./ws";
+import { handleMsg } from "./game/msg";
 
-type WebSocketData = {
-  createdAt: number;
-};
+const origin = process.env.CLIENT_URL!;
 
 const s = Bun.serve({
   routes: {
-    "/conn": (req, server) => {
+    "/conn": async (req, server) => {
+      const session = await auth.api.getSession({
+        headers: req.headers,
+      });
+
+      if (!session) {
+        return new Response("Unauthorized", {
+          status: 401,
+        });
+      }
+
       if (
         server.upgrade(req, {
           data: {
             createdAt: Date.now(),
+            user: {
+              id: session.user.id,
+              name: session.user.name,
+            },
           },
         })
       ) {
@@ -28,7 +43,7 @@ const s = Bun.serve({
       if (req.method === "OPTIONS") {
         return new Response(null, {
           headers: {
-            "Access-Control-Allow-Origin": "http://localhost:3001",
+            "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type, Authorization",
             "Access-Control-Allow-Credentials": "true",
@@ -38,7 +53,7 @@ const s = Bun.serve({
 
       const res = await auth.handler(req);
 
-      res.headers.set("Access-Control-Allow-Origin", "http://localhost:3001");
+      res.headers.set("Access-Control-Allow-Origin", origin);
       res.headers.set("Access-Control-Allow-Credentials", "true");
 
       return res;
@@ -54,7 +69,14 @@ const s = Bun.serve({
       console.log("WebSocket connection opened", ws.data);
     },
     message(ws, msg) {
-      console.log("Received message:", ws, msg);
+      if (typeof msg !== "string") {
+        return;
+      }
+
+      // maybe should use ArrayBuffers instead
+      const data = JSON.parse(msg) as ClientMessage;
+
+      handleMsg(ws, data);
     },
     close(ws, code, reason) {
       console.log("WebSocket connection closed", ws, code, reason);

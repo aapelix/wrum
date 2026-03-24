@@ -12,6 +12,7 @@ export const auth = betterAuth({
     provider: "pg",
     schema,
   }),
+  trustedOrigins: [process.env.CLIENT_URL!],
   plugins: [
     emailOTP({
       async sendVerificationOTP({ email, otp, type }) {
