@@ -3,7 +3,7 @@ import { addStack } from "../stack";
 import { CarInfo } from "./info";
 
 const carTypes = ["red"] as const;
-type CarType = typeof carTypes[number];
+type CarType = (typeof carTypes)[number];
 
 interface CarAssets {
   body: Asset<SpriteData>;
@@ -36,13 +36,25 @@ export async function loadAllCarAssets() {
   }
 }
 
-export function addCar(x: number, y: number, identifier: string, type: CarType) {
+export function addCar(
+  x: number,
+  y: number,
+  identifier: string,
+  type: CarType
+) {
   const assets = carAssets[type];
   const info = assets.info;
 
   const c = add([pos(x, y), anchor("center"), car(type, identifier, info)]);
   for (let i = 0; i < assets.info.tireOffsets.length; i++) {
-    addStack(c, assets.info.tireOffsets[i].x, assets.info.tireOffsets[i].y, assets.tire, "center", [tire(i)]);
+    addStack(
+      c,
+      assets.info.tireOffsets[i].x,
+      assets.info.tireOffsets[i].y,
+      assets.tire,
+      "center",
+      [tire(i)]
+    );
   }
 
   addStack(c, 0, 0, assets.body, undefined, undefined, 10);
@@ -81,35 +93,36 @@ function car(type: CarType, ident: string, info: CarInfo): CarComp {
 
       const assets = carAssets[this.type];
 
-      let i = 0;
       this.children.forEach((child) => {
         if (child.has("stack")) {
           if (child.has("tire")) {
-            const t = child as GameObj<any> & { index: number };
+            const t = child as GameObj<TireComp>;
 
             const baseOffset = assets.info.tireOffsets[t.index];
-            const rotated = rotateVec(vec2(baseOffset.x, baseOffset.y), this.rotation);
+            const rotated = rotateVec(
+              vec2(baseOffset.x, baseOffset.y),
+              this.rotation
+            );
             child.pos = rotated;
 
             const shouldRotateIndependently = this.info.rotateTires[t.index];
-            child.rotation = shouldRotateIndependently ? this.tireRotation + this.rotation : this.rotation;
+            child.rotation = shouldRotateIndependently
+              ? this.tireRotation + this.rotation
+              : this.rotation;
           } else {
             child.rotation = this.rotation;
           }
         }
       });
     },
-    ident
+    ident,
   };
 }
 
 function rotateVec(v: Vec2, angleDeg: number) {
-  const rad = (angleDeg * Math.PI) / 180
-  const cos = Math.cos(rad)
-  const sin = Math.sin(rad)
+  const rad = (angleDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
 
-  return vec2(
-    v.x * cos - v.y * sin,
-    v.x * sin + v.y * cos
-  )
+  return vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
 }
