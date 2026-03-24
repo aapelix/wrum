@@ -1,5 +1,5 @@
 {
-  "name": "game",
+  "name": "@wrum/game",
   "type": "module",
   "private": true,
   "scripts": {
@@ -10,7 +10,8 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "kaplay": "^3001.0.19"
+    "kaplay": "^3001.0.19",
+    "@wrum/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "latest",

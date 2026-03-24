@@ -5,8 +5,8 @@
     "packages/*"
   ],
   "scripts": {
-    "client": "cd packages/game && bun run dev",
-    "server": "cd packages/server && bun run dev",
+    "dev:client": "cd packages/game && bun run dev",
+    "dev:server": "cd packages/server && bun run dev",
     "prepare": "husky"
   },
   "devDependencies": {

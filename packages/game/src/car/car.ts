@@ -1,9 +1,7 @@
-import { Asset, Comp, SpriteData, GameObj, Vec2 } from "kaplay";
+import type { Asset, Comp, SpriteData, GameObj, Vec2 } from "kaplay";
 import { addStack } from "../stack";
-import { CarInfo } from "./info";
-
-const carTypes = ["red"] as const;
-type CarType = (typeof carTypes)[number];
+import { type CarInfo } from "./info";
+import { type CarType, carTypes } from "@wrum/shared";
 
 interface CarAssets {
   body: Asset<SpriteData>;
@@ -30,7 +28,7 @@ function loadCarAssets(type: CarType, info: CarInfo): CarAssets {
 export async function loadAllCarAssets() {
   for (const type of carTypes) {
     const res = await fetch(`sprites/cars/${type}/info.json`);
-    const info: CarInfo = await res.json();
+    const info = (await res.json()) as CarInfo;
 
     carAssets[type] = loadCarAssets(type, info);
   }
@@ -49,8 +47,8 @@ export function addCar(
   for (let i = 0; i < assets.info.tireOffsets.length; i++) {
     addStack(
       c,
-      assets.info.tireOffsets[i].x,
-      assets.info.tireOffsets[i].y,
+      assets.info.tireOffsets[i]!.x,
+      assets.info.tireOffsets[i]!.y,
       assets.tire,
       "center",
       [tire(i)]
@@ -98,7 +96,10 @@ function car(type: CarType, ident: string, info: CarInfo): CarComp {
           if (child.has("tire")) {
             const t = child as GameObj<TireComp>;
 
-            const baseOffset = assets.info.tireOffsets[t.index];
+            const baseOffset = assets.info.tireOffsets[t.index] ?? {
+              x: 0,
+              y: 0,
+            };
             const rotated = rotateVec(
               vec2(baseOffset.x, baseOffset.y),
               this.rotation
