@@ -1,27 +1,47 @@
-import type { User } from "better-auth";
 import { loadAuthScenes } from "./auth/scenes";
 import { authClient } from "./auth/client";
 import { addButton } from "./ui/button";
+import { initWs } from "./ws";
+import { loadPlayScene } from "./scene/play";
+import { getUser } from "./user";
+import { loadLobbyScene } from "./scene/lobby";
 
 export function loadScenes() {
   loadAuthScenes();
-  scene("main", (user: User) => {
+  loadPlayScene();
+  loadLobbyScene();
+
+  const w = width();
+  const h = height();
+
+  scene("main", async () => {
+    const user = await getUser();
+    if (!user) {
+      go("login");
+      return;
+    }
+
+    initWs();
+
     add([
-      text("coming soon", {
+      text("wrum", {
         size: 10,
       }),
-      pos(10, 50),
+      pos(w / 2, h / 2 - 20),
+      anchor("center"),
     ]);
 
     add([
       text(`${user.email}`, {
         size: 10,
+        align: "right",
       }),
-      pos(10, 70),
+      pos(w - 10, 30),
+      anchor("right"),
     ]);
 
     addButton(
-      width() - 30,
+      w - 30,
       12,
       50,
       15,
@@ -39,13 +59,16 @@ export function loadScenes() {
       undefined,
       "secondary"
     );
+
+    addButton(w / 2, h / 2, 50, 15, "Play", () => go("play", user), 9);
   });
   scene("error", (err) => {
     add([
-      text(`Error: ${err.message}`, {
+      text(`Error: ${err}`, {
         size: 10,
       }),
-      pos(10, 10),
+      pos(w / 2, h / 2),
+      anchor("center"),
     ]);
   });
 }

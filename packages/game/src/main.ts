@@ -3,7 +3,7 @@ import "kaplay/global";
 import "./auth/scene/login";
 import { loadAllCarAssets } from "./car/car";
 import { loadScenes } from "./scene";
-import { authClient } from "./auth/client";
+import { getUser } from "./user";
 
 kaplay({
   scale: 4,
@@ -19,14 +19,8 @@ loadRoot("./");
 loadScenes();
 await loadAllCarAssets();
 
-const { data: session, error } = await authClient.getSession();
+const user = await getUser();
 
-if (error) {
-  go("error", error);
-}
-
-if (session) {
-  go("main", session.user);
-} else {
-  go("login");
+if (user) {
+  go("main");
 }

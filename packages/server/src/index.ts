@@ -3,6 +3,7 @@ import { auth } from "./lib/auth";
 import type { ClientMessage } from "@wrum/shared";
 import type { WebSocketData } from "./ws";
 import { handleMsg } from "./game/msg";
+import { leave } from "./game/event/leave";
 
 const origin = process.env.CLIENT_URL!;
 
@@ -65,21 +66,19 @@ const s = Bun.serve({
   },
   websocket: {
     data: {} as WebSocketData,
-    open(ws) {
-      console.log("WebSocket connection opened", ws.data);
-    },
     message(ws, msg) {
       if (typeof msg !== "string") {
         return;
       }
 
-      // maybe should use ArrayBuffers instead
       const data = JSON.parse(msg) as ClientMessage;
 
       handleMsg(ws, data);
     },
-    close(ws, code, reason) {
-      console.log("WebSocket connection closed", ws, code, reason);
+    close(ws) {
+      if (ws.data.lobbyId) {
+        leave(ws);
+      }
     },
   },
 });

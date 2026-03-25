@@ -3,6 +3,8 @@ import type { WebSocketData } from "../../ws";
 import { lobbies, removeLobby } from "../lobby";
 
 export function leave(ws: ServerWebSocket<WebSocketData>) {
+  console.log("asdasd");
+
   const lobbyId = ws.data.lobbyId;
   if (!lobbyId) return;
 

@@ -1,4 +1,4 @@
-import type { ClientMessage } from "@wrum/shared";
+import type { ClientMessage, ServerMessage } from "@wrum/shared";
 
 let ws: WebSocket;
 
@@ -17,6 +17,24 @@ export function initWs() {
 
   ws.addEventListener("open", () => {
     debug.log("WebSocket connection opened");
+  });
+
+  ws.addEventListener("message", (m) => {
+    const msg = JSON.parse(m.data) as ServerMessage;
+    switch (msg.type) {
+      case "join":
+        go("lobby", msg.data.lobbyId);
+        break;
+      case "update":
+        break;
+      case "created":
+        go("lobby", msg.data.lobbyId);
+        break;
+      case "error":
+        go("error", msg.data.message);
+        console.error(msg);
+        break;
+    }
   });
 }
 

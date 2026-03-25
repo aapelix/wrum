@@ -7,22 +7,26 @@ export function addInput(
   h: number,
   placeholder: string,
   onChange: (value: string) => void,
-  type: "text" | "password" = "text"
+  type: "text" | "password" = "text",
+  focus: boolean = true,
+  maxLength?: number,
+  modifier?: (value: string) => string
 ) {
   const input = add([
     pos(x, y),
     text(placeholder, {
       size: 9,
+      align: "left",
     }),
     anchor("center"),
-    textInput(),
+    textInput(focus, maxLength),
   ]);
 
-  input.hasFocus = false;
-
   input.onUpdate(() => {
-    if (input.hasFocus) {
-      onChange(input.text);
+    onChange(input.text);
+
+    if (modifier) {
+      input.text = modifier(input.text);
     }
   });
 

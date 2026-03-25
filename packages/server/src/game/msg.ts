@@ -4,6 +4,7 @@ import type { ClientMessage } from "@wrum/shared";
 import { join } from "./event/join";
 import { update } from "./event/update";
 import { leave } from "./event/leave";
+import { create } from "./event/create";
 
 export function handleMsg(
   ws: ServerWebSocket<WebSocketData>,
@@ -20,6 +21,11 @@ export function handleMsg(
     }
     case "leave": {
       leave(ws);
+      break;
+    }
+    case "create": {
+      console.log("a");
+      create(ws, msg.data);
       break;
     }
   }

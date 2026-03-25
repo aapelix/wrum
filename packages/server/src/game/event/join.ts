@@ -1,14 +1,26 @@
-import type { ClientJoinData } from "@wrum/shared";
-import { createLobby, lobbies } from "../lobby";
+import type { ClientJoinLobbyData, ServerMessage } from "@wrum/shared";
+import { lobbies, lobbyState } from "../lobby";
 import type { WebSocketData } from "../../ws";
 import type { ServerWebSocket } from "bun";
 
-export function join(ws: ServerWebSocket<WebSocketData>, data: ClientJoinData) {
+export function join(
+  ws: ServerWebSocket<WebSocketData>,
+  data: ClientJoinLobbyData
+) {
   const lobbyId = data.lobbyId;
 
-  let lobby = lobbies.get(lobbyId);
+  const lobby = lobbies.get(lobbyId);
   if (!lobby) {
-    lobby = createLobby(lobbyId);
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        data: {
+          message: "No lobby found",
+        },
+      } as ServerMessage)
+    );
+
+    return;
   }
 
   lobby.players.set(ws.data.user.id, {
@@ -25,4 +37,14 @@ export function join(ws: ServerWebSocket<WebSocketData>, data: ClientJoinData) {
   });
 
   ws.data.lobbyId = lobbyId;
+
+  ws.send(
+    JSON.stringify({
+      type: "join",
+      data: {
+        lobbyId: lobbyId,
+        players: lobbyState(lobby).players,
+      },
+    } as ServerMessage)
+  );
 }
