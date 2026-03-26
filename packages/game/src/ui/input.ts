@@ -10,7 +10,7 @@ export function addInput(
   type: "text" | "password" = "text",
   focus: boolean = true,
   maxLength?: number,
-  modifier?: (value: string) => string
+  modifier?: (value: string) => string,
 ) {
   const input = add([
     pos(x, y),

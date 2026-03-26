@@ -4,7 +4,7 @@ export function addBox(
   w: number,
   h: number,
   radius: number = 4,
-  colorScheme: "default" | "secondary" = "default"
+  colorScheme: "default" | "secondary" = "default",
 ) {
   const colorSchemes = {
     default: {

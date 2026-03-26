@@ -3,10 +3,7 @@ import { lobbies, lobbyState } from "../lobby";
 import type { WebSocketData } from "../../ws";
 import type { ServerWebSocket } from "bun";
 
-export function join(
-  ws: ServerWebSocket<WebSocketData>,
-  data: ClientJoinLobbyData
-) {
+export function join(ws: ServerWebSocket<WebSocketData>, data: ClientJoinLobbyData) {
   const lobbyId = data.lobbyId;
 
   const lobby = lobbies.get(lobbyId);
@@ -17,7 +14,7 @@ export function join(
         data: {
           message: "No lobby found",
         },
-      } as ServerMessage)
+      } as ServerMessage),
     );
 
     return;
@@ -45,6 +42,6 @@ export function join(
         lobbyId: lobbyId,
         players: lobbyState(lobby).players,
       },
-    } as ServerMessage)
+    } as ServerMessage),
   );
 }

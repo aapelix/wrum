@@ -57,7 +57,7 @@ export function loadScenes() {
       },
       9,
       undefined,
-      "secondary"
+      "secondary",
     );
 
     addButton(w / 2, h / 2, 50, 15, "Play", () => go("play", user), 9);

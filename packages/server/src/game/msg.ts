@@ -6,10 +6,7 @@ import { update } from "./event/update";
 import { leave } from "./event/leave";
 import { create } from "./event/create";
 
-export function handleMsg(
-  ws: ServerWebSocket<WebSocketData>,
-  msg: ClientMessage
-) {
+export function handleMsg(ws: ServerWebSocket<WebSocketData>, msg: ClientMessage) {
   switch (msg.type) {
     case "join": {
       join(ws, msg.data);

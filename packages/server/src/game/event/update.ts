@@ -3,10 +3,7 @@ import type { WebSocketData } from "../../ws";
 import type { ClientUpdateData } from "@wrum/shared";
 import { lobbies } from "../lobby";
 
-export function update(
-  ws: ServerWebSocket<WebSocketData>,
-  data: ClientUpdateData
-) {
+export function update(ws: ServerWebSocket<WebSocketData>, data: ClientUpdateData) {
   const lobbyId = ws.data.lobbyId;
   if (!lobbyId) {
     return;

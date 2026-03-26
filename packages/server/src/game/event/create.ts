@@ -6,16 +6,13 @@ import type { ServerWebSocket } from "bun";
 const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 function randomCode(length = 6) {
-  return Array.from(
-    { length },
-    () => chars[Math.floor(Math.random() * chars.length)]
-  ).join("");
+  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
 export function create(
   ws: ServerWebSocket<WebSocketData>,
   data: ClientCreateLobbyData,
-  attempt: number = 0
+  attempt: number = 0,
 ) {
   if (attempt > 10) {
     ws.send(
@@ -24,7 +21,7 @@ export function create(
         data: {
           message: "Failed to create lobby",
         },
-      } as ServerMessage)
+      } as ServerMessage),
     );
   }
 
@@ -56,6 +53,6 @@ export function create(
       data: {
         lobbyId: lobby.id,
       },
-    } as ServerMessage)
+    } as ServerMessage),
   );
 }

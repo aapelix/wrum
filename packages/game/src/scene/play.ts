@@ -23,7 +23,7 @@ export function loadPlayScene() {
           },
         });
       },
-      9
+      9,
     );
 
     addButton(
@@ -37,7 +37,7 @@ export function loadPlayScene() {
       },
       9,
       undefined,
-      "secondary"
+      "secondary",
     );
   });
   scene("lobbyCode", (user: User) => {
@@ -55,7 +55,7 @@ export function loadPlayScene() {
       "text",
       true,
       6,
-      (s) => s.toLowerCase()
+      (s) => s.toLowerCase(),
     );
     addButton(
       w / 2,
@@ -73,7 +73,7 @@ export function loadPlayScene() {
           },
         });
       },
-      9
+      9,
     );
 
     addButton(
@@ -87,7 +87,7 @@ export function loadPlayScene() {
       },
       9,
       undefined,
-      "secondary"
+      "secondary",
     );
   });
 }

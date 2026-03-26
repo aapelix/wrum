@@ -32,19 +32,9 @@ export function loadLoginScene() {
           go("otp", email);
         }
       },
-      9
-    );
-    addButton(
-      w / 2 + 27.5,
-      h / 2 + 20,
-      50,
-      15,
-      "Cancel",
-      () => {},
       9,
-      undefined,
-      "secondary"
     );
+    addButton(w / 2 + 27.5, h / 2 + 20, 50, 15, "Cancel", () => {}, 9, undefined, "secondary");
   });
 
   scene("otp", (email) => {
@@ -79,18 +69,8 @@ export function loadLoginScene() {
           go("main", data.user);
         }
       },
-      9
-    );
-    addButton(
-      w / 2 + 27.5,
-      h / 2 + 20,
-      50,
-      15,
-      "Cancel",
-      () => {},
       9,
-      undefined,
-      "secondary"
     );
+    addButton(w / 2 + 27.5, h / 2 + 20, 50, 15, "Cancel", () => {}, 9, undefined, "secondary");
   });
 }

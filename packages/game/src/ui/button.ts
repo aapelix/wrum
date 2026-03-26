@@ -9,7 +9,7 @@ export function addButton(
   onClick: () => void,
   fontSize: number = 16,
   radius: number = 4,
-  colorScheme: "default" | "secondary" = "default"
+  colorScheme: "default" | "secondary" = "default",
 ) {
   const btn = addBox(x, y, w, h, radius, colorScheme);
 

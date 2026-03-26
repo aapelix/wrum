@@ -7,16 +7,22 @@
   "scripts": {
     "dev:client": "cd packages/game && bun run dev",
     "dev:server": "cd packages/server && bun run dev",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "lint:github": "oxlint --format=github",
+    "fmt": "oxfmt",
     "prepare": "husky"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "eslint": "^10.1.0",
     "globals": "^17.4.0",
     "husky": "^9.1.7",
-    "jiti": "^2.6.1",
     "lint-staged": "^16.4.0",
-    "prettier": "^3.8.1",
-    "typescript-eslint": "^8.57.2"
+    "oxfmt": "^0.42.0",
+    "oxlint": "^1.57.0",
+    "oxlint-tsgolint": "^0.17.4"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,mjs,cjs}": "bun run lint",
+    "*": "bun run fmt"
   }
 }

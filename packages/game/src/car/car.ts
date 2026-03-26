@@ -34,12 +34,7 @@ export async function loadAllCarAssets() {
   }
 }
 
-export function addCar(
-  x: number,
-  y: number,
-  identifier: string,
-  type: CarType
-) {
+export function addCar(x: number, y: number, identifier: string, type: CarType) {
   const assets = carAssets[type];
   const info = assets.info;
 
@@ -51,7 +46,7 @@ export function addCar(
       assets.info.tireOffsets[i]!.y,
       assets.tire,
       "center",
-      [tire(i)]
+      [tire(i)],
     );
   }
 
@@ -100,10 +95,7 @@ function car(type: CarType, ident: string, info: CarInfo): CarComp {
               x: 0,
               y: 0,
             };
-            const rotated = rotateVec(
-              vec2(baseOffset.x, baseOffset.y),
-              this.rotation
-            );
+            const rotated = rotateVec(vec2(baseOffset.x, baseOffset.y), this.rotation);
             child.pos = rotated;
 
             const shouldRotateIndependently = this.info.rotateTires[t.index];
