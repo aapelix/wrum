@@ -14,7 +14,7 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - name: Oxlint
-        run: bun run lint:github
+        run: bun run lint
       - name: Oxfmt
         run: bun run fmt
       - uses: autofix-ci/action@7a166d7532b277f34e16238930461bf77f9d7ed8
