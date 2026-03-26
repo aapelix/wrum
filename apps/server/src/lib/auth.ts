@@ -17,7 +17,7 @@ export const auth = betterAuth({
     emailOTP({
       async sendVerificationOTP({ email, otp, type }) {
         if (type === "sign-in") {
-          resend.emails.send({
+          void resend.emails.send({
             from: "wrum <wrum@auth.aapelix.dev>",
             to: email,
             subject: "Wrum Sign-In OTP",

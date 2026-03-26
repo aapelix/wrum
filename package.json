@@ -2,27 +2,31 @@
   "name": "wrum",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
-    "dev:client": "cd packages/game && bun run dev",
-    "dev:server": "cd packages/server && bun run dev",
-    "lint": "oxlint",
-    "lint:fix": "oxlint --fix",
-    "lint:github": "oxlint --format=github",
-    "fmt": "oxfmt",
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "fmt": "turbo run fmt",
     "prepare": "husky"
   },
   "devDependencies": {
-    "globals": "^17.4.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "oxfmt": "^0.42.0",
-    "oxlint": "^1.57.0",
-    "oxlint-tsgolint": "^0.17.4"
+    "turbo": "^2.8.20"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx,mjs,cjs}": "bun run lint",
-    "*": "bun run fmt"
-  }
+    "apps/**/*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "turbo run lint --filter='./apps/*' --",
+      "turbo run fmt --filter='./apps/*' --"
+    ],
+    "packages/**/*.*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "turbo run fmt --filter='./packages/*' --",
+      "turbo run lint --filter='./packages/*' --"
+    ]
+  },
+  "packageManager": "bun@1.3.11"
 }

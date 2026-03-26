@@ -7,10 +7,6 @@
   "env": {
     "builtin": true
   },
-  "options": {
-    "typeAware": true,
-    "typeCheck": true
-  },
   "rules": {
     "@typescript-eslint/ban-ts-comment": "error",
     "no-array-constructor": "error",
