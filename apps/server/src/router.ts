@@ -1,14 +1,8 @@
-import { initTRPC } from "@trpc/server";
+import { gameRouter } from "./game/router";
+import { router } from "./trpc";
 
-export const t = initTRPC.create();
-
-export const appRouter = t.router({
-  randomNumber: t.procedure.subscription(async function* () {
-    while (true) {
-      yield { randomNumber: Math.random() };
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-  }),
+export const appRouter = router({
+  game: gameRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -1,7 +1,6 @@
-import type { User } from "better-auth";
 import { addButton } from "../ui/button";
 import { addInput } from "../ui/input";
-import { send } from "../ws";
+import { trpc } from "../trpc";
 
 export function loadPlayScene() {
   const w = width();
@@ -16,12 +15,16 @@ export function loadPlayScene() {
       15,
       "Create",
       () => {
-        send({
-          type: "create",
-          data: {
+        trpc.game.create
+          .mutate({
             carType: "red",
-          },
-        });
+          })
+          .then((res) => {
+            go("lobby", res.lobbyId, res.playerId);
+          })
+          .catch((err) => {
+            go("error", err);
+          });
       },
       9,
     );
@@ -40,7 +43,7 @@ export function loadPlayScene() {
       "secondary",
     );
   });
-  scene("lobbyCode", (user: User) => {
+  scene("lobbyCode", () => {
     let code = "";
 
     addInput(
@@ -65,13 +68,18 @@ export function loadPlayScene() {
       "Join",
       () => {
         const result = code.toLowerCase().replace(/[^a-z0-9]/g, "");
-        send({
-          type: "join",
-          data: {
-            carType: "red",
+
+        trpc.game.join
+          .mutate({
             lobbyId: result,
-          },
-        });
+            carType: "red",
+          })
+          .then((playerId) => {
+            go("lobby", result, playerId);
+          })
+          .catch((err) => {
+            go("error", err);
+          });
       },
       9,
     );
@@ -83,7 +91,7 @@ export function loadPlayScene() {
       15,
       "Back",
       () => {
-        go("play", user);
+        go("play");
       },
       9,
       undefined,

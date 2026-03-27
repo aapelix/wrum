@@ -1,12 +1,13 @@
 import "dotenv/config";
-import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from "@trpc/server/adapters/fastify";
+import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import Fastify from "fastify";
 import ws from "@fastify/websocket";
-
-import { auth } from "./auth/lib";
-import { appRouter, type AppRouter } from "./router";
-import { createContext } from "./context";
+import { msgpackEncoder } from "@wrum/encoder";
 import fastifyCors from "@fastify/cors";
+import type { TRPCError } from "@trpc/server";
+import { auth } from "./auth/lib";
+import { appRouter } from "./router";
+import { createContext } from "./context";
 
 const server = Fastify({
   logger: true,
@@ -27,10 +28,11 @@ server.register(fastifyTRPCPlugin, {
   trpcOptions: {
     router: appRouter,
     createContext,
-    onError({ path, error }) {
+    onError({ path, error }: { path: string | undefined; error: TRPCError }) {
       console.error(`Error in tRPC handler on path '${path}':`, error);
     },
-  } satisfies FastifyTRPCPluginOptions<AppRouter>["trpcOptions"],
+    experimental_encoder: msgpackEncoder,
+  },
 });
 
 server.route({

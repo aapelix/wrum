@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@trpc/client": "^11.15.0",
+    "@wrum/encoder": "workspace:*",
     "@wrum/shared": "workspace:*",
     "better-auth": "^1.5.6",
     "kaplay": "^3001.0.19"
