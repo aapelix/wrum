@@ -14,7 +14,7 @@
     "@types/bun": "latest",
     "oxfmt": "^0.42.0",
     "oxlint": "^1.57.0",
-    "oxlint-tsgolint": "^0.17.4"
+    "oxlint-tsgolint": "^0.18.1"
   },
   "peerDependencies": {
     "typescript": "^5"
