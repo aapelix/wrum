@@ -16,7 +16,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
     "oxfmt": "^0.42.0",
-    "turbo": "^2.8.20"
+    "turbo": "^2.8.21"
   },
   "lint-staged": {
     "apps/**/*.{ts,tsx,js,jsx,mjs,cjs}": [
