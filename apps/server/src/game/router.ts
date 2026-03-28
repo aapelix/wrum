@@ -1,7 +1,9 @@
-import { procedure, router } from "../trpc";
-import { createSchema, joinSchema } from "@wrum/shared";
-import { createLobby, getLobby, joinLobby, leaveLobby } from "./lobby";
+import { authProcedure, router } from "../trpc";
+import { createSchema, joinSchema, type ServerMessage } from "@wrum/shared";
+import { createLobby, getLobby, joinLobby, leaveLobby, lobbyEmitters } from "./lobby/manager";
 import { TRPCError } from "@trpc/server";
+import { on } from "node:events";
+import { clearPlayerContext, players, setPlayerContext } from "../context";
 
 const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -10,14 +12,16 @@ function randomCode(length = 6) {
 }
 
 export const gameRouter = router({
-  join: procedure.input(joinSchema).mutation(({ input, ctx }) => {
+  join: authProcedure.input(joinSchema).mutation(({ input, ctx }) => {
     const playerId = joinLobby(input.lobbyId, input.carType);
-    ctx.gameContext.lobbyId = input.lobbyId;
-    ctx.gameContext.playerId = playerId;
+    setPlayerContext(ctx.userId, {
+      lobbyId: input.lobbyId,
+      playerId,
+    });
 
     return playerId;
   }),
-  create: procedure.input(createSchema).mutation(({ input, ctx }) => {
+  create: authProcedure.input(createSchema).mutation(({ input, ctx }) => {
     let lobbyId = randomCode();
 
     let attempt = 0;
@@ -41,12 +45,14 @@ export const gameRouter = router({
     createLobby(lobbyId);
 
     const playerId = joinLobby(lobbyId, input.carType);
-    ctx.gameContext.lobbyId = lobbyId;
-    ctx.gameContext.playerId = playerId;
+    setPlayerContext(ctx.userId, {
+      lobbyId,
+      playerId,
+    });
 
     return { playerId, lobbyId };
   }),
-  leave: procedure.mutation(({ ctx }) => {
+  leave: authProcedure.mutation(({ ctx }) => {
     const { lobbyId, playerId } = ctx.gameContext;
     if (!lobbyId || !playerId) {
       throw new TRPCError({
@@ -56,5 +62,30 @@ export const gameRouter = router({
     }
 
     leaveLobby(lobbyId, playerId);
+
+    clearPlayerContext(ctx.userId);
+  }),
+  serverUpdate: authProcedure.subscription(async function* ({ ctx, signal }) {
+    const gameCtx = players.get(ctx.userId);
+    const lobbyId = gameCtx?.lobbyId;
+
+    if (!lobbyId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Not in a lobby",
+      });
+    }
+
+    const ee = lobbyEmitters.get(lobbyId);
+    if (!ee) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Lobby not found",
+      });
+    }
+
+    for await (const [msg] of on(ee, "message", { signal }) as AsyncIterable<[ServerMessage]>) {
+      yield msg;
+    }
   }),
 });

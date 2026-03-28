@@ -14,13 +14,19 @@ export const trpc = createTRPCClient<AppRouter>({
   links: [
     splitLink({
       condition(op) {
-        return op.type === "subscription";
+        return op.type === "subscription" || op.context?.useWS === true;
       },
       true: wsLink({
         client: wsClient,
       }),
       false: httpBatchLink({
         url: trpcUrl,
+        fetch(url, options) {
+          return fetch(url, {
+            ...options,
+            credentials: "include",
+          });
+        },
       }),
     }),
   ],

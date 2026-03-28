@@ -17,8 +17,83 @@ export const createSchema = z.object({
   carType: carType,
 });
 
+export const inputSchema = z.object({
+  throttle: z.number().min(-1).max(1),
+  steering: z.number().min(-1).max(1),
+});
+
 export type JoinSchema = z.infer<typeof joinSchema>;
 export type CreateSchema = z.infer<typeof createSchema>;
+export type InputSchema = z.infer<typeof inputSchema>;
+
+export const playerSchema = z.object({
+  id: z.string(),
+  carType: carType,
+  x: z.number(),
+  y: z.number(),
+  rotation: z.number(),
+});
+
+export type Player = z.infer<typeof playerSchema>;
+
+export const serverUpdateSchema = z.object({
+  lobbyId: z
+    .string()
+    .length(6)
+    .regex(/^[a-z0-9]+$/),
+  players: z.array(playerSchema),
+});
+
+export type ServerUpdate = z.infer<typeof serverUpdateSchema>;
+
+export const serverMessageSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("update"),
+    data: serverUpdateSchema,
+  }),
+  z.object({
+    type: z.literal("created"),
+    data: z.object({
+      lobbyId: z
+        .string()
+        .length(6)
+        .regex(/^[a-z0-9]+$/),
+    }),
+  }),
+  z.object({
+    type: z.literal("join"),
+    data: z.object({
+      lobbyId: z
+        .string()
+        .length(6)
+        .regex(/^[a-z0-9]+$/),
+      players: z.array(playerSchema),
+    }),
+  }),
+  z.object({
+    type: z.literal("otherJoined"),
+    data: z.object({
+      player: playerSchema,
+    }),
+  }),
+  z.object({
+    type: z.literal("error"),
+    data: z.object({
+      message: z.string(),
+    }),
+  }),
+  z.object({
+    type: z.literal("close"),
+    data: z.object({
+      lobbyId: z
+        .string()
+        .length(6)
+        .regex(/^[a-z0-9]+$/),
+    }),
+  }),
+]);
+
+export type ServerMessage = z.infer<typeof serverMessageSchema>;
 
 // export type Player = {
 //   id: string;
