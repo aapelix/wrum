@@ -1,18 +1,8 @@
 version: 2
 updates:
   - package-ecosystem: "bun"
-    directory: "/apps/game"
-    schedule:
-      interval: "weekly"
-  - package-ecosystem: "bun"
-    directory: "/apps/server"
-    schedule:
-      interval: "weekly"
-  - package-ecosystem: "bun"
-    directory: "/packages/shared"
-    schedule:
-      interval: "weekly"
-  - package-ecosystem: "bun"
-    directory: "/packages/encoder"
+    directories:
+      - "/apps/*"
+      - "/packages/*"
     schedule:
       interval: "weekly"
