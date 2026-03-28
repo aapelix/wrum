@@ -1,6 +1,13 @@
 import { authProcedure, router } from "../trpc";
-import { createSchema, joinSchema, type ServerMessage } from "@wrum/shared";
-import { createLobby, getLobby, joinLobby, leaveLobby, lobbyEmitters } from "./lobby/manager";
+import { createSchema, inputSchema, joinSchema, type ServerMessage } from "@wrum/shared";
+import {
+  createLobby,
+  getLobby,
+  joinLobby,
+  leaveLobby,
+  lobbyEmitters,
+  sendInput,
+} from "./lobby/manager";
 import { TRPCError } from "@trpc/server";
 import { on } from "node:events";
 import { clearPlayerContext, players, setPlayerContext } from "../context";
@@ -64,6 +71,26 @@ export const gameRouter = router({
     leaveLobby(lobbyId, playerId);
 
     clearPlayerContext(ctx.userId);
+  }),
+  clientUpdate: authProcedure.input(inputSchema).mutation(({ ctx, input }) => {
+    const gameCtx = players.get(ctx.userId);
+    if (!gameCtx) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Not in a lobby",
+      });
+    }
+
+    const { lobbyId, playerId } = gameCtx;
+
+    if (!lobbyId || !playerId) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Not in a lobby",
+      });
+    }
+
+    sendInput(lobbyId, playerId, input);
   }),
   serverUpdate: authProcedure.subscription(async function* ({ ctx, signal }) {
     const gameCtx = players.get(ctx.userId);

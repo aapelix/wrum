@@ -1,7 +1,8 @@
-import type { Asset, Comp, SpriteData, GameObj, Vec2 } from "kaplay";
+import type { Asset, Comp, SpriteData, GameObj, Vec2, PosComp } from "kaplay";
 import { addStack } from "../stack";
 import { type CarInfo } from "./info";
 import { type CarType, carTypes } from "@wrum/shared";
+import { camera } from "../utils/camera";
 
 interface CarAssets {
   body: Asset<SpriteData>;
@@ -38,7 +39,7 @@ export function addCar(x: number, y: number, identifier: string, type: CarType) 
   const assets = carAssets[type];
   const info = assets.info;
 
-  const c = add([pos(x, y), anchor("center"), car(type, identifier, info)]);
+  const c = add([pos(x, y), anchor("center"), car(type, identifier, info, x, y)]);
   for (let i = 0; i < assets.info.tireOffsets.length; i++) {
     addStack(
       c,
@@ -72,17 +73,25 @@ export interface CarComp extends Comp {
   tireRotation: number;
   ident: string;
   info: CarInfo;
+  // it's "actualPos"and not for example "worldPos", kaplay uses "worldPos" already
+  actualPos: Vec2;
+  renderRotation: number;
 }
 
-function car(type: CarType, ident: string, info: CarInfo): CarComp {
+function car(type: CarType, ident: string, info: CarInfo, x: number, y: number): CarComp {
   return {
     id: "car",
     type,
     rotation: 0,
     tireRotation: 0,
     info,
-    update(this: GameObj<CarComp>) {
-      this.rotation += 90 * dt();
+    actualPos: vec2(x, y),
+    renderRotation: 0,
+    update(this: GameObj<CarComp | PosComp>) {
+      const camPos = camera.apply(this.actualPos.x, this.actualPos.y, this.rotation);
+      this.pos.x = camPos.x;
+      this.pos.y = camPos.y;
+      this.renderRotation = camPos.rot;
 
       const assets = carAssets[this.type];
 

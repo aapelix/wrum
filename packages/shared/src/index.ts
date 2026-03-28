@@ -32,6 +32,7 @@ export const playerSchema = z.object({
   x: z.number(),
   y: z.number(),
   rotation: z.number(),
+  tireRotation: z.number(),
 });
 
 export type Player = z.infer<typeof playerSchema>;

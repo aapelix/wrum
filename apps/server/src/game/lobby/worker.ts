@@ -7,6 +7,18 @@ type Player = {
   y: number;
   rotation: number;
   carType: CarType;
+
+  velocity: number;
+  acceleration: number;
+  maxVelocity: number;
+  friction: number;
+
+  turnSpeed: number;
+
+  tireRotation: number;
+  tireTurnSpeed: number;
+  tireReturnSpeed: number;
+  tireMaxRotation: number;
 };
 
 type Lobby = {
@@ -46,19 +58,19 @@ self.onmessage = (event) => {
       y,
       rotation,
       carType: msg.carType,
-    });
 
-    post(msg.lobbyId, {
-      type: "join",
-      data: {
-        players: Array.from(lobby.players.values()).map((p) => ({
-          id: p.id,
-          x: p.x,
-          y: p.y,
-          rotation: p.rotation,
-          carType: p.carType,
-        })),
-      },
+      // these probably should be based on car type at some point from db or something
+      velocity: 0,
+      acceleration: 100,
+      maxVelocity: 150,
+      friction: 50,
+
+      turnSpeed: 20,
+
+      tireRotation: 0,
+      tireTurnSpeed: 70,
+      tireReturnSpeed: 70,
+      tireMaxRotation: 30,
     });
 
     post(msg.lobbyId, {
@@ -70,6 +82,7 @@ self.onmessage = (event) => {
           y,
           rotation,
           carType: msg.carType,
+          tireRotation: 0,
         },
       },
     });
@@ -115,15 +128,47 @@ function startLoop(lobbyId: string) {
     lobby.lastTick = now;
 
     for (const player of lobby.players.values()) {
-      // Simple physics for demonstration
-      const speed = player.input.throttle * 100; // 100 units per second at full throttle
-      player.x += Math.cos(player.rotation) * speed * dt;
-      player.y += Math.sin(player.rotation) * speed * dt;
-      player.rotation += player.input.steering * dt; // steering input directly changes rotation
+      if (player.input.throttle !== 0) {
+        player.velocity += player.acceleration * player.input.throttle * dt;
+      } else {
+        if (player.velocity > 0) {
+          player.velocity -= player.friction * dt;
+          if (player.velocity < 0) player.velocity = 0;
+        } else if (player.velocity < 0) {
+          player.velocity += player.friction * dt;
+          if (player.velocity > 0) player.velocity = 0;
+        }
+      }
 
-      // Keep rotation between 0 and 2*PI
-      if (player.rotation < 0) player.rotation += 2 * Math.PI;
-      if (player.rotation >= 2 * Math.PI) player.rotation -= 2 * Math.PI;
+      player.velocity = Math.max(
+        -player.maxVelocity,
+        Math.min(player.maxVelocity, player.velocity),
+      );
+
+      if (player.input.steering !== 0) {
+        player.tireRotation += player.tireTurnSpeed * player.input.steering * dt;
+      } else {
+        if (player.tireRotation > 0) {
+          player.tireRotation -= player.tireReturnSpeed * dt;
+          if (player.tireRotation < 0) player.tireRotation = 0;
+        } else if (player.tireRotation < 0) {
+          player.tireRotation += player.tireReturnSpeed * dt;
+          if (player.tireRotation > 0) player.tireRotation = 0;
+        }
+      }
+
+      player.tireRotation = Math.max(
+        -player.tireMaxRotation,
+        Math.min(player.tireMaxRotation, player.tireRotation),
+      );
+
+      const rotationRad = (player.rotation * Math.PI) / 180;
+
+      player.rotation +=
+        player.tireRotation * (player.velocity / player.maxVelocity) * player.turnSpeed * dt;
+
+      player.x += Math.sin(rotationRad) * player.velocity * dt;
+      player.y -= Math.cos(rotationRad) * player.velocity * dt;
     }
 
     post(lobbyId, {
@@ -136,6 +181,7 @@ function startLoop(lobbyId: string) {
           y: p.y,
           rotation: p.rotation,
           carType: p.carType,
+          tireRotation: p.tireRotation,
         })),
       },
     } as ServerMessage);
