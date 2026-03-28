@@ -29,19 +29,16 @@ function emitLobby(lobbyId: string, data: ServerMessage) {
 
 for (const worker of workers) {
   worker.onmessage = (event) => {
-    const msg = event.data as ServerMessage;
+    const msg = event.data as { lobbyId: string; msg: ServerMessage };
 
-    if (msg.type === "update") {
-      const { lobbyId, players } = msg.data;
-      console.log(`Received snapshot for lobby ${lobbyId}:`, players);
-      emitLobby(lobbyId, msg);
-    }
-
-    if (msg.type === "close") {
-      const { lobbyId } = msg.data;
-      console.log(`Lobby ${lobbyId} has been closed by worker.`);
+    if (msg.msg.type === "update") {
+      emitLobby(msg.lobbyId, msg.msg);
+    } else if (msg.msg.type === "close") {
+      const { lobbyId } = msg.msg.data;
       lobbies.delete(lobbyId);
-      emitLobby(lobbyId, msg);
+      emitLobby(msg.lobbyId, msg.msg);
+    } else {
+      emitLobby(msg.lobbyId, msg.msg);
     }
   };
 }

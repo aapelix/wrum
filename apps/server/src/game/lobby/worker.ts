@@ -48,10 +48,9 @@ self.onmessage = (event) => {
       carType: msg.carType,
     });
 
-    post({
+    post(msg.lobbyId, {
       type: "join",
       data: {
-        lobbyId: msg.lobbyId,
         players: Array.from(lobby.players.values()).map((p) => ({
           id: p.id,
           x: p.x,
@@ -62,7 +61,7 @@ self.onmessage = (event) => {
       },
     });
 
-    post({
+    post(msg.lobbyId, {
       type: "otherJoined",
       data: {
         player: {
@@ -82,10 +81,17 @@ self.onmessage = (event) => {
 
     lobby.players.delete(msg.playerId);
 
+    post(msg.lobbyId, {
+      type: "leave",
+      data: {
+        playerId: msg.playerId,
+      },
+    });
+
     if (lobby.players.size === 0) {
       lobbies.delete(msg.lobbyId);
 
-      post({ type: "close", data: { lobbyId: msg.lobbyId } });
+      post(msg.lobbyId, { type: "close", data: { lobbyId: msg.lobbyId } });
     }
   }
 
@@ -120,7 +126,7 @@ function startLoop(lobbyId: string) {
       if (player.rotation >= 2 * Math.PI) player.rotation -= 2 * Math.PI;
     }
 
-    post({
+    post(lobbyId, {
       type: "update",
       data: {
         lobbyId,
@@ -136,6 +142,6 @@ function startLoop(lobbyId: string) {
   }, tickRate);
 }
 
-function post(msg: ServerMessage) {
-  self.postMessage(msg);
+function post(lobbyId: string, msg: ServerMessage) {
+  self.postMessage({ lobbyId, msg });
 }

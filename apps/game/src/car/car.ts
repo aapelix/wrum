@@ -66,7 +66,7 @@ function tire(index: number): TireComp {
   };
 }
 
-interface CarComp extends Comp {
+export interface CarComp extends Comp {
   type: CarType;
   rotation: number;
   tireRotation: number;
