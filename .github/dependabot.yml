@@ -12,3 +12,7 @@ updates:
     directory: "/packages/shared"
     schedule:
       interval: "weekly"
+  - package-ecosystem: "bun"
+    directory: "/packages/encoder"
+    schedule:
+      interval: "weekly"
