@@ -1,7 +1,6 @@
 import { loadAuthScenes } from "./auth/scenes";
 import { authClient } from "./auth/client";
 import { addButton } from "./ui/button";
-import { initWs } from "./ws";
 import { loadPlayScene } from "./scene/play";
 import { getUser } from "./user";
 import { loadLobbyScene } from "./scene/lobby";
@@ -20,8 +19,6 @@ export function loadScenes() {
       go("login");
       return;
     }
-
-    initWs();
 
     add([
       text("wrum", {

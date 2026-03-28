@@ -20,12 +20,10 @@
   },
   "lint-staged": {
     "apps/**/*.{ts,tsx,js,jsx,mjs,cjs}": [
-      "turbo run lint --filter='./apps/*' --",
-      "turbo run fmt --filter='./apps/*' --"
+      "turbo run lint fmt --filter='./apps/*' --"
     ],
     "packages/**/*.*.{ts,tsx,js,jsx,mjs,cjs}": [
-      "turbo run fmt --filter='./packages/*' --",
-      "turbo run lint --filter='./packages/*' --"
+      "turbo run lint fmt --filter='./packages/*' --"
     ]
   },
   "packageManager": "bun@1.3.11"

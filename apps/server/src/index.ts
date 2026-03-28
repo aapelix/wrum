@@ -1,86 +1,78 @@
 import "dotenv/config";
-import { auth } from "./lib/auth";
-import type { ClientMessage } from "@wrum/shared";
-import type { WebSocketData } from "./ws";
-import { handleMsg } from "./game/msg";
-import { leave } from "./game/event/leave";
+import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
+import Fastify from "fastify";
+import ws from "@fastify/websocket";
+import { msgpackEncoder } from "@wrum/encoder";
+import fastifyCors from "@fastify/cors";
+import type { TRPCError } from "@trpc/server";
+import { auth } from "./auth/lib";
+import { appRouter } from "./router";
+import { createContext } from "./context";
 
-const origin = process.env.CLIENT_URL!;
+const server = Fastify({
+  logger: true,
+});
 
-const s = Bun.serve({
-  routes: {
-    "/conn": async (req, server) => {
-      const session = await auth.api.getSession({
-        headers: req.headers,
-      });
+server.register(fastifyCors, {
+  origin: process.env.CLIENT_URL,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  credentials: true,
+  maxAge: 86400,
+});
 
-      if (!session) {
-        return new Response("Unauthorized", {
-          status: 401,
-        });
-      }
-
-      if (
-        server.upgrade(req, {
-          data: {
-            createdAt: Date.now(),
-            user: {
-              id: session.user.id,
-              name: session.user.name,
-            },
-          },
-        })
-      ) {
-        return new Response("WebSocket connection established", {
-          status: 101,
-        });
-      }
+server.register(ws);
+server.register(fastifyTRPCPlugin, {
+  useWSS: true,
+  prefix: "/trpc",
+  trpcOptions: {
+    router: appRouter,
+    createContext,
+    onError({ path, error }: { path: string | undefined; error: TRPCError }) {
+      console.error(`Error in tRPC handler on path '${path}':`, error);
     },
-  },
-  async fetch(req) {
-    const url = new URL(req.url);
-
-    if (url.pathname.startsWith("/api/auth")) {
-      if (req.method === "OPTIONS") {
-        return new Response(null, {
-          headers: {
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Allow-Credentials": "true",
-          },
-        });
-      }
-
-      const res = await auth.handler(req);
-
-      res.headers.set("Access-Control-Allow-Origin", origin);
-      res.headers.set("Access-Control-Allow-Credentials", "true");
-
-      return res;
-    }
-
-    return new Response("Not Found", {
-      status: 404,
-    });
-  },
-  websocket: {
-    data: {} as WebSocketData,
-    message(ws, msg) {
-      if (typeof msg !== "string") {
-        return;
-      }
-
-      const data = JSON.parse(msg) as ClientMessage;
-
-      handleMsg(ws, data);
-    },
-    close(ws) {
-      if (ws.data.lobbyId) {
-        leave(ws);
-      }
-    },
+    experimental_encoder: msgpackEncoder,
   },
 });
 
-console.log(`Server running at ${s.hostname}:${s.port}`);
+server.route({
+  method: ["GET", "POST"],
+  url: "/api/auth/*",
+  async handler(request, reply) {
+    try {
+      const url = new URL(request.url, `${request.protocol}://${request.headers.host}`);
+
+      const headers = new Headers();
+      Object.entries(request.headers).forEach(([key, value]) => {
+        if (value) headers.append(key, value.toString());
+      });
+
+      const req = new Request(url.toString(), {
+        method: request.method,
+        headers,
+        ...(request.body ? { body: JSON.stringify(request.body) } : {}),
+      });
+
+      const response = await auth.handler(req);
+
+      reply.status(response.status);
+      response.headers.forEach((value, key) => reply.header(key, value));
+      reply.send(response.body ? await response.text() : null);
+    } catch (error) {
+      server.log.error({ err: error }, "Authentication Error");
+      reply.status(500).send({
+        error: "Internal authentication error",
+        code: "AUTH_FAILURE",
+      });
+    }
+  },
+});
+
+try {
+  await server.listen({ port: 3000 });
+} catch (err) {
+  server.log.error(err);
+  process.exit(1);
+}
+
+export type { AppRouter } from "./router";
