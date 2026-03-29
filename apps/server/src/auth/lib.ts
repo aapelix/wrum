@@ -33,12 +33,13 @@ export const auth = betterAuth({
       },
     }),
   ],
-  experimental: {
-    joins: true,
-  },
-  advanced: {
-    ipAddress: {
-      ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
-    },
-  },
+  // only for prod
+  advanced:
+    process.env.NODE_ENV === "production"
+      ? {
+          ipAddress: {
+            ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
+          },
+        }
+      : undefined,
 });

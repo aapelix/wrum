@@ -1,5 +1,5 @@
-const POS_SMOOTHING = 60;
-const ROT_SMOOTHING = 100;
+const POS_SMOOTHING = 5;
+const ROT_SMOOTHING = 10;
 
 export class Camera {
   x = 0;
@@ -9,8 +9,8 @@ export class Camera {
   update(targetX: number, targetY: number, targetRotation: number) {
     const delta = dt();
 
-    this.x += (targetX - this.x) * POS_SMOOTHING * delta;
-    this.y += (targetY - this.y) * POS_SMOOTHING * delta;
+    this.x = lerp(this.x, targetX, POS_SMOOTHING * delta);
+    this.y = lerp(this.y, targetY, POS_SMOOTHING * delta);
 
     const rotDiff = ((targetRotation - this.rotation + 540) % 360) - 180;
     this.rotation += rotDiff * ROT_SMOOTHING * delta;

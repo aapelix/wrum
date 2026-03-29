@@ -7,9 +7,6 @@ import { camera } from "../utils/camera";
 const LERP_SPEED = 20;
 
 export function loadLobbyScene() {
-  const w = width();
-  const h = height();
-
   scene("lobby", (lobbyId: string, playerId: string) => {
     const players = new Map<string, Player>();
     const cars = new Map<string, GameObj<CarComp | PosComp>>();
@@ -24,16 +21,8 @@ export function loadLobbyScene() {
       text(lobbyId, {
         size: 10,
       }),
-      pos(w / 2, h / 2),
-      anchor("center"),
-    ]);
-
-    add([
-      text(playerId, {
-        size: 10,
-      }),
-      pos(w / 2, h / 2 + 20),
-      anchor("center"),
+      pos(10, 10),
+      anchor("left"),
     ]);
 
     const sub = trpc.game.serverUpdate.subscribe(undefined, {
@@ -87,6 +76,13 @@ export function loadLobbyScene() {
           car.actualRotation = lerp(car.actualRotation, player.rotation, delta * LERP_SPEED);
           car.tireRotation = lerp(car.tireRotation, player.tireRotation, delta * LERP_SPEED);
         }
+
+        for (const [carId, carObj] of cars) {
+          if (!players.has(carId)) {
+            destroy(carObj);
+            cars.delete(carId);
+          }
+        }
       }
 
       if (steering !== lastSteering || throttle !== lastThrottle) {
@@ -104,7 +100,7 @@ export function loadLobbyScene() {
 
       const player = players.get(playerId);
       if (player) {
-        camera.update(player.x, player.y, player.x);
+        camera.update(player.x, player.y, player.rotation);
       }
     });
 

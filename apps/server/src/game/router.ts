@@ -111,6 +111,17 @@ export const gameRouter = router({
       });
     }
 
+    const onLeave = () => {
+      ee.emit("message", {
+        type: "leave",
+        data: {
+          playerId: gameCtx.playerId!,
+        },
+      } as ServerMessage);
+    };
+
+    signal?.addEventListener("abort", onLeave);
+
     for await (const [msg] of on(ee, "message", { signal }) as AsyncIterable<[ServerMessage]>) {
       yield msg;
     }
