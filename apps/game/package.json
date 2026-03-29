@@ -18,10 +18,10 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@wrum/server": "workspace:*",
     "oxfmt": "^0.42.0",
     "oxlint": "^1.57.0",
     "oxlint-tsgolint": "^0.18.1",
+    "server": "workspace:*",
     "vite": "^8.0.3"
   },
   "peerDependencies": {
