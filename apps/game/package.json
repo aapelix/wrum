@@ -1,5 +1,5 @@
 {
-  "name": "@wrum/game",
+  "name": "game",
   "private": true,
   "type": "module",
   "scripts": {
