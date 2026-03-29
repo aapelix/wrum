@@ -20,6 +20,8 @@ export function loadScenes() {
       return;
     }
 
+    const isAnonymous = localStorage.getItem("wrum-anonymous") === "true";
+
     add([
       text("wrum", {
         size: 10,
@@ -28,14 +30,28 @@ export function loadScenes() {
       anchor("center"),
     ]);
 
-    add([
-      text(`${user.email}`, {
-        size: 10,
-        align: "right",
-      }),
-      pos(w - 10, 30),
-      anchor("right"),
-    ]);
+    if (isAnonymous) {
+      addButton(
+        w - 30,
+        30,
+        50,
+        15,
+        "Link",
+        () => {
+          go("login");
+        },
+        9,
+      );
+    } else {
+      add([
+        text(`${user.email}`, {
+          size: 10,
+          align: "right",
+        }),
+        pos(w - 10, 30),
+        anchor("right"),
+      ]);
+    }
 
     addButton(
       w - 30,
@@ -49,6 +65,10 @@ export function loadScenes() {
         if (error) {
           go("error", error);
         } else {
+          if (localStorage.getItem("wrum-anonymous") === "true") {
+            localStorage.removeItem("wrum-anonymous");
+          }
+
           go("login");
         }
       },

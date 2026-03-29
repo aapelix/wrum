@@ -84,7 +84,7 @@ export function loadLobbyScene() {
           car.actualPos.x = lerp(car.actualPos.x, player.x, delta * LERP_SPEED);
           car.actualPos.y = lerp(car.actualPos.y, player.y, delta * LERP_SPEED);
 
-          car.rotation = lerp(car.rotation, player.rotation, delta * LERP_SPEED);
+          car.actualRotation = lerp(car.actualRotation, player.rotation, delta * LERP_SPEED);
           car.tireRotation = lerp(car.tireRotation, player.tireRotation, delta * LERP_SPEED);
         }
       }
@@ -104,7 +104,7 @@ export function loadLobbyScene() {
 
       const player = players.get(playerId);
       if (player) {
-        camera.update(player.x, player.y, player.rotation);
+        camera.update(player.x, player.y, player.x);
       }
     });
 

@@ -18,7 +18,7 @@ export function loadLoginScene() {
       h / 2 + 20,
       50,
       15,
-      "Send",
+      "Login",
       async () => {
         const { data, error } = await authClient.emailOtp.sendVerificationOtp({
           email,
@@ -33,6 +33,33 @@ export function loadLoginScene() {
         }
       },
       9,
+    );
+
+    addButton(
+      w / 2,
+      h / 2 + 40,
+      105,
+      15,
+      "Play as Guest",
+      async () => {
+        if (localStorage.getItem("wrum-anonymous") === "true") {
+          go("main");
+          return;
+        }
+
+        const { data, error } = await authClient.signIn.anonymous();
+
+        if (error) {
+          go("error", error);
+          return;
+        } else if (data !== null) {
+          localStorage.setItem("wrum-anonymous", "true");
+          go("main", data.user);
+        }
+      },
+      9,
+      undefined,
+      "secondary",
     );
     addButton(w / 2 + 27.5, h / 2 + 20, 50, 15, "Cancel", () => {}, 9, undefined, "secondary");
   });
@@ -66,6 +93,10 @@ export function loadLoginScene() {
           go("error", error);
           return;
         } else if (data !== null) {
+          if (localStorage.getItem("wrum-anonymous") === "true") {
+            localStorage.removeItem("wrum-anonymous");
+          }
+
           go("main", data.user);
         }
       },

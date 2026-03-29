@@ -73,9 +73,9 @@ export interface CarComp extends Comp {
   tireRotation: number;
   ident: string;
   info: CarInfo;
-  // it's "actualPos"and not for example "worldPos", kaplay uses "worldPos" already
+  // it's "actualPos" and not for example "worldPos", kaplay uses "worldPos" already
   actualPos: Vec2;
-  renderRotation: number;
+  actualRotation: number;
 }
 
 function car(type: CarType, ident: string, info: CarInfo, x: number, y: number): CarComp {
@@ -86,12 +86,12 @@ function car(type: CarType, ident: string, info: CarInfo, x: number, y: number):
     tireRotation: 0,
     info,
     actualPos: vec2(x, y),
-    renderRotation: 0,
+    actualRotation: 0,
     update(this: GameObj<CarComp | PosComp>) {
-      const camPos = camera.apply(this.actualPos.x, this.actualPos.y, this.rotation);
+      const camPos = camera.apply(this.actualPos.x, this.actualPos.y, this.actualRotation);
       this.pos.x = camPos.x;
       this.pos.y = camPos.y;
-      this.renderRotation = camPos.rot;
+      this.rotation = camPos.rot;
 
       const assets = carAssets[this.type];
 
