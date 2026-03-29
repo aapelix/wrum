@@ -1,25 +1,6 @@
-import type { CarType, InputSchema, ServerMessage } from "@wrum/shared";
-
-type Player = {
-  id: string;
-  input: InputSchema;
-  x: number;
-  y: number;
-  rotation: number;
-  carType: CarType;
-
-  velocity: number;
-  acceleration: number;
-  maxVelocity: number;
-  friction: number;
-
-  turnSpeed: number;
-
-  tireRotation: number;
-  tireTurnSpeed: number;
-  tireReturnSpeed: number;
-  tireMaxRotation: number;
-};
+import type { ServerMessage } from "@wrum/shared";
+import type { Player } from "./player";
+import { handleCollisions } from "../physics/aabb";
 
 type Lobby = {
   players: Map<string, Player>;
@@ -71,6 +52,11 @@ self.onmessage = (event) => {
       tireTurnSpeed: 70,
       tireReturnSpeed: 70,
       tireMaxRotation: 30,
+
+      collider: {
+        width: 8,
+        height: 15,
+      },
     });
 
     post(msg.lobbyId, {
@@ -170,6 +156,8 @@ function startLoop(lobbyId: string) {
       player.x += Math.sin(rotationRad) * player.velocity * dt;
       player.y -= Math.cos(rotationRad) * player.velocity * dt;
     }
+
+    handleCollisions(Array.from(lobby.players.values()));
 
     post(lobbyId, {
       type: "update",
