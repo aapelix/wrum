@@ -1,6 +1,6 @@
-wrum.aapelix.dev {
+:80 {
   handle_path /api/* {
-    reverse_proxy backend.railway.internal:3000
+    reverse_proxy {$BACKEND_HOST}:8080
   }
 
   handle {
