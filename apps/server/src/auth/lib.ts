@@ -40,6 +40,10 @@ export const auth = betterAuth({
           ipAddress: {
             ipAddressHeaders: ["cf-connecting-ip", "x-forwarded-for"],
           },
+          defaultCookieAttributes: {
+            sameSite: "none",
+            secure: true,
+          }
         }
       : undefined,
 });
