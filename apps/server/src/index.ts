@@ -37,7 +37,7 @@ server.register(fastifyTRPCPlugin, {
 
 server.route({
   method: ["GET", "POST"],
-  url: "/auth/*",
+  url: "/api/auth/*",
   async handler(request, reply) {
     try {
       const url = new URL(request.url, `${request.protocol}://${request.headers.host}`);
