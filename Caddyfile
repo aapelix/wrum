@@ -1,5 +1,5 @@
 :80 {
-  handle /api/* {
+  handle_path /api/* {
     reverse_proxy {$BACKEND_HOST}:8080
   }
 
