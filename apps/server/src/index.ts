@@ -69,7 +69,7 @@ server.route({
 });
 
 try {
-  await server.listen({ port: process.env.PORT ? parseInt(process.env.PORT) : 3000 });
+  await server.listen({ port: process.env.PORT ? parseInt(process.env.PORT) : 3000, host: "0.0.0.0" });
 } catch (err) {
   server.log.error(err);
   process.exit(1);
