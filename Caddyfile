@@ -1,0 +1,11 @@
+wrum.aapelix.dev {
+  handle_path /api/* {
+    reverse_proxy backend.railway.internal:3000
+  }
+
+  handle {
+    root * /srv
+    file_server
+    try_files {path} /index.html
+  }
+}
