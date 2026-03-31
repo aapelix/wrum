@@ -104,9 +104,7 @@ export function loadEditorScene() {
         return;
       }
 
-      const existing = tiles.find(
-        (t) => t.pos.x === selectedTile.x && t.pos.y === selectedTile.y,
-      );
+      const existing = tiles.find((t) => t.pos.x === selectedTile.x && t.pos.y === selectedTile.y);
       if (existing) {
         if (existing.frame === selectedIndex) {
           return;
