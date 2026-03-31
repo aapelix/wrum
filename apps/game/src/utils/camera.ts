@@ -1,4 +1,4 @@
-const POS_SMOOTHING = 5;
+const POS_SMOOTHING = 2;
 const ROT_SMOOTHING = 10;
 
 export class Camera {

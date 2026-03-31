@@ -3,6 +3,7 @@ import { addButton } from "./ui/button";
 import { loadPlayScene } from "./scene/play";
 import { getUser, logout } from "./user";
 import { loadLobbyScene } from "./scene/lobby";
+import { loadEditorScene } from "./utils/editor";
 
 export function loadScenes() {
   loadAuthScenes();
@@ -20,6 +21,11 @@ export function loadScenes() {
     }
 
     const isAnonymous = localStorage.getItem("wrum-anonymous") === "true";
+
+    onKeyDown("m", () => {
+      loadEditorScene();
+      go("editor");
+    });
 
     add([
       text("wrum", {
