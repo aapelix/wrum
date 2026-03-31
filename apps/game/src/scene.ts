@@ -1,8 +1,7 @@
 import { loadAuthScenes } from "./auth/scenes";
-import { authClient } from "./auth/client";
 import { addButton } from "./ui/button";
 import { loadPlayScene } from "./scene/play";
-import { getUser } from "./user";
+import { getUser, logout } from "./user";
 import { loadLobbyScene } from "./scene/lobby";
 
 export function loadScenes() {
@@ -60,7 +59,7 @@ export function loadScenes() {
       15,
       "Logout",
       async () => {
-        const { error } = await authClient.signOut();
+        const error = await logout();
 
         if (error) {
           go("error", error);

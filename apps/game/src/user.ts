@@ -19,3 +19,10 @@ export async function getUser() {
 
   go("login");
 }
+
+export async function logout() {
+  const { error } = await authClient.signOut();
+  user = null;
+
+  return error;
+}
