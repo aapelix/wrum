@@ -1,10 +1,5 @@
 import { authProcedure, router } from "../trpc";
-import {
-  createSchema,
-  inputSchema,
-  joinSchema,
-  type ServerMessage,
-} from "@wrum/shared";
+import { createSchema, inputSchema, joinSchema, type ServerMessage } from "@wrum/shared";
 import {
   createLobby,
   getLobby,
@@ -20,10 +15,7 @@ import { clearPlayerContext, players, setPlayerContext } from "../context";
 const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 function randomCode(length = 6) {
-  return Array.from(
-    { length },
-    () => chars[Math.floor(Math.random() * chars.length)],
-  ).join("");
+  return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
 export const gameRouter = router({
@@ -133,9 +125,7 @@ export const gameRouter = router({
 
     signal?.addEventListener("abort", onLeave);
 
-    for await (const [msg] of on(ee, "message", { signal }) as AsyncIterable<
-      [ServerMessage]
-    >) {
+    for await (const [msg] of on(ee, "message", { signal }) as AsyncIterable<[ServerMessage]>) {
       yield msg;
     }
   }),
