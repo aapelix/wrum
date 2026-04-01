@@ -33,7 +33,7 @@
     "drizzle-kit": "^0.31.10",
     "oxfmt": "^0.42.0",
     "oxlint": "^1.57.0",
-    "oxlint-tsgolint": "^0.18.1"
+    "oxlint-tsgolint": "^0.19.0"
   },
   "peerDependencies": {
     "typescript": "^5"
