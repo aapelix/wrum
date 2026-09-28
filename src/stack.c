@@ -37,7 +37,17 @@ void stack_draw(const Stack *s, float x, float y, double a) {
 
     for (int i = 0; i < s->c; i++) {
         SDL_FRect src = { (float)(i * s->sw), 0, fw, fh };
-        SDL_FRect dst = { x, y - i, fw, fh };
-        SDL_RenderTextureRotated(s->r, s->tex, &src, &dst, a, &s->center, SDL_FLIP_NONE);
+        SDL_FRect dst = {
+            x - fw / 2.0f,
+            y - fh / 2.0f - i,
+            fw,
+            fh
+        };
+
+        SDL_RenderTextureRotated(
+            s->r, s->tex, &src, &dst, a,
+            &s->center,
+            SDL_FLIP_NONE
+        );
     }
 }

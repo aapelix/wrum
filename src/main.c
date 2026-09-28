@@ -1,4 +1,5 @@
-#include "stack.h"
+#include "SDL3/SDL_render.h"
+#include "car.h"
 #define SDL_MAIN_USE_CALLBACKS
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -8,8 +9,7 @@ typedef struct App {
     SDL_Renderer *renderer;
     SDL_Texture *canvas;
 
-    Stack stack;
-    float rotation;
+    Car car;
 
     Uint64 last_time;
     bool running;
@@ -34,26 +34,23 @@ static bool app_init(App *app) {
 
     SDL_SetTextureScaleMode(app->canvas, SDL_SCALEMODE_NEAREST);
 
-    if (!stack_init(&app->stack, app->renderer, "assets/body.png", 10))
+    if (!car_init(&app->car, app->renderer, 100, 100, 90))
         return false;
 
-    app->rotation = 0.0f;
     app->running = true;
     app->last_time = SDL_GetTicksNS();
     return true;
 }
 
 static void app_update(App *app, float dt) {
-    app->rotation += 90.0f * dt;
+    app->car.a += 90.0f * dt;
 }
 static void app_draw(App *app) {
     SDL_SetRenderTarget(app->renderer, app->canvas);
+    SDL_SetRenderDrawColor(app->renderer, 20, 255, 20, 255);
     SDL_RenderClear(app->renderer);
 
-    // render
-
-    for (int i = 0; i < 9; i++)
-        stack_draw(&app->stack, 100.0f + i * 10.0f, 100.0f, app->rotation);
+    car_draw(&app->car);
 
     SDL_SetRenderTarget(app->renderer, NULL);
     SDL_RenderTexture(app->renderer, app->canvas, NULL, NULL);
@@ -66,7 +63,7 @@ static void app_event(App *app, const SDL_Event *event) {
 }
 
 static void app_quit(App *app) {
-    stack_destroy(&app->stack);
+    car_destroy(&app->car);
     SDL_DestroyTexture(app->canvas);
     SDL_DestroyRenderer(app->renderer);
     SDL_DestroyWindow(app->window);

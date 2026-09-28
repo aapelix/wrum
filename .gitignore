@@ -1,4 +1,3 @@
 build/
-
-# MacOS Cache
+.cache
 .DS_Store

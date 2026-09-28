@@ -40,10 +40,15 @@ add_subdirectory(vendor/SDL_image EXCLUDE_FROM_ALL)
 add_executable(wrum
     src/main.c
     src/stack.c
+    src/car.c
 )
 
 target_link_libraries(wrum
     PRIVATE SDL3_image::SDL3_image SDL3::SDL3
+)
+
+target_include_directories(wrum PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 if(EMSCRIPTEN)
