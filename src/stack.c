@@ -23,20 +23,28 @@ bool stack_init(Stack *s, SDL_Renderer *r, const char *path, int sw) {
     s->center.y = s->h / 2.0f;
     return true;
 }
-
 void stack_destroy(Stack *s) {
     if (s->tex) {
-        SDL_DestroyTexture(s->tex);
-        s->tex = NULL;
+        SDL_DestroyTexture(s->tex); s->tex = NULL;
     }
 }
-
 void stack_draw(const Stack *s, float x, float y, double a) {
     float fw = (float)s->sw;
     float fh = (float)s->h;
 
+    SDL_FPoint center = {
+        fw / 2.0f,
+        fh / 2.0f
+    };
+
     for (int i = 0; i < s->c; i++) {
-        SDL_FRect src = { (float)(i * s->sw), 0, fw, fh };
+        SDL_FRect src = {
+            (float)(i * s->sw),
+            0,
+            fw,
+            fh
+        };
+
         SDL_FRect dst = {
             x - fw / 2.0f,
             y - fh / 2.0f - i,
@@ -45,8 +53,12 @@ void stack_draw(const Stack *s, float x, float y, double a) {
         };
 
         SDL_RenderTextureRotated(
-            s->r, s->tex, &src, &dst, a,
-            &s->center,
+            s->r,
+            s->tex,
+            &src,
+            &dst,
+            a,
+            &center,
             SDL_FLIP_NONE
         );
     }

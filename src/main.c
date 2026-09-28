@@ -1,18 +1,28 @@
-#include "SDL3/SDL_render.h"
-#include "car.h"
+#include "camera.h"
 #define SDL_MAIN_USE_CALLBACKS
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include "SDL3/SDL_render.h"
+
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h"
+
+#include "car.h"
+#include "sim.h"
 
 typedef struct App {
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture *canvas;
 
-    Car car;
+    Camera camera;
+    Car *cars;
 
     Uint64 last_time;
     bool running;
+
+    float accumulator;
+    uint32_t tick;
 } App;
 
 static bool app_init(App *app) {
@@ -34,23 +44,67 @@ static bool app_init(App *app) {
 
     SDL_SetTextureScaleMode(app->canvas, SDL_SCALEMODE_NEAREST);
 
-    if (!car_init(&app->car, app->renderer, 100, 100, 90))
+    app->camera = (Camera){0, 0, 0};
+
+    app->cars = NULL;
+    Car car;
+    if (!car_init(&car, app->renderer, 100, 100, 90))
         return false;
+    car.sim = (CarState){ .x = car.x, .y = car.y, .a = car.a * SDL_PI_F / 180.0f };
+
+    Car car2;
+    if (!car_init(&car2, app->renderer, 120, 100, 0))
+        return false;
+    car2.sim = (CarState){ .x = car2.x, .y = car2.y, .a = car2.a * SDL_PI_F / 180.0f };
+
+    arrput(app->cars, car);
+    arrput(app->cars, car2);
 
     app->running = true;
     app->last_time = SDL_GetTicksNS();
     return true;
 }
 
+static Input sample_input(void) {
+    const bool *k = SDL_GetKeyboardState(NULL);
+    Input in = {0};
+    in.steer    = (int8_t)(k[SDL_SCANCODE_D] - k[SDL_SCANCODE_A]);
+    in.throttle = (int8_t)(k[SDL_SCANCODE_W] - k[SDL_SCANCODE_S]);
+    return in;
+}
+
+static void sim_tick(App *app) {
+    Input in = sample_input();
+    in.tick = app->tick++;
+
+    Car *p = &app->cars[0];
+    car_step(&p->sim, in);
+
+    p->x = p->sim.x;
+    p->y = p->sim.y;
+    p->a = p->sim.a * 180.0f / SDL_PI_F;
+}
+
 static void app_update(App *app, float dt) {
-    app->car.a += 90.0f * dt;
+    app->accumulator += dt;
+    if (app->accumulator > 0.25f) app->accumulator = 0.25f;
+
+    while (app->accumulator >= TICK_DT) {
+        app->accumulator -= TICK_DT;
+        sim_tick(app);
+    }
+
+    Car *player = &app->cars[0];
+    camera_update(&app->camera, (SDL_FPoint){player->x, player->y}, player->a, dt);
 }
 static void app_draw(App *app) {
     SDL_SetRenderTarget(app->renderer, app->canvas);
     SDL_SetRenderDrawColor(app->renderer, 20, 255, 20, 255);
     SDL_RenderClear(app->renderer);
 
-    car_draw(&app->car);
+    for (size_t i = 0; i < arrlenu(app->cars); i++) {
+         car_draw(&app->cars[i], &app->camera);
+    }
 
     SDL_SetRenderTarget(app->renderer, NULL);
     SDL_RenderTexture(app->renderer, app->canvas, NULL, NULL);
@@ -63,7 +117,10 @@ static void app_event(App *app, const SDL_Event *event) {
 }
 
 static void app_quit(App *app) {
-    car_destroy(&app->car);
+    for (size_t i = 0; i < arrlenu(app->cars); i++) {
+        car_destroy(&app->cars[i]);
+    }
+    arrfree(app->cars);
     SDL_DestroyTexture(app->canvas);
     SDL_DestroyRenderer(app->renderer);
     SDL_DestroyWindow(app->window);

@@ -1,6 +1,7 @@
 #include "car.h"
 #include "SDL3/SDL_rect.h"
 #include "SDL3/SDL_stdinc.h"
+#include "camera.h"
 #include "stack.h"
 #include <math.h>
 #include <stdio.h>
@@ -47,18 +48,31 @@ void car_destroy(Car *c) {
     stack_destroy(&c->body);
 }
 
-void car_draw(Car *c) {
+void car_draw(Car *c, const Camera *cam) {
+    float rad = c->a * (float)M_PI / 180.0f;
+    float s = sinf(rad);
+    float co = cosf(rad);
+
+    double draw_a = camera_apply_a(cam, c->a);
+
     for (int i = 0; i < 4; i++) {
         SDL_FPoint base = tire_positions[i];
 
-        float rad = c->a * (float)M_PI / 180.0f;
-        float s = sinf(rad);
-        float co = cosf(rad);
-        float x = base.x * co - base.y * s;
-        float y = base.x * s + base.y * co;
+        SDL_FPoint world = {
+            c->x + base.x * co - base.y * s,
+            c->y + base.x * s + base.y * co
+        };
 
-        stack_draw(&c->tires[i], c->x + x, c->y + y, c->a);
+        SDL_FPoint screen = camera_apply_pos(cam, world);
+
+        stack_draw(
+            &c->tires[i],
+            screen.x,
+            screen.y,
+            draw_a
+        );
     }
 
-    stack_draw(&c->body, c->x, c->y, c->a);
+    SDL_FPoint p = camera_apply_pos(cam, (SDL_FPoint){c->x, c->y});
+    stack_draw(&c->body, p.x, p.y, draw_a);
 }

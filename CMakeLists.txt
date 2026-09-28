@@ -7,7 +7,11 @@ project(Wrum
 
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
+if(EMSCRIPTEN)
+    set(CMAKE_C_EXTENSIONS ON)
+else()
+    set(CMAKE_C_EXTENSIONS OFF)
+endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # sdl
@@ -41,6 +45,8 @@ add_executable(wrum
     src/main.c
     src/stack.c
     src/car.c
+    src/camera.c
+    src/sim.c
 )
 
 target_link_libraries(wrum
@@ -52,6 +58,10 @@ target_include_directories(wrum PRIVATE
 )
 
 if(EMSCRIPTEN)
-    target_link_options(wrum PRIVATE "--preload-file=${CMAKE_SOURCE_DIR}/assets@/assets" )
+    target_link_options(wrum PRIVATE
+        "--preload-file=${CMAKE_SOURCE_DIR}/assets@/assets"
+        "--shell-file=${CMAKE_SOURCE_DIR}/assets/shell.html"
+    )
+
     set(CMAKE_EXECUTABLE_SUFFIX ".html")
 endif()
