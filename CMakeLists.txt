@@ -47,6 +47,7 @@ add_executable(wrum
     src/car.c
     src/camera.c
     src/sim.c
+    src/transport_enet.c
 )
 
 target_link_libraries(wrum
@@ -56,6 +57,24 @@ target_link_libraries(wrum
 target_include_directories(wrum PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+
+if(NOT EMSCRIPTEN)
+    # server
+    add_executable(server
+        src/server_main.c
+        src/sim.c
+        src/transport_enet.c
+    )
+
+    target_link_libraries(server
+        PRIVATE SDL3::SDL3
+    )
+
+    target_include_directories(server PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+endif()
 
 if(EMSCRIPTEN)
     target_link_options(wrum PRIVATE

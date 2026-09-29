@@ -19,6 +19,13 @@ release:
 run-release: release
     ./{{native_release}}/wrum
 
+server: server-build
+    ./{{native_debug}}/server
+
+server-build:
+    cmake -S . -B {{native_debug}} -G Ninja -DCMAKE_BUILD_TYPE=Debug
+    cmake --build {{native_debug}} --target server
+
 web:
     emcmake cmake -S . -B {{web_debug}} -G Ninja -DCMAKE_BUILD_TYPE=Debug
     cmake --build {{web_debug}}

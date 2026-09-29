@@ -25,7 +25,7 @@ enum { BTN_HORN = 1 << 0, BTN_BOOST = 1 << 1, BTN_HANDBRAKE = 1 << 2 };
 static void w_input(Writer *w, const Input *in) {
     w_u32(w, in->seq);
     w_u8(w, (uint8_t)in->steer);
-    w_u8(w, (uint8_t)in->steer);
+    w_u8(w, (uint8_t)in->throttle);
     w_u8(w, in->buttons);
 }
 static Input r_input(Reader *r) {
