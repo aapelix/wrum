@@ -6,9 +6,10 @@
 #define TICK_DT (1.0f / TICK_RATE)
 
 typedef struct Input {
-    uint32_t tick;
+    uint32_t seq;
     int8_t   steer;
     int8_t   throttle;
+    uint8_t  buttons;
 } Input;
 
 typedef struct CarState {

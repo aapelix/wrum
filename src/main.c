@@ -75,7 +75,7 @@ static Input sample_input(void) {
 
 static void sim_tick(App *app) {
     Input in = sample_input();
-    in.tick = app->tick++;
+    in.seq = app->tick++;
 
     Car *p = &app->cars[0];
     car_step(&p->sim, in);
@@ -83,6 +83,7 @@ static void sim_tick(App *app) {
     p->x = p->sim.x;
     p->y = p->sim.y;
     p->a = p->sim.a * 180.0f / SDL_PI_F;
+    p->ta = p->sim.tire * 180.0f / SDL_PI_F;
 }
 
 static void app_update(App *app, float dt) {

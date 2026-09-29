@@ -5,7 +5,7 @@ static const float max_v = 200.0f;
 static const float acc = 5.0f;
 static const float drag = 5.0f;
 static const float rs = 0.1f;
-static const float max_a = 90.0f * SDL_PI_F / 180.0f;
+static const float max_a = 30.0f * SDL_PI_F / 180.0f;
 static const float tire_rs = 0.05f;
 static const float tire_ts = 0.1f;
 

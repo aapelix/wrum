@@ -64,12 +64,16 @@ void car_draw(Car *c, const Camera *cam) {
         };
 
         SDL_FPoint screen = camera_apply_pos(cam, world);
+        float a = draw_a;
+        if (i < 2) {
+            a += c->ta;
+        }
 
         stack_draw(
             &c->tires[i],
             screen.x,
             screen.y,
-            draw_a
+            a
         );
     }
 

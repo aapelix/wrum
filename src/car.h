@@ -10,7 +10,7 @@ typedef struct Car {
     Stack body;
 
     float x, y;
-    double a;
+    double a, ta;
 
     CarState sim;
 } Car;
