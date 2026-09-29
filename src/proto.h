@@ -16,11 +16,12 @@ enum {
     MSG_WELCOME  = 32,
     MSG_SNAPSHOT = 33,
     MSG_PONG     = 34,
+    MSG_REJECT   = 35,
 };
 
 enum { ENT_CAR = 1 };
-
 enum { BTN_HORN = 1 << 0, BTN_BOOST = 1 << 1, BTN_HANDBRAKE = 1 << 2 };
+enum { REJECT_VERSION_MISMATCH = 1, REJECT_SERVER_FULL = 2 };
 
 static void w_input(Writer *w, const Input *in) {
     w_u32(w, in->seq);
@@ -51,11 +52,11 @@ static CarState r_car(Reader *r) {
 // ---------- client -> server ----------
 typedef struct {
     uint8_t version;
-    char    name[16];          // NUL-terminated
+    char    name[16];
 } MsgHello;
 
 typedef struct {
-    uint32_t last_server_tick; // newest snapshot the client has seen
+    uint32_t last_server_tick;           // newest snapshot the client has seen
     uint8_t  count;
     Input    inputs[INPUT_REDUNDANCY];   // oldest first
 } MsgInput;
@@ -108,6 +109,8 @@ typedef struct {
     Entity   ents[MAX_CARS];
 } MsgSnapshot;
 
+typedef struct { uint8_t reason; } MsgReject;
+
 static void w_welcome(Writer *w, const MsgWelcome *m) {
     size_t at = msg_begin(w, MSG_WELCOME);
     w_u8(w, m->your_id);
@@ -144,5 +147,15 @@ static bool r_snapshot(Reader *r, MsgSnapshot *m) {
         m->ents[i].type = r_u8(r);
         m->ents[i].car = r_car(r);
     }
+    return r->ok;
+}
+
+static void w_reject(Writer *w, const MsgReject *m) {
+    size_t at = msg_begin(w, MSG_REJECT);
+    w_u8(w, m->reason);
+    msg_end(w, at);
+}
+static bool r_reject(Reader *r, MsgReject *m) {
+    m->reason = r_u8(r);
     return r->ok;
 }

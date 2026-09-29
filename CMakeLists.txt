@@ -41,13 +41,19 @@ add_subdirectory(vendor/SDL EXCLUDE_FROM_ALL)
 add_subdirectory(vendor/SDL_image EXCLUDE_FROM_ALL)
 
 # game
+set(TRANSPORT_SRC src/transport_ws.c)
+
+if(NOT EMSCRIPTEN)
+    set(TRANSPORT_SRC src/transport_enet.c)
+endif()
+
 add_executable(wrum
     src/main.c
     src/stack.c
     src/car.c
     src/camera.c
     src/sim.c
-    src/transport_enet.c
+    ${TRANSPORT_SRC}
 )
 
 target_link_libraries(wrum
@@ -65,10 +71,19 @@ if(NOT EMSCRIPTEN)
         src/server_main.c
         src/sim.c
         src/transport_enet.c
+        src/transport_ws_server.c
+        vendor/mongoose/mongoose.c
+    )
+
+    add_library(mongoose STATIC
+        vendor/mongoose/mongoose.c
+    )
+    target_include_directories(mongoose PUBLIC
+        vendor/mongoose
     )
 
     target_link_libraries(server
-        PRIVATE SDL3::SDL3
+        PRIVATE SDL3::SDL3 mongoose
     )
 
     target_include_directories(server PRIVATE
@@ -80,6 +95,7 @@ if(EMSCRIPTEN)
     target_link_options(wrum PRIVATE
         "--preload-file=${CMAKE_SOURCE_DIR}/assets@/assets"
         "--shell-file=${CMAKE_SOURCE_DIR}/assets/shell.html"
+        "-lwebsocket.js"
     )
 
     set(CMAKE_EXECUTABLE_SUFFIX ".html")

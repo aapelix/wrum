@@ -1,12 +1,20 @@
+#include "SDL3/SDL_stdinc.h"
 #include "bytes.h"
 #include "camera.h"
+#include "interp.h"
 #include "proto.h"
-#include "transport.h"
+#include <math.h>
 #include <stdint.h>
 #define SDL_MAIN_USE_CALLBACKS
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "SDL3/SDL_render.h"
+
+#ifdef __EMSCRIPTEN__
+#include "transport_ws.h"
+#else
+#include "transport_enet.h"
+#endif
 
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
@@ -16,6 +24,7 @@
 
 #define SERVER_HOST "127.0.0.1"
 #define SERVER_PORT 7777
+#define SERVER_WS_PORT 8888
 #define PENDING_CAP 64
 
 typedef struct { Input items[PENDING_CAP]; int head, len; } InputRing;
@@ -57,6 +66,9 @@ typedef struct App {
     uint32_t last_server_tick;
     InputRing pending;
 
+    SnapshotBuffer snapbuf;
+    float render_tick;
+
     Uint64 last_time;
     bool running;
     float accumulator;
@@ -89,7 +101,11 @@ static bool app_init(App *app) {
 
     app->camera = (Camera){0, 0, 0};
 
-    app->transport = transport_connect(SERVER_HOST, SERVER_PORT);
+    #ifdef __EMSCRIPTEN__
+        app->transport = transport_ws_connect(SERVER_HOST, SERVER_WS_PORT);
+    #else
+        app->transport = transport_enet_connect(SERVER_HOST, SERVER_PORT);
+    #endif
     if (!app->transport) {
         SDL_Log("could not start connecting to %s:%d", SERVER_HOST, SERVER_PORT);
         return false;
@@ -128,13 +144,10 @@ static void client_apply_snapshot(App *app, const MsgSnapshot *snap) {
             Car *me = &app->cars[app->my_id];
             me->sim = s;
             me->x = s.x; me->y = s.y; me->a = s.a * 180.0f / SDL_PI_F;
-        } else {
-            Car *other = &app->cars[e->id];
-            other->sim = e->car;   // todo: interp
-            other->x = e->car.x; other->y = e->car.y;
-            other->a = e->car.a * 180.0f / SDL_PI_F;
         }
     }
+
+    snapbuf_push(&app->snapbuf, snap);
 }
 static void client_poll_network(App *app) {
     NetEvent ev;
@@ -142,7 +155,13 @@ static void client_poll_network(App *app) {
         switch (ev.type) {
         case NET_CONNECT:
             app->server = ev.peer;
-            SDL_Log("transport connected, waiting for welcome");
+            MsgHello hello = { .version = PROTOCOL_VERSION };
+            SDL_strlcpy(hello.name, "test", sizeof hello.name);
+            uint8_t buf[64];
+            Writer w = w_init(buf, sizeof buf);
+            w_hello(&w, &hello);
+            if (w.ok) transport_send(app->transport, app->server, CH_RELIABLE, buf, w.len);
+            SDL_Log("connected, sent hello");
             break;
 
         case NET_DISCONNECT:
@@ -166,6 +185,11 @@ static void client_poll_network(App *app) {
                 } else if (m.type == MSG_SNAPSHOT) {
                     MsgSnapshot snap;
                     if (r_snapshot(&m.body, &snap)) client_apply_snapshot(app, &snap);
+                } else if (m.type == MSG_REJECT) {
+                    MsgReject rej;
+                    if (r_reject(&m.body, &rej))
+                        SDL_Log("server rejected connection (reason=%d)", rej.reason);
+                    app->running = false;
                 }
             }
             break;
@@ -196,17 +220,58 @@ static void client_sim_tick(App *app) {
     if (w.ok) transport_send(app->transport, app->server, CH_UNRELIABLE, buf, w.len);
 }
 
+static void client_update_render_tick(App *app, float dt) {
+    if (app->snapbuf.count == 0) return;
+    SnapshotEntry *newest = snapbuf_at(&app->snapbuf, app->snapbuf.count - 1);
+
+    app->render_tick += dt / TICK_DT;
+
+    float target = (float)newest->tick - INTERP_DELAY_TICKS;
+    float diff = target - app->render_tick;
+    if (fabsf(diff) > INTERP_SNAP_TICKS) app->render_tick = target;   // big gap: just jump
+    else                                  app->render_tick += diff * INTERP_SMOOTH;
+}
+static void client_interpolate_others(App *app) {
+    if (app->snapbuf.count == 0) return;
+
+    SnapshotEntry *a, *c; float t;
+    find_bracket(&app->snapbuf, app->render_tick, &a, &c, &t);
+
+    for (int id = 0; id < MAX_CARS; id++) {
+        if (id == app->my_id || !app->car_active[id]) continue;
+
+        CarState sa, sc;
+        bool have_a = entry_find(a, (uint8_t)id, &sa);
+        bool have_c = entry_find(c, (uint8_t)id, &sc);
+
+        CarState r;
+        if (have_a && have_c) {
+            r.x = flerp(sa.x, sc.x, t);
+            r.y = flerp(sa.y, sc.y, t);
+            r.a = lerp_angle(sa.a, sc.a, t);
+        } else if (have_c) r = sc;
+        else if (have_a) r = sa;
+        else continue;
+
+        Car *car = &app->cars[id];
+        car->x = r.x; car->y = r.y;
+        car->a = r.a * 180.0f / SDL_PI_F;
+    }
+}
+
 static void app_update(App *app, float dt) {
     client_poll_network(app);
     if (!app->connected) return;
 
     app->accumulator += dt;
     if (app->accumulator > 0.25f) app->accumulator = 0.25f;
-
     while (app->accumulator >= TICK_DT) {
         app->accumulator -= TICK_DT;
         client_sim_tick(app);
     }
+
+    client_update_render_tick(app, dt);
+    client_interpolate_others(app);
 
     Car *me = &app->cars[app->my_id];
     camera_update(&app->camera, (SDL_FPoint){me->x, me->y}, me->a, dt);
