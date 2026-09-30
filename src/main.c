@@ -27,6 +27,17 @@
 #define SERVER_WS_PORT 8888
 #define PENDING_CAP 64
 
+#define RECON_SNAP_DIST 100.0f
+#define RECON_DECAY     12.0f
+
+static float angle_diff(float from, float to) {
+    float d = to - from;
+    while (d > SDL_PI_F)  d -= 2.0f * SDL_PI_F;
+    while (d < -SDL_PI_F) d += 2.0f * SDL_PI_F;
+    return d;
+}
+
+
 typedef struct { Input items[PENDING_CAP]; int head, len; } InputRing;
 
 static void ring_push(InputRing *r, Input in) {
@@ -66,6 +77,8 @@ typedef struct App {
     uint32_t last_server_tick;
     InputRing pending;
 
+    CarState prev_sim;
+    float err_x, err_y, err_a;
     SnapshotBuffer snapbuf;
     float render_tick;
 
@@ -135,15 +148,24 @@ static void client_apply_snapshot(App *app, const MsgSnapshot *snap) {
         if (e->id == app->my_id) {
             ring_discard_upto(&app->pending, snap->ack_seq);
 
+            Car *me = &app->cars[app->my_id];
+            CarState before = me->sim;
+
             CarState s = e->car;
             for (int j = 0; j < app->pending.len; j++) {
                 int idx = (app->pending.head + j) % PENDING_CAP;
                 car_step(&s, app->pending.items[idx]);
             }
-
-            Car *me = &app->cars[app->my_id];
             me->sim = s;
-            me->x = s.x; me->y = s.y; me->a = s.a * 180.0f / SDL_PI_F;
+
+            float dx = before.x - s.x;
+            float dy = before.y - s.y;
+            float da = angle_diff(s.a, before.a);
+            if (dx*dx + dy*dy > RECON_SNAP_DIST * RECON_SNAP_DIST) { dx = 0; dy = 0; }
+            if (fabsf(da) > 1.57f) da = 0;
+            app->err_x += dx;
+            app->err_y += dy;
+            app->err_a += da;
         }
     }
 
@@ -203,11 +225,8 @@ static void client_sim_tick(App *app) {
     in.seq = app->next_seq++;
 
     Car *me = &app->cars[app->my_id];
+    app->prev_sim = me->sim;
     car_step(&me->sim, in);
-    me->x = me->sim.x;
-    me->y = me->sim.y;
-    me->a = me->sim.a * 180.0f / SDL_PI_F;
-    me->ta = me->sim.tire * 180.0f / SDL_PI_F;
 
     ring_push(&app->pending, in);
 
@@ -258,6 +277,25 @@ static void client_interpolate_others(App *app) {
         car->a = r.a * 180.0f / SDL_PI_F;
     }
 }
+static void client_update_own_render(App *app, float dt) {
+    Car *me = &app->cars[app->my_id];
+
+    float alpha = SDL_clamp(app->accumulator / TICK_DT, 0.0f, 1.0f);
+    float ix = flerp(app->prev_sim.x, me->sim.x, alpha);
+    float iy = flerp(app->prev_sim.y, me->sim.y, alpha);
+    float ia = lerp_angle(app->prev_sim.a, me->sim.a, alpha);
+    float it = flerp(app->prev_sim.tire, me->sim.tire, alpha);
+
+    float decay = expf(-RECON_DECAY * dt);
+    app->err_x *= decay;
+    app->err_y *= decay;
+    app->err_a *= decay;
+
+    me->x  = ix + app->err_x;
+    me->y  = iy + app->err_y;
+    me->a  = (ia + app->err_a) * 180.0f / SDL_PI_F;
+    me->ta = it * 180.0f / SDL_PI_F;
+}
 
 static void app_update(App *app, float dt) {
     client_poll_network(app);
@@ -270,6 +308,7 @@ static void app_update(App *app, float dt) {
         client_sim_tick(app);
     }
 
+    client_update_own_render(app, dt);
     client_update_render_tick(app, dt);
     client_interpolate_others(app);
 

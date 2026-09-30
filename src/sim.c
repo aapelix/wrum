@@ -25,4 +25,9 @@ void car_step(CarState *c, Input in) {
 
     c->x += SDL_sinf(c->a) * c->speed * TICK_DT;
     c->y -= SDL_cosf(c->a) * c->speed * TICK_DT;
+
+    c->a = SDL_fmodf(c->a + SDL_PI_F, 2.0f * SDL_PI_F);
+    if (c->a <= 0.0f)
+        c->a += 2.0f * SDL_PI_F;
+    c->a -= SDL_PI_F;
 }

@@ -8,7 +8,7 @@ void camera_update(Camera *camera, SDL_FPoint target, double target_a, float dt)
     camera->x += (target.x - camera->x) * t;
     camera->y += (target.y - camera->y) * t;
 
-    double a_diff = fmod(target_a - camera->a + 180.0, 360.0) - 180.0;
+    double a_diff = fmod(fmod(target_a - camera->a, 360.0) + 540.0, 360.0) - 180.0;
     camera->a += a_diff * t;
 }
 

@@ -64,7 +64,6 @@ target_include_directories(wrum PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-
 if(NOT EMSCRIPTEN)
     # server
     add_executable(server
