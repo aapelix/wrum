@@ -1,7 +1,7 @@
 #pragma once
 
-#include "bytes.h"
-#include "sim.h"
+#include "../bytes.h"
+#include "../sim.h"
 #define PROTOCOL_VERSION   1
 #define MAX_CARS           8
 #define INPUT_REDUNDANCY   5

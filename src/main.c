@@ -2,7 +2,7 @@
 #include "bytes.h"
 #include "camera.h"
 #include "interp.h"
-#include "proto.h"
+#include "net/proto.h"
 #include <math.h>
 #include <stdint.h>
 #define SDL_MAIN_USE_CALLBACKS
@@ -11,9 +11,9 @@
 #include "SDL3/SDL_render.h"
 
 #ifdef __EMSCRIPTEN__
-#include "transport_ws.h"
+#include "net/transport_ws.h"
 #else
-#include "transport_enet.h"
+#include "net/transport_enet.h"
 #endif
 
 #define STB_DS_IMPLEMENTATION

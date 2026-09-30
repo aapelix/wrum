@@ -1,11 +1,11 @@
 #include "SDL3/SDL_init.h"
 #include "SDL3/SDL_timer.h"
 #include "bytes.h"
-#include "proto.h"
+#include "net/proto.h"
 #include "sim.h"
-#include "transport.h"
-#include "transport_enet.h"
-#include "transport_ws_server.h"
+#include "net/transport.h"
+#include "net/transport_enet.h"
+#include "net/transport_ws_server.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>

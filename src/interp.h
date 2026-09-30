@@ -1,7 +1,7 @@
 #pragma once
 
 #include "SDL3/SDL_stdinc.h"
-#include "proto.h"
+#include "net/proto.h"
 #include <stdint.h>
 #define SNAPSHOT_BUF_CAP    32
 #define INTERP_DELAY_TICKS  6.0f   // ~100ms at TICK_RATE=60, SNAPSHOT_EVERY=2

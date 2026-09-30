@@ -41,10 +41,10 @@ add_subdirectory(vendor/SDL EXCLUDE_FROM_ALL)
 add_subdirectory(vendor/SDL_image EXCLUDE_FROM_ALL)
 
 # game
-set(TRANSPORT_SRC src/transport_ws.c)
+set(TRANSPORT_SRC src/net/transport_ws.c)
 
 if(NOT EMSCRIPTEN)
-    set(TRANSPORT_SRC src/transport_enet.c)
+    set(TRANSPORT_SRC src/net/transport_enet.c)
 endif()
 
 add_executable(wrum
@@ -70,9 +70,8 @@ if(NOT EMSCRIPTEN)
     add_executable(server
         src/server_main.c
         src/sim.c
-        src/transport_enet.c
-        src/transport_ws_server.c
-        vendor/mongoose/mongoose.c
+        src/net/transport_enet.c
+        src/net/transport_ws_server.c
     )
 
     add_library(mongoose STATIC
