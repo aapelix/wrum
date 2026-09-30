@@ -247,7 +247,7 @@ static void client_update_render_tick(App *app, float dt) {
 
     float target = (float)newest->tick - INTERP_DELAY_TICKS;
     float diff = target - app->render_tick;
-    if (fabsf(diff) > INTERP_SNAP_TICKS) app->render_tick = target;   // big gap: just jump
+    if (fabsf(diff) > INTERP_SNAP_TICKS) app->render_tick = target;
     else                                  app->render_tick += diff * INTERP_SMOOTH;
 }
 static void client_interpolate_others(App *app) {
@@ -268,6 +268,7 @@ static void client_interpolate_others(App *app) {
             r.x = flerp(sa.x, sc.x, t);
             r.y = flerp(sa.y, sc.y, t);
             r.a = lerp_angle(sa.a, sc.a, t);
+            r.tire = lerp_angle(sa.tire, sc.tire, t);
         } else if (have_c) r = sc;
         else if (have_a) r = sa;
         else continue;
@@ -275,6 +276,7 @@ static void client_interpolate_others(App *app) {
         Car *car = &app->cars[id];
         car->x = r.x; car->y = r.y;
         car->a = r.a * 180.0f / SDL_PI_F;
+        car->ta = r.tire * 180.0f / SDL_PI_F;
     }
 }
 static void client_update_own_render(App *app, float dt) {
