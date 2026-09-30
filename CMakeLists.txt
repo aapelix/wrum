@@ -53,6 +53,7 @@ add_executable(wrum
     src/car.c
     src/camera.c
     src/sim.c
+    src/collision.c
     ${TRANSPORT_SRC}
 )
 
@@ -71,6 +72,7 @@ if(NOT EMSCRIPTEN)
         src/sim.c
         src/net/transport_enet.c
         src/net/transport_ws_server.c
+        src/collision.c
     )
 
     add_library(mongoose STATIC

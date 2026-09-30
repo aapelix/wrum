@@ -143,17 +143,35 @@ static void server_poll_network(Server *s) {
     }
 }
 
+#define CAR_RESTITUTION 0.1f
+
+void resolve_car_pair(CarState *a, CarState *b) {
+    CollisionBody ba = { car_obb(a), car_velocity(a), 1.0f };
+    CollisionBody bb = { car_obb(b), car_velocity(b), 1.0f };
+
+    resolve_collision(&ba, &bb, CAR_RESTITUTION);
+
+    a->x = ba.box.x; a->y = ba.box.y;
+    b->x = bb.box.x; b->y = bb.box.y;
+    car_apply_velocity(a, ba.vel);
+    car_apply_velocity(b, bb.vel);
+}
 static void server_sim_tick(Server *s) {
     for (int i = 0; i < MAX_CARS; i++) {
         Client *c = &s->clients[i];
         if (!c->active) continue;
-
         if (c->qlen > 0) {
             c->last_input = queue_pop(c);
             c->last_seq_applied = c->last_input.seq;
         }
-
         car_step(&c->car, c->last_input);
+    }
+    for (int i = 0; i < MAX_CARS; i++) {
+        if (!s->clients[i].active) continue;
+        for (int j = i + 1; j < MAX_CARS; j++) {
+            if (!s->clients[j].active) continue;
+            resolve_car_pair(&s->clients[i].car, &s->clients[j].car);
+        }
     }
     s->tick++;
 }
