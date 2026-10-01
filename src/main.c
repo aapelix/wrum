@@ -2,9 +2,11 @@
 #include "bytes.h"
 #include "camera.h"
 #include "interp.h"
+#include "map.h"
 #include "net/proto.h"
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #define SDL_MAIN_USE_CALLBACKS
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -65,6 +67,7 @@ typedef struct App {
     SDL_Texture *canvas;
 
     Camera camera;
+    Tile* tiles;
 
     Car cars[MAX_CARS];
     bool car_active[MAX_CARS];
@@ -123,6 +126,11 @@ static bool app_init(App *app) {
         SDL_Log("could not start connecting to %s:%d", SERVER_HOST, SERVER_PORT);
         return false;
     }
+
+    // todo: get map from server and replace with this:
+    // app->tiles = NULL;
+    app->tiles = load_map("assets/maps/untitled.json");
+    if (!app->tiles) return false;
 
     app->running = true;
     app->last_time = SDL_GetTicksNS();
@@ -220,6 +228,17 @@ static void client_poll_network(App *app) {
     }
 }
 
+#define GHOST_RESTITUTION CAR_RESTITUTION
+
+static void client_predict_car_collisions(App *app, CarState *me_sim) {
+    for (int id = 0; id < MAX_CARS; id++) {
+        if (id == app->my_id || !app->car_active[id]) continue;
+        Car *other = &app->cars[id];
+        OBB ghost = { other->x, other->y, CAR_HALF_W, CAR_HALF_H, other->a * SDL_PI_F / 180.0f };
+        car_resolve_vs_obstacle(me_sim, ghost, GHOST_RESTITUTION);
+    }
+}
+
 static void client_sim_tick(App *app) {
     Input in = sample_input();
     in.seq = app->next_seq++;
@@ -227,6 +246,7 @@ static void client_sim_tick(App *app) {
     Car *me = &app->cars[app->my_id];
     app->prev_sim = me->sim;
     car_step(&me->sim, in);
+    client_predict_car_collisions(app, &me->sim);
 
     ring_push(&app->pending, in);
 
@@ -336,6 +356,8 @@ static void app_event(App *app, const SDL_Event *event) {
 }
 
 static void app_quit(App *app) {
+    arrfree(app->tiles);
+
     for (int i = 0; i < MAX_CARS; i++)
         if (app->car_active[i]) car_destroy(&app->cars[i]);
 

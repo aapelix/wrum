@@ -1,5 +1,7 @@
 # wrum
 
 todo:
-- collisions
-- tiles, map
+- tiles with sprite batching
+- shadows
+- drift
+- particles

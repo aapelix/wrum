@@ -143,8 +143,6 @@ static void server_poll_network(Server *s) {
     }
 }
 
-#define CAR_RESTITUTION 0.1f
-
 void resolve_car_pair(CarState *a, CarState *b) {
     CollisionBody ba = { car_obb(a), car_velocity(a), 1.0f };
     CollisionBody bb = { car_obb(b), car_velocity(b), 1.0f };

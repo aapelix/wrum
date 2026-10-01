@@ -6,6 +6,7 @@
 
 #define TICK_RATE 60
 #define TICK_DT (1.0f / TICK_RATE)
+#define CAR_RESTITUTION 0.1f
 
 typedef struct Input {
     uint32_t seq;
@@ -19,9 +20,10 @@ typedef struct CarState {
 } CarState;
 
 void car_step(CarState *c, Input in);
+void car_resolve_vs_obstacle(CarState *car, OBB obstacle, float restitution);
 
-#define CAR_HALF_W 5.0f
-#define CAR_HALF_H 8.0f
+#define CAR_HALF_W 4.0f
+#define CAR_HALF_H 7.5f
 
 static inline OBB car_obb(const CarState *c) {
     return (OBB){ c->x, c->y, CAR_HALF_W, CAR_HALF_H, c->a };

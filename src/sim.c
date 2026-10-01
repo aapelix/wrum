@@ -14,6 +14,13 @@ static float approach(float v, float target, float step) {
     return SDL_max(v - step, target);
 }
 
+void car_resolve_vs_obstacle(CarState *car, OBB obstacle, float restitution) {
+    CollisionBody cb = { car_obb(car), car_velocity(car), 1.0f };
+    CollisionBody ob = { obstacle, {0, 0}, 0.0f };
+    resolve_collision(&cb, &ob, restitution);
+    car->x = cb.box.x; car->y = cb.box.y;
+    car_apply_velocity(car, cb.vel);
+}
 void car_step(CarState *c, Input in) {
     float steer = SDL_clamp(in.steer, -1, 1);
     float thr = SDL_clamp(in.throttle, -1, 1);

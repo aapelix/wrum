@@ -41,6 +41,13 @@ add_subdirectory(vendor/SDL EXCLUDE_FROM_ALL)
 add_subdirectory(vendor/SDL_image EXCLUDE_FROM_ALL)
 
 # game
+add_library(cJSON STATIC
+    vendor/cJSON/cJSON.c
+)
+target_include_directories(cJSON PUBLIC
+    vendor/cJSON
+)
+
 set(TRANSPORT_SRC src/net/transport_ws.c)
 
 if(NOT EMSCRIPTEN)
@@ -54,11 +61,12 @@ add_executable(wrum
     src/camera.c
     src/sim.c
     src/collision.c
+    src/map.c
     ${TRANSPORT_SRC}
 )
 
 target_link_libraries(wrum
-    PRIVATE SDL3_image::SDL3_image SDL3::SDL3
+    PRIVATE SDL3_image::SDL3_image SDL3::SDL3 cJSON
 )
 
 target_include_directories(wrum PRIVATE
