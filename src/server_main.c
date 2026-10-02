@@ -1,6 +1,5 @@
 #include "bytes.h"
 #include "net/proto.h"
-#include "raylib.h"
 #include "sim.h"
 #include "net/transport.h"
 #include "net/transport_enet.h"
@@ -8,6 +7,17 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
+static double now_sec(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+static void sleep_sec(double s) {
+    struct timespec ts = { (time_t)s, (long)((s - (time_t)s) * 1e9) };
+    nanosleep(&ts, NULL);
+}
 
 #define SERVER_PORT      7777
 #define SERVER_WS_PORT   8888
@@ -207,11 +217,11 @@ int main(void) {
     printf("server listening on port %d\n", SERVER_PORT);
     printf("ws server listening on port %d\n", SERVER_WS_PORT);
 
-    double last = GetTime();
+    double last = now_sec();
     float acc = 0.0f;
 
     for (;;) {
-        double now = GetTime();
+        double now = now_sec();
         float dt = now - last;
         last = now;
 
@@ -228,6 +238,6 @@ int main(void) {
                 server_send_snapshots(&s);
         }
 
-        WaitTime(TICK_DT / 4);
+        sleep_sec(TICK_DT / 4);
     }
 }

@@ -59,6 +59,8 @@ static void build_input_msg(InputRing *r, MsgInput *out) {
 }
 
 typedef struct App {
+    RenderTexture2D canvas;
+
     GameCamera camera;
     Tile* tiles;
 
@@ -115,6 +117,8 @@ static bool app_init(void) {
         return false;
     }
 
+    app.canvas = LoadRenderTexture(320, 180);
+    SetTextureFilter(app.canvas.texture, TEXTURE_FILTER_POINT);
 
     app.camera = (GameCamera){0};
 
@@ -355,17 +359,28 @@ static void app_update(float dt) {
 /* -------------------------------------------------------------------------- */
 
 static void app_draw(void) {
+    BeginTextureMode(app.canvas);
+        ClearBackground((Color){20, 255, 20, 255});
+
+        for (int i = 0; i < MAX_CARS; i++) {
+            if (app.car_active[i])
+                car_draw(
+                    &app.cars[i],
+                    &app.camera
+                );
+        }
+    EndTextureMode();
+
     BeginDrawing();
-    ClearBackground((Color){20, 255, 20, 255});
-
-    for (int i = 0; i < MAX_CARS; i++) {
-        if (app.car_active[i])
-            car_draw(
-                &app.cars[i],
-                &app.camera
-            );
-    }
-
+        ClearBackground(BLACK);
+        DrawTexturePro(
+            app.canvas.texture,
+            (Rectangle){ 0, 0, 320, -180 },
+            (Rectangle){ 0, 0, GetScreenWidth(), GetScreenHeight() },
+            (Vector2){ 0, 0 },
+            0,
+            WHITE
+        );
     EndDrawing();
 }
 

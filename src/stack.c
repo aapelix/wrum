@@ -37,8 +37,8 @@ void stack_draw(const Stack *s, float x, float y, double a) {
         };
 
         Rectangle dst = {
-            x - fw / 2.0f,
-            y - fh / 2.0f - i,
+            x,
+            y - i,
             fw,
             fh
         };
