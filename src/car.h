@@ -1,6 +1,5 @@
 #pragma once
 
-#include "SDL3/SDL_render.h"
 #include "camera.h"
 #include "stack.h"
 #include "sim.h"
@@ -15,6 +14,6 @@ typedef struct Car {
     CarState sim;
 } Car;
 
-bool car_init(Car *c, SDL_Renderer *r, float x, float y, double a);
+bool car_init(Car *c, float x, float y, double a);
 void car_destroy(Car *c);
-void car_draw(Car *c, const Camera *cam);
+void car_draw(Car *c, const GameCamera *cam);

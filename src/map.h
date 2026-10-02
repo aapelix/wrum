@@ -1,10 +1,9 @@
 #pragma once
 
-#include "SDL3/SDL_rect.h"
-#include "SDL3/SDL_render.h"
+#include "raylib.h"
 typedef struct Tile {
     float x, y;
-    SDL_FRect src;
+    Rectangle src;
 } Tile;
 
 // this prob should return Map*
@@ -12,8 +11,7 @@ Tile* load_map(const char *path);
 
 typedef struct Map {
     Tile *tiles;
-    SDL_Renderer *r;
-    SDL_Texture *tileset;
+    Texture2D *tileset;
 } Map;
 
 void map_draw(const Map *map);

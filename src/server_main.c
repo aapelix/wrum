@@ -1,7 +1,6 @@
-#include "SDL3/SDL_init.h"
-#include "SDL3/SDL_timer.h"
 #include "bytes.h"
 #include "net/proto.h"
+#include "raylib.h"
 #include "sim.h"
 #include "net/transport.h"
 #include "net/transport_enet.h"
@@ -195,23 +194,27 @@ static void server_send_snapshots(Server *s) {
 }
 
 int main(void) {
-    SDL_Init(0);
-
     Server s = {0};
+
     s.transports[s.n_transports++] = transport_enet_host(SERVER_PORT, MAX_CARS);
+
     Transport *ws = transport_ws_server_host(SERVER_WS_PORT);
-    if (ws) s.transports[s.n_transports++] = ws;
-    else fprintf(stderr, "warning: WS listener failed, browser clients can't connect\n");
+    if (ws)
+        s.transports[s.n_transports++] = ws;
+    else
+        fprintf(stderr, "warning: WS listener failed, browser clients can't connect\n");
+
     printf("server listening on port %d\n", SERVER_PORT);
     printf("ws server listening on port %d\n", SERVER_WS_PORT);
 
-    Uint64 last = SDL_GetTicksNS();
+    double last = GetTime();
     float acc = 0.0f;
 
     for (;;) {
-        Uint64 now = SDL_GetTicksNS();
-        float dt = (float)(now - last) / 1000000000.0f;
+        double now = GetTime();
+        float dt = now - last;
         last = now;
+
         acc += dt;
         if (acc > 0.25f) acc = 0.25f;
 
@@ -220,9 +223,11 @@ int main(void) {
         while (acc >= TICK_DT) {
             acc -= TICK_DT;
             server_sim_tick(&s);
-            if (s.tick % SNAPSHOT_EVERY == 0) server_send_snapshots(&s);
+
+            if (s.tick % SNAPSHOT_EVERY == 0)
+                server_send_snapshots(&s);
         }
 
-        SDL_DelayNS((Uint64)(TICK_DT * 1000000000.0 / 4));
+        WaitTime(TICK_DT / 4);
     }
 }

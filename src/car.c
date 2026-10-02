@@ -1,37 +1,29 @@
 #include "car.h"
-#include "SDL3/SDL_rect.h"
-#include "SDL3/SDL_stdinc.h"
 #include "camera.h"
 #include "stack.h"
 #include <math.h>
 #include <stdio.h>
 
-static const SDL_FPoint tire_positions[4] = {
+static const Vector2 tire_positions[4] = {
     { -3.5f, -4.0f },
     {  3.5f, -4.0f },
     { -3.5f,  4.0f },
     {  3.5f,  4.0f },
 };
 
-bool car_init(Car *c, SDL_Renderer *r, float x, float y, double a) {
-    SDL_zerop(c);
+bool car_init(Car *c, float x, float y, double a) {
+    *c = (Car){0};
+
     c->x = x;
     c->y = y;
     c->a = a;
 
-    if (!stack_init(&c->tires[0], r, "assets/tire.png", 1))
-        goto fail;
+    for (int i = 0; i < 4; i++) {
+        if (!stack_init(&c->tires[i], "assets/tire.png", 1))
+            goto fail;
+    }
 
-    if (!stack_init(&c->tires[1], r, "assets/tire.png", 1))
-        goto fail;
-
-    if (!stack_init(&c->tires[2], r, "assets/tire.png", 1))
-        goto fail;
-
-    if (!stack_init(&c->tires[3], r, "assets/tire.png", 1))
-        goto fail;
-
-    if (!stack_init(&c->body, r, "assets/body.png", 10))
+    if (!stack_init(&c->body, "assets/body.png", 10))
         goto fail;
 
     return true;
@@ -48,7 +40,7 @@ void car_destroy(Car *c) {
     stack_destroy(&c->body);
 }
 
-void car_draw(Car *c, const Camera *cam) {
+void car_draw(Car *c, const GameCamera *cam) {
     float rad = c->a * (float)M_PI / 180.0f;
     float s = sinf(rad);
     float co = cosf(rad);
@@ -56,14 +48,14 @@ void car_draw(Car *c, const Camera *cam) {
     double draw_a = camera_apply_a(cam, c->a);
 
     for (int i = 0; i < 4; i++) {
-        SDL_FPoint base = tire_positions[i];
+        Vector2 base = tire_positions[i];
 
-        SDL_FPoint world = {
+        Vector2 world = {
             c->x + base.x * co - base.y * s,
             c->y + base.x * s + base.y * co
         };
 
-        SDL_FPoint screen = camera_apply_pos(cam, world);
+        Vector2 screen = camera_apply_pos(cam, world);
         float a = draw_a;
         if (i < 2) {
             a += c->ta;
@@ -77,6 +69,6 @@ void car_draw(Car *c, const Camera *cam) {
         );
     }
 
-    SDL_FPoint p = camera_apply_pos(cam, (SDL_FPoint){c->x, c->y});
+    Vector2 p = camera_apply_pos(cam, (Vector2){c->x, c->y});
     stack_draw(&c->body, p.x, p.y, draw_a);
 }

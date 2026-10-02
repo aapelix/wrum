@@ -1,22 +1,19 @@
 #include "stack.h"
-#include <SDL3_image/SDL_image.h>
+#include "raylib.h"
 
-bool stack_init(Stack *s, SDL_Renderer *r, const char *path, int sw) {
-    SDL_zerop(s);
-    s->r = r;
+bool stack_init(Stack *s, const char *path, int sw) {
+    *s = (Stack){0};
+
     s->sw = sw;
 
-    s->tex = IMG_LoadTexture(r, path);
-    if (!s->tex)
+    s->tex = LoadTexture(path);
+    if (s->tex.id == 0)
         return false;
 
-    SDL_SetTextureScaleMode(s->tex, SDL_SCALEMODE_NEAREST);
+    SetTextureFilter(s->tex, TEXTURE_FILTER_POINT);
 
-    float width, height;
-    SDL_GetTextureSize(s->tex, &width, &height);
-
-    s->w = (int)width;
-    s->h = (int)height;
+    s->w = s->tex.width;
+    s->h = s->tex.height;
     s->c = s->w / sw;
 
     s->center.x = sw / 2.0f;
@@ -24,42 +21,35 @@ bool stack_init(Stack *s, SDL_Renderer *r, const char *path, int sw) {
     return true;
 }
 void stack_destroy(Stack *s) {
-    if (s->tex) {
-        SDL_DestroyTexture(s->tex); s->tex = NULL;
-    }
+    UnloadTexture(s->tex);
+    s->tex = (Texture2D){0};
 }
 void stack_draw(const Stack *s, float x, float y, double a) {
     float fw = (float)s->sw;
     float fh = (float)s->h;
 
-    SDL_FPoint center = {
-        fw / 2.0f,
-        fh / 2.0f
-    };
-
     for (int i = 0; i < s->c; i++) {
-        SDL_FRect src = {
-            (float)(i * s->sw),
+        Rectangle src = {
+            (float)(i * fw),
             0,
             fw,
             fh
         };
 
-        SDL_FRect dst = {
+        Rectangle dst = {
             x - fw / 2.0f,
             y - fh / 2.0f - i,
             fw,
             fh
         };
 
-        SDL_RenderTextureRotated(
-            s->r,
+        DrawTexturePro(
             s->tex,
-            &src,
-            &dst,
+            src,
+            dst,
+            s->center,
             a,
-            &center,
-            SDL_FLIP_NONE
+            WHITE
         );
     }
 }

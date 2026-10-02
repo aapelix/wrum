@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cJSON.h>
-#include "SDL3/SDL_rect.h"
+#include "raylib.h"
 #include "stb_ds.h"
 
 static const int tileWidth = 6;
@@ -79,9 +79,9 @@ Tile* load_map(const char *path) {
         int col = index % tilesPerRow;
         int row = index / tilesPerRow;
 
-        SDL_FRect src = {
+        Rectangle src = {
             .x = col * tileWidth, .y = row * tileWidth,
-            .w = tileWidth, .h = tileWidth,
+            .width = tileWidth, .height = tileWidth,
         };
 
         if (x >= layerWidthPixels) {

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "SDL3/SDL_rect.h"
-typedef struct Camera {
+#include "raylib.h"
+typedef struct GameCamera {
     float x, y;
     double a;
-} Camera;
+} GameCamera;
 
-void camera_update(Camera *camera, SDL_FPoint target, double target_a, float dt);
+void camera_update(GameCamera *camera, Vector2 target, double target_a, float dt);
 
-SDL_FPoint camera_apply_pos(const Camera *camera, SDL_FPoint p);
-double camera_apply_a(const Camera *camera, double a);
+Vector2 camera_apply_pos(const GameCamera *camera, Vector2 p);
+double camera_apply_a(const GameCamera *camera, double a);

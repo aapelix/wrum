@@ -1,11 +1,10 @@
 #pragma once
 
-#include <SDL3/SDL.h>
 
+#include "raylib.h"
 typedef struct Stack {
-    SDL_Renderer *r;
-    SDL_Texture *tex;
-    SDL_FPoint center;
+    Texture2D tex;
+    Vector2 center;
 
     int sw;
     int w;
@@ -13,6 +12,6 @@ typedef struct Stack {
     int c;
 } Stack;
 
-bool stack_init(Stack *s, SDL_Renderer *r, const char *path, int sw);
+bool stack_init(Stack *s, const char *path, int sw);
 void stack_destroy(Stack *s);
 void stack_draw(const Stack *s, float x, float y, double a);

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "SDL3/SDL_stdinc.h"
 #include "net/proto.h"
+#include "raymath.h"
 #include <stdint.h>
 #define SNAPSHOT_BUF_CAP    32
 #define INTERP_DELAY_TICKS  6.0f   // ~100ms at TICK_RATE=60, SNAPSHOT_EVERY=2
@@ -48,8 +48,8 @@ static float flerp(float a, float b, float t) { return a + (b - a) * t; }
 
 static float lerp_angle(float a, float b, float t) {
     float d = b - a;
-    while (d > SDL_PI_F)  d -= 2.0f * SDL_PI_F;
-    while (d < -SDL_PI_F) d += 2.0f * SDL_PI_F;
+    while (d > PI)  d -= 2.0f * PI;
+    while (d < -PI) d += 2.0f * PI;
     return a + d * t;
 }
 
@@ -66,7 +66,7 @@ static void find_bracket(SnapshotBuffer *b, float render_tick,
 
     SnapshotEntry *a = snapbuf_at(b, lo), *c = snapbuf_at(b, hi);
     float t = (c->tick != a->tick)
-        ? SDL_clamp((render_tick - (float)a->tick) / (float)(c->tick - a->tick), 0.0f, 1.0f)
+        ? Clamp((render_tick - (float)a->tick) / (float)(c->tick - a->tick), 0.0f, 1.0f)
         : 0.0f;
     *out_a = a; *out_c = c; *out_t = t;
 }

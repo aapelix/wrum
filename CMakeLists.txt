@@ -37,8 +37,7 @@ set(SDLIMAGE_XPM OFF CACHE BOOL "" FORCE)
 set(SDLIMAGE_XV OFF CACHE BOOL "" FORCE)
 set(SDLIMAGE_AVIF OFF CACHE BOOL "" FORCE)
 
-add_subdirectory(vendor/SDL EXCLUDE_FROM_ALL)
-add_subdirectory(vendor/SDL_image EXCLUDE_FROM_ALL)
+add_subdirectory(vendor/raylib EXCLUDE_FROM_ALL)
 
 # game
 add_library(cJSON STATIC
@@ -66,7 +65,7 @@ add_executable(wrum
 )
 
 target_link_libraries(wrum
-    PRIVATE SDL3_image::SDL3_image SDL3::SDL3 cJSON
+    PRIVATE raylib cJSON
 )
 
 target_include_directories(wrum PRIVATE
@@ -91,7 +90,7 @@ if(NOT EMSCRIPTEN)
     )
 
     target_link_libraries(server
-        PRIVATE SDL3::SDL3 mongoose
+        PRIVATE raylib mongoose
     )
 
     target_include_directories(server PRIVATE
@@ -106,5 +105,6 @@ if(EMSCRIPTEN)
         "-lwebsocket.js"
     )
 
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s USE_GLFW=3 -s ASSERTIONS=1 -s WASM=1 -s ASYNCIFY -s GL_ENABLE_GET_PROC_ADDRESS=1")
     set(CMAKE_EXECUTABLE_SUFFIX ".html")
 endif()
