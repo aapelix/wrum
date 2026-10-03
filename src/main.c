@@ -147,6 +147,40 @@ static Input sample_input(void) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Sim                                                                        */
+/* -------------------------------------------------------------------------- */
+
+#define GHOST_RESTITUTION CAR_RESTITUTION
+
+static void client_predict_car_collisions(CarState *me_sim) {
+    for (int id = 0; id < MAX_CARS; id++) {
+        if (id == app.my_id || !app.car_active[id]) continue;
+        Car *other = &app.cars[id];
+        OBB ghost = { other->x, other->y, CAR_HALF_W, CAR_HALF_H, other->a * PI / 180.0f };
+        car_resolve_vs_obstacle(me_sim, ghost, GHOST_RESTITUTION);
+    }
+}
+static void client_sim_tick(void) {
+    Input in = sample_input();
+    in.seq = app.next_seq++;
+
+    Car *me = &app.cars[app.my_id];
+    app.prev_sim = me->sim;
+    car_step(&me->sim, in);
+    client_predict_car_collisions(&me->sim);
+
+    ring_push(&app.pending, in);
+
+    MsgInput msg = { .last_server_tick = app.last_server_tick };
+    build_input_msg(&app.pending, &msg);
+
+    uint8_t buf[MAX_PACKET];
+    Writer w = w_init(buf, sizeof buf);
+    w_msg_input(&w, &msg);
+    if (w.ok) transport_send(app.transport, app.server, CH_UNRELIABLE, buf, w.len);
+}
+
+/* -------------------------------------------------------------------------- */
 /* Net                                                                        */
 /* -------------------------------------------------------------------------- */
 
@@ -168,6 +202,7 @@ static void client_apply_snapshot(const MsgSnapshot *snap) {
             for (int j = 0; j < app.pending.len; j++) {
                 int idx = (app.pending.head + j) % PENDING_CAP;
                 car_step(&s, app.pending.items[idx]);
+                client_predict_car_collisions(&s);
             }
             me->sim = s;
 
@@ -235,39 +270,6 @@ static void client_poll_network(void) {
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Sim                                                                        */
-/* -------------------------------------------------------------------------- */
-
-#define GHOST_RESTITUTION CAR_RESTITUTION
-
-static void client_predict_car_collisions(CarState *me_sim) {
-    for (int id = 0; id < MAX_CARS; id++) {
-        if (id == app.my_id || !app.car_active[id]) continue;
-        Car *other = &app.cars[id];
-        OBB ghost = { other->x, other->y, CAR_HALF_W, CAR_HALF_H, other->a * PI / 180.0f };
-        car_resolve_vs_obstacle(me_sim, ghost, GHOST_RESTITUTION);
-    }
-}
-static void client_sim_tick(void) {
-    Input in = sample_input();
-    in.seq = app.next_seq++;
-
-    Car *me = &app.cars[app.my_id];
-    app.prev_sim = me->sim;
-    car_step(&me->sim, in);
-    client_predict_car_collisions(&me->sim);
-
-    ring_push(&app.pending, in);
-
-    MsgInput msg = { .last_server_tick = app.last_server_tick };
-    build_input_msg(&app.pending, &msg);
-
-    uint8_t buf[MAX_PACKET];
-    Writer w = w_init(buf, sizeof buf);
-    w_msg_input(&w, &msg);
-    if (w.ok) transport_send(app.transport, app.server, CH_UNRELIABLE, buf, w.len);
-}
 
 /* -------------------------------------------------------------------------- */
 /* Rendering state                                                            */

@@ -22,6 +22,7 @@ void car_resolve_vs_obstacle(CarState *car, OBB obstacle, float restitution) {
     car->x = cb.box.x; car->y = cb.box.y;
     car_apply_velocity(car, cb.vel);
 }
+
 void car_step(CarState *c, Input in) {
     float steer = Clamp(in.steer, -1, 1);
     float thr = Clamp(in.throttle, -1, 1);

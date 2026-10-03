@@ -40,7 +40,8 @@ void resolve_collision(CollisionBody *a, CollisionBody *b, float restitution) {
     float total_inv_mass = a->inv_mass + b->inv_mass;
     if (total_inv_mass <= 0.0f) return;
 
-    float corr = depth / total_inv_mass;
+    const float slop = 0.5f, percent = 0.8f;
+    float corr = fmaxf(depth - slop, 0.0f) * percent / total_inv_mass;
     a->box.x -= normal.x * corr * a->inv_mass;
     a->box.y -= normal.y * corr * a->inv_mass;
     b->box.x += normal.x * corr * b->inv_mass;
