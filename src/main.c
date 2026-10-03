@@ -60,6 +60,7 @@ static void build_input_msg(InputRing *r, MsgInput *out) {
 
 typedef struct App {
     RenderTexture2D canvas;
+    RenderTexture2D shadow_canvas;
 
     GameCamera camera;
     Map* map;
@@ -120,14 +121,14 @@ static bool app_init(void) {
     app.canvas = LoadRenderTexture(320, 180);
     SetTextureFilter(app.canvas.texture, TEXTURE_FILTER_POINT);
 
+    app.shadow_canvas = LoadRenderTexture(320, 180);
+
     app.camera = (GameCamera){0};
 
     // todo: get map from server and replace with this:
     // app->tiles = NULL;
     app.map = map_load("assets/maps/untitled.json");
     if (!app.map) return false;
-
-    TraceLog(LOG_INFO, "tiles: %d", (int)arrlenu(app.map->tiles));
 
     app.running = true;
     return true;
@@ -363,10 +364,28 @@ static void app_update(float dt) {
 /* -------------------------------------------------------------------------- */
 
 static void app_draw(void) {
+    BeginTextureMode(app.shadow_canvas);
+        ClearBackground(BLANK);
+        for (int i = 0; i < MAX_CARS; i++) {
+            if (app.car_active[i])
+                car_draw_shadow(
+                    &app.cars[i],
+                    &app.camera
+                );
+        }
+    EndTextureMode();
+
     BeginTextureMode(app.canvas);
         ClearBackground(BLACK);
 
         map_draw(app.map, &app.camera);
+
+        DrawTextureRec(
+            app.shadow_canvas.texture,
+            (Rectangle){ 0, 0, 320, -180 },
+            (Vector2){ 0, 0 },
+            (Color){ 255, 255, 255, 180 }
+        );
 
         for (int i = 0; i < MAX_CARS; i++) {
             if (app.car_active[i])
@@ -400,6 +419,7 @@ static void app_quit() {
     for (int i = 0; i < MAX_CARS; i++)
         if (app.car_active[i]) car_destroy(&app.cars[i]);
 
+    UnloadRenderTexture(app.shadow_canvas);
     UnloadRenderTexture(app.canvas);
 
     if (app.transport) transport_destroy(app.transport);
