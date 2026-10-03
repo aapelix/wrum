@@ -1,7 +1,7 @@
 # wrum
 
 todo:
-- tiles with sprite batching
-- shadows
+- y sort
+- more props
 - drift
 - particles
