@@ -127,6 +127,8 @@ static bool app_init(void) {
     app.tiles = load_map("assets/maps/untitled.json");
     if (!app.tiles) return false;
 
+    TraceLog(LOG_INFO, "tiles: %d", (int)arrlenu(app.tiles));
+
     app.running = true;
     return true;
 }
@@ -393,6 +395,8 @@ static void app_quit() {
 
     for (int i = 0; i < MAX_CARS; i++)
         if (app.car_active[i]) car_destroy(&app.cars[i]);
+
+    UnloadRenderTexture(app.canvas);
 
     if (app.transport) transport_destroy(app.transport);
 }

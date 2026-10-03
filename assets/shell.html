@@ -21,7 +21,13 @@
   </style>
 </head>
 <body>
-  <canvas id="canvas" width="1280" height="720"></canvas>
+  <canvas id="canvas" width="1280" height="720" oncontextmenu="event.preventDefault()"></canvas>
+
+  <script>
+    var Module = {
+      canvas: document.getElementById("canvas")
+    };
+  </script>
 
   {{{ SCRIPT }}}
 </body>
