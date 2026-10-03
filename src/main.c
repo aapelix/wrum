@@ -62,7 +62,7 @@ typedef struct App {
     RenderTexture2D canvas;
 
     GameCamera camera;
-    Tile* tiles;
+    Map* map;
 
     Car cars[MAX_CARS];
     bool car_active[MAX_CARS];
@@ -124,10 +124,10 @@ static bool app_init(void) {
 
     // todo: get map from server and replace with this:
     // app->tiles = NULL;
-    app.tiles = load_map("assets/maps/untitled.json");
-    if (!app.tiles) return false;
+    app.map = map_load("assets/maps/untitled.json");
+    if (!app.map) return false;
 
-    TraceLog(LOG_INFO, "tiles: %d", (int)arrlenu(app.tiles));
+    TraceLog(LOG_INFO, "tiles: %d", (int)arrlenu(app.map->tiles));
 
     app.running = true;
     return true;
@@ -364,7 +364,9 @@ static void app_update(float dt) {
 
 static void app_draw(void) {
     BeginTextureMode(app.canvas);
-        ClearBackground((Color){20, 255, 20, 255});
+        ClearBackground(BLACK);
+
+        map_draw(app.map, &app.camera);
 
         for (int i = 0; i < MAX_CARS; i++) {
             if (app.car_active[i])
@@ -393,7 +395,7 @@ static void app_draw(void) {
 /* -------------------------------------------------------------------------- */
 
 static void app_quit() {
-    arrfree(app.tiles);
+    map_destroy(app.map);
 
     for (int i = 0; i < MAX_CARS; i++)
         if (app.car_active[i]) car_destroy(&app.cars[i]);

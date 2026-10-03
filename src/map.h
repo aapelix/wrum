@@ -1,18 +1,18 @@
 #pragma once
 
+#include "camera.h"
 #include "raylib.h"
+
 typedef struct Tile {
-    float x, y;
+    Vector2 pos;
     Rectangle src;
 } Tile;
-
-// this prob should return Map*
-Tile* load_map(const char *path);
-
 typedef struct Map {
     Tile *tiles;
-    Texture2D *tileset;
+    Texture2D tileset;
 } Map;
 
-void map_draw(const Map *map);
+Map* map_load(const char *path);
+
+void map_draw(const Map *map, const GameCamera *cam);
 void map_destroy(Map *map);
