@@ -2,8 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cJSON.h>
+#include <string.h>
 #include "camera.h"
 #include "raylib.h"
+#include "stack.h"
 #include "stb_ds.h"
 
 static const int tileWidth = 16;
@@ -68,47 +70,86 @@ Map* map_load(const char *path) {
     cJSON *layerJson = NULL;
     int i = 0;
     cJSON_ArrayForEach(layerJson, layersJson) {
-        cJSON *layerWidthJson = cJSON_GetObjectItemCaseSensitive(layerJson, "width");
-        if (!cJSON_IsNumber(layerWidthJson))
+        cJSON *typeJson = cJSON_GetObjectItemCaseSensitive(layerJson, "type");
+        if (!cJSON_IsString(typeJson))
             goto fail;
 
-        int layerWidth = layerWidthJson->valueint;
-        int layerWidthPixels = layerWidth * tileWidth;
+        if (strcmp(typeJson->valuestring, "tilelayer") == 0) {
+            cJSON *layerWidthJson = cJSON_GetObjectItemCaseSensitive(layerJson, "width");
+            if (!cJSON_IsNumber(layerWidthJson))
+                goto fail;
 
-        cJSON *tilesJson = cJSON_GetObjectItemCaseSensitive(layerJson, "data");
-        if (!cJSON_IsArray(tilesJson))
-            goto fail;
+            int layerWidth = layerWidthJson->valueint;
+            int layerWidthPixels = layerWidth * tileWidth;
 
-        float x = 0;
-        float y = 0;
-        cJSON *tileJson = NULL;
-        cJSON_ArrayForEach(tileJson, tilesJson) {
-            if (x >= layerWidthPixels) {
-                x = 0;
-                y += tileWidth;
-            }
+            cJSON *tilesJson = cJSON_GetObjectItemCaseSensitive(layerJson, "data");
+            if (!cJSON_IsArray(tilesJson))
+                goto fail;
 
-            int index = tileJson->valueint;
-            if (index == 0) {
+            float x = 0;
+            float y = 0;
+            cJSON *tileJson = NULL;
+            cJSON_ArrayForEach(tileJson, tilesJson) {
+                if (x >= layerWidthPixels) {
+                    x = 0;
+                    y += tileWidth;
+                }
+
+                int index = tileJson->valueint;
+                if (index == 0) {
+                    x += tileWidth;
+                    continue;
+                }
+                index -= 1;
+
+                int col = index % tilesPerRow;
+                int row = index / tilesPerRow;
+
+                Rectangle src = {
+                    .x = col * tileWidth, .y = row * tileWidth,
+                    .width = tileWidth, .height = tileWidth,
+                };
+
+                Vector2 pos = { .x = x, .y = y };
+                Tile tile = { .pos = pos, .src = src };
+                arrput(map->layers[i].tiles, tile);
+
                 x += tileWidth;
-                continue;
             }
-            index -= 1;
+        } else if (strcmp(typeJson->valuestring, "objectgroup") == 0) {
+            cJSON *objectsJson = cJSON_GetObjectItemCaseSensitive(layerJson, "objects");
+            if (!cJSON_IsArray(objectsJson))
+                goto fail;
 
-            int col = index % tilesPerRow;
-            int row = index / tilesPerRow;
+            cJSON *objectJson = NULL;
+            cJSON_ArrayForEach(objectJson, objectsJson) {
+                cJSON *xJson = cJSON_GetObjectItemCaseSensitive(objectJson, "x");
+                if (!cJSON_IsNumber(xJson))
+                    goto fail;
 
-            Rectangle src = {
-                .x = col * tileWidth, .y = row * tileWidth,
-                .width = tileWidth, .height = tileWidth,
-            };
+                cJSON *yJson = cJSON_GetObjectItemCaseSensitive(objectJson, "y");
+                if (!cJSON_IsNumber(yJson))
+                    goto fail;
 
-            Vector2 pos = { .x = x, .y = y };
-            Tile tile = { .pos = pos, .src = src };
-            arrput(map->layers[i].tiles, tile);
+                int x = xJson->valueint, y = yJson->valueint;
 
-            x += tileWidth;
+                cJSON *type = cJSON_GetObjectItemCaseSensitive(objectJson, "type");
+
+                if (cJSON_IsString(type) && strcmp(type->valuestring, "fence") == 0) {
+                    Prop prop = {
+                        .pos = (Vector2){x, y},
+                        .a = 0
+                    };
+
+                    if (!stack_init(&prop.stack, "assets/fence.png", 20))
+                        goto fail;
+
+
+                    arrput(map->props, prop);
+                }
+            }
         }
+
         i++;
     }
 
@@ -122,7 +163,7 @@ fail:
     return NULL;
 }
 
-void map_draw(const Map *map, const GameCamera *cam) {
+void map_draw_layers(const Map *map, const GameCamera *cam) {
     for (int i = 0; i < MAX_LAYERS; i++) {
         Layer layer = map->layers[i];
         for (int i = 0; i < arrlenu(layer.tiles); i++) {
@@ -136,13 +177,32 @@ void map_draw(const Map *map, const GameCamera *cam) {
             );
         }
     }
-
+}
+void map_draw_props(const Map *map, const GameCamera *cam) {
+    for (int i = 0; i < arrlenu(map->props); i++) {
+        Prop prop = map->props[i];
+        float a = camera_apply_a(cam, prop.a);
+        Vector2 world = camera_apply_pos(cam, prop.pos);
+        stack_draw(&prop.stack, world.x, world.y, a);
+    }
+}
+void map_draw_shadows(const Map *map, const GameCamera *cam) {
+    for (int i = 0; i < arrlenu(map->props); i++) {
+        Prop prop = map->props[i];
+        float a = camera_apply_a(cam, prop.a);
+        Vector2 world = camera_apply_pos(cam, prop.pos);
+        stack_draw_shadow(&prop.stack, world.x, world.y, a);
+    }
 }
 
 void map_destroy(Map *map) {
     if (!map)
         return;
 
+    for (int i = 0; i < arrlenu(map->props); i++) {
+        stack_destroy(&map->props[i].stack);
+    }
+    arrfree(map->props);
     for (int i = 0; i < MAX_LAYERS; i++) {
         arrfree(map->layers[i].tiles);
     }

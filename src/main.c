@@ -366,6 +366,8 @@ static void app_update(float dt) {
 static void app_draw(void) {
     BeginTextureMode(app.shadow_canvas);
         ClearBackground(BLANK);
+        map_draw_shadows(app.map, &app.camera);
+
         for (int i = 0; i < MAX_CARS; i++) {
             if (app.car_active[i])
                 car_draw_shadow(
@@ -378,7 +380,7 @@ static void app_draw(void) {
     BeginTextureMode(app.canvas);
         ClearBackground(BLACK);
 
-        map_draw(app.map, &app.camera);
+        map_draw_layers(app.map, &app.camera);
 
         DrawTextureRec(
             app.shadow_canvas.texture,
@@ -386,6 +388,8 @@ static void app_draw(void) {
             (Vector2){ 0, 0 },
             (Color){ 255, 255, 255, 180 }
         );
+
+        map_draw_props(app.map, &app.camera);
 
         for (int i = 0; i < MAX_CARS; i++) {
             if (app.car_active[i])

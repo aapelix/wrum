@@ -84,11 +84,6 @@ void car_draw_shadow(const Car *c, const GameCamera *cam) {
     float s = sinf(rad);
     float co = cosf(rad);
 
-    Vector2 offset = {
-        shadow_offset.x * co - shadow_offset.y * s,
-        shadow_offset.x * s + shadow_offset.y * co
-    };
-
     Vector2 shadow_pos = {
         c->x + shadow_offset.x,
         c->y + shadow_offset.y
