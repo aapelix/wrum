@@ -62,6 +62,10 @@ add_executable(wrum
     src/collision.c
     src/map.c
     src/level.c
+    src/scene/scene.c
+    src/scene/game_scene.c
+    src/scene/menu_scene.c
+    src/scene/general.c
     ${TRANSPORT_SRC}
 )
 

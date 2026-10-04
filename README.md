@@ -1,7 +1,7 @@
 # wrum
 
 todo:
-- lobbies
+- connecting... scene
 - water, bridges
 - grass, trees
 - culling
