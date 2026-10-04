@@ -10,7 +10,7 @@ build:
     cmake --build {{native_debug}}
 
 run: build
-    ./{{native_debug}}/wrum
+    PORT=7777 HOST=127.0.0.1 ./{{native_debug}}/wrum
 
 release:
     cmake -S . -B {{native_release}} -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -20,10 +20,10 @@ run-release: release
     ./{{native_release}}/wrum
 
 server: server-build
-    ./{{native_debug}}/server
+    PORT=8888 ./{{native_debug}}/server
 
 server-build:
-    cmake -S . -B {{native_debug}} -G Ninja -DCMAKE_BUILD_TYPE=Debug
+    cmake -S . -B {{native_debug}} -G Ninja -DCMAKE_BUILD_TYPE=Debug -DWRUM_SERVER_ONLY=ON
     cmake --build {{native_debug}} --target server
 
 web:

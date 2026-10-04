@@ -66,7 +66,7 @@ static const TransportOps WS_OPS = {
     .destroy = ws_t_destroy, .peer_set_data = ws_t_peer_set_data, .peer_get_data = ws_t_peer_get_data,
 };
 
-Transport *transport_ws_connect(const char *hostname, uint16_t port) {
+Transport *transport_ws_connect(const char *host) {
     if (!emscripten_websocket_is_supported()) return NULL;
 
     WsTransport *t = calloc(1, sizeof *t);
@@ -74,7 +74,7 @@ Transport *transport_ws_connect(const char *hostname, uint16_t port) {
     t->base.ops = &WS_OPS;
 
     static char url[256];
-    snprintf(url, sizeof url, "ws://%s:%u/ws", hostname, (unsigned)port);
+    snprintf(url, sizeof url, "%s", host);
 
     EmscriptenWebSocketCreateAttributes attr;
     emscripten_websocket_init_create_attributes(&attr);

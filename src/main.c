@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "raylib.h"
-#include "scene/menu_scene.h"
 #include "scene/general.h"
 #include "scene/scene.h"
 
@@ -19,15 +18,23 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
-#define SERVER_HOST "127.0.0.1"
 #define SERVER_PORT 7777
-#define SERVER_WS_PORT 8888
 
 /* -------------------------------------------------------------------------- */
 /* App                                                                        */
 /* -------------------------------------------------------------------------- */
 
 App app;
+
+#ifdef __EMSCRIPTEN__
+
+EM_JS(void, get_ws_url, (char *out, int max_len), {
+    const protocol = location.protocol === "https:" ? "wss" : "ws";
+    const url = protocol + "://" + (location.host == "localhost:8000" ? "localhost:8888" : location.host) + "/ws";
+    stringToUTF8(url, out, max_len);
+});
+
+#endif
 
 static void client_poll_network(void) {
     NetEvent ev;
@@ -80,11 +87,33 @@ int main(void) {
     SetTextureFilter(app.canvas.texture, TEXTURE_FILTER_POINT);
 
     #ifdef __EMSCRIPTEN__
-        app.net.transport = transport_ws_connect(SERVER_HOST, SERVER_WS_PORT);
+        char ws_url[256];
+        get_ws_url(ws_url, sizeof ws_url);
+        TraceLog(LOG_INFO, "connecting to %s", ws_url);
+        app.net.transport = transport_ws_connect(ws_url);
     #else
-        app.net.transport = transport_enet_connect(SERVER_HOST, SERVER_PORT);
+
+        const char *host = getenv("HOST");
+        const char *port = getenv("PORT");
+
+        if (!host) {
+            fprintf(stderr, "HOST is not set\n");
+            return 1;
+        }
+        if (!port) {
+            fprintf(stderr, "PORT is not set\n");
+            return 1;
+        }
+
+        uint16_t port_number = (uint16_t)strtoul(port, NULL, 10);
+        app.net.transport = transport_enet_connect(host, port_number);
     #endif
-    if (!app.net.transport) { TraceLog(LOG_ERROR, "could not start connecting"); return 1; }
+    if (!app.net.transport) {
+        TraceLog(LOG_ERROR, "could not start connecting");
+        UnloadRenderTexture(app.canvas);
+        CloseWindow();
+        return 1;
+    }
 
     scene_manager_init();
     scene_switch(make_connecting_scene());
@@ -97,8 +126,11 @@ int main(void) {
     #endif
 
     scene_manager_destroy();
+
+    if (app.net.transport)
+        transport_destroy(app.net.transport);
+
     UnloadRenderTexture(app.canvas);
-    if (app.net.transport) transport_destroy(app.net.transport);
     CloseWindow();
     return 0;
 }

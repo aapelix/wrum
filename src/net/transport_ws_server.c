@@ -5,7 +5,7 @@
 #include "proto.h"
 
 #define EVENT_QUEUE_CAP 64
-#define MAX_WS_PEERS    MAX_CARS
+#define MAX_WS_PEERS    MAX_CLIENTS
 
 typedef struct {
     struct mg_connection *c;
@@ -43,8 +43,19 @@ static void queue_push(NetEventType type, WsPeer *peer, const void *data, size_t
 static void mg_event_fn(struct mg_connection *c, int ev, void *ev_data) {
     if (ev == MG_EV_HTTP_MSG) {
         struct mg_http_message *hm = (struct mg_http_message *)ev_data;
-        if (mg_match(hm->uri, mg_str("/ws"), NULL)) mg_ws_upgrade(c, hm, NULL);
-        else mg_http_reply(c, 404, "", "not found");
+        if (mg_match(hm->uri, mg_str("/ws"), NULL)) {
+            mg_ws_upgrade(c, hm, NULL);
+            return;
+        }
+        if (mg_match(hm->uri, mg_str("/"), NULL)) {
+            mg_http_serve_file(c, hm, "web/wrum.html", NULL);
+            return;
+        }
+        const char *root = getenv("WRUM_WEB_ROOT");
+        if (!root)
+            root = "build/web-release";
+        struct mg_http_serve_opts opts = { .root_dir = root };
+        mg_http_serve_dir(c, hm, &opts);
     } else if (ev == MG_EV_WS_OPEN) {
         WsServerTransport *t = g_instance;
         WsPeer *peer = t ? alloc_peer(t) : NULL;
@@ -103,14 +114,12 @@ static const TransportOps WS_SERVER_OPS = {
     .destroy = wsserver_t_destroy, .peer_set_data = wsserver_t_peer_set_data, .peer_get_data = wsserver_t_peer_get_data,
 };
 
-Transport *transport_ws_server_host(uint16_t port) {
+Transport *transport_ws_server_host(const char *url) {
     if (g_instance) return NULL;
     WsServerTransport *t = calloc(1, sizeof *t);
     if (!t) return NULL;
     t->base.ops = &WS_SERVER_OPS;
     mg_mgr_init(&t->mgr);
-    char url[64];
-    snprintf(url, sizeof url, "http://0.0.0.0:%u", (unsigned)port);
     if (!mg_http_listen(&t->mgr, url, mg_event_fn, NULL)) { mg_mgr_free(&t->mgr); free(t); return NULL; }
     g_instance = t;
     return &t->base;

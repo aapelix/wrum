@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 #define WALL_RESTITUTION 0.4f
+#define PI 3.14159265358979323846f
 
 static char *read_file(const char *path) {
     FILE *file = fopen(path, "rb");
@@ -21,7 +22,7 @@ static char *read_file(const char *path) {
 }
 
 static OBB obb_from_tiled_rect(float x, float y, float w, float h, float rotation_deg) {
-    float rad = rotation_deg * (float)M_PI / 180.0f;
+    float rad = rotation_deg * (float)PI / 180.0f;
     float cos_r = cosf(rad), sin_r = sinf(rad);
     float lx = w * 0.5f, ly = h * 0.5f;
     float wx = x + lx * cos_r - ly * sin_r;

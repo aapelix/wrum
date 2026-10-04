@@ -24,12 +24,8 @@ static void sleep_sec(double s) {
 }
 
 #define SERVER_PORT      7777
-#define SERVER_WS_PORT   8888
 #define SNAPSHOT_EVERY   2
 #define QUEUE_CAP        8
-
-#define MAX_LOBBIES 64
-#define MAX_CLIENTS (MAX_LOBBIES * MAX_CARS)
 
 static const char *CODE_ADJECTIVES[] = {
     "SOGGY","ANGRY","TURBO","RUSTY","SPICY","GREASY","WOBBLY","HAUNTED",
@@ -333,16 +329,32 @@ int main(void) {
     s.level = level_load("assets/maps/untitled.json");
     if (!s.level) { fprintf(stderr, "failed to load level\n"); return 1; }
 
-    s.transports[s.n_transports++] = transport_enet_host(SERVER_PORT, MAX_CARS);
+    Transport *enet = transport_enet_host(SERVER_PORT, MAX_CARS);
+    if (!enet) {
+        fprintf(stderr, "failed to start ENet server on port %d\n", SERVER_PORT);
+        return 1;
+    }
 
-    Transport *ws = transport_ws_server_host(SERVER_WS_PORT);
-    if (ws)
-        s.transports[s.n_transports++] = ws;
-    else
+    s.transports[s.n_transports++] = enet;
+
+    const char *port = getenv("PORT");
+    if (!port) {
+        fprintf(stderr, "PORT is not set\n");
+        return 1;
+    }
+
+    char ws_url[64];
+    snprintf(ws_url, sizeof ws_url, "http://0.0.0.0:%s", port);
+
+    Transport *ws = transport_ws_server_host(ws_url);
+    if (!ws){
         fprintf(stderr, "warning: WS listener failed, browser clients can't connect\n");
+        return 1;
+    }
+    s.transports[s.n_transports++] = ws;
 
     printf("server listening on port %d\n", SERVER_PORT);
-    printf("ws server listening on port %d\n", SERVER_WS_PORT);
+    printf("ws server listening on %s\n", ws_url);
 
     double last = now_sec();
     float acc = 0.0f;

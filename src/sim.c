@@ -1,6 +1,7 @@
 #include "sim.h"
-#include "raymath.h"
 #include <math.h>
+
+#define PI 3.14159265358979323846f
 
 static const float max_v = 200.0f;
 static const float acc = 5.0f;
@@ -24,8 +25,8 @@ void car_resolve_vs_obstacle(CarState *car, OBB obstacle, float restitution) {
 }
 
 void car_step(CarState *c, Input in) {
-    float steer = Clamp(in.steer, -1, 1);
-    float thr = Clamp(in.throttle, -1, 1);
+    float steer = fminf(fmaxf(in.steer, -1.0f), 1.0f);
+    float thr   = fminf(fmaxf(in.throttle, -1.0f), 1.0f);
 
     c->speed = approach(c->speed, thr * max_v, thr != 0.0f ? acc : drag);
     c->tire = approach(c->tire, steer * max_a, steer != 0.0f ? tire_ts : tire_rs);

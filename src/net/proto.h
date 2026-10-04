@@ -28,6 +28,8 @@ enum { REJECT_VERSION_MISMATCH = 1, REJECT_SERVER_FULL = 2,
     REJECT_LOBBY_NOT_FOUND = 3, REJECT_LOBBY_FULL = 4 };
 
 #define LOBBY_CODE_LEN 24
+#define MAX_LOBBIES 64
+#define MAX_CLIENTS (MAX_LOBBIES * MAX_CARS)
 
 static void w_input(Writer *w, const Input *in) {
     w_u32(w, in->seq);

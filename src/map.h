@@ -23,15 +23,22 @@ typedef struct Prop {
 typedef struct Map {
     Layer layers[MAX_LAYERS];
     Prop *props;
+
+    Rectangle *water;
+    Shader water_shader;
+    int loc_time, loc_origin, loc_inv;
+
     Texture2D tileset;
 } Map;
 
 Map* map_load(const char *path);
 
-void map_draw_layers(const Map *map, const GameCamera *cam);
 int map_prop_count(const Map *map);
 Vector2 map_prop_pos(const Map *map, int index);
+
+void map_draw_layers(const Map *map, const GameCamera *cam);
 void map_draw_prop(const Map *map, int index, const GameCamera *cam);
 void map_draw_shadows(const Map *map, const GameCamera *cam);
+void map_draw_water(const Map *map, const GameCamera *cam);
 
 void map_destroy(Map *map);
