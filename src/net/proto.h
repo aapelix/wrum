@@ -12,6 +12,9 @@ enum {
     MSG_HELLO = 1,
     MSG_INPUT = 2,
     MSG_PING  = 3,
+    MSG_QUICKPLAY    = 4, // empty
+    MSG_CREATE_LOBBY = 5, // empty
+    MSG_JOIN_LOBBY   = 6,
     // server -> client
     MSG_WELCOME  = 32,
     MSG_SNAPSHOT = 33,
@@ -21,7 +24,10 @@ enum {
 
 enum { ENT_CAR = 1 };
 enum { BTN_HORN = 1 << 0, BTN_BOOST = 1 << 1, BTN_HANDBRAKE = 1 << 2 };
-enum { REJECT_VERSION_MISMATCH = 1, REJECT_SERVER_FULL = 2 };
+enum { REJECT_VERSION_MISMATCH = 1, REJECT_SERVER_FULL = 2,
+    REJECT_LOBBY_NOT_FOUND = 3, REJECT_LOBBY_FULL = 4 };
+
+#define LOBBY_CODE_LEN 24
 
 static void w_input(Writer *w, const Input *in) {
     w_u32(w, in->seq);
@@ -61,6 +67,10 @@ typedef struct {
     Input    inputs[INPUT_REDUNDANCY];   // oldest first
 } MsgInput;
 
+typedef struct {
+    char code[LOBBY_CODE_LEN];
+} MsgJoinLobby;
+
 static void w_hello(Writer *w, const MsgHello *m) {
     size_t at = msg_begin(w, MSG_HELLO);
     w_u8(w, m->version);
@@ -93,11 +103,36 @@ static bool r_msg_input(Reader *r, MsgInput *m) {
     return r->ok;
 }
 
+static void w_join_lobby(Writer *w, const MsgJoinLobby *m) {
+    size_t at = msg_begin(w, MSG_JOIN_LOBBY);
+    uint8_t n = (uint8_t)strnlen(m->code, sizeof m->code - 1);
+    w_u8(w, n);
+    for (int i = 0; i < n; i++) w_u8(w, (uint8_t)m->code[i]);
+    msg_end(w, at);
+}
+static bool r_join_lobby(Reader *r, MsgJoinLobby *m) {
+    uint8_t n = r_u8(r);
+    if (n > sizeof m->code - 1) return false;
+    for (int i = 0; i < n; i++) m->code[i] = (char)r_u8(r);
+    m->code[n] = 0;
+    return r->ok;
+}
+
+static void w_quickplay(Writer *w) {
+    size_t at = msg_begin(w, MSG_QUICKPLAY);
+    msg_end(w, at);
+}
+static void w_create_lobby(Writer *w) {
+    size_t at = msg_begin(w, MSG_CREATE_LOBBY);
+    msg_end(w, at);
+}
+
 // ---------- server -> client ----------
 typedef struct {
     uint8_t  your_id;
     uint8_t  tick_rate;
     CarState spawn;
+    char lobby_code[LOBBY_CODE_LEN];
 } MsgWelcome;
 
 typedef struct { uint8_t id, type; CarState car; } Entity;
@@ -116,12 +151,19 @@ static void w_welcome(Writer *w, const MsgWelcome *m) {
     w_u8(w, m->your_id);
     w_u8(w, m->tick_rate);
     w_car(w, &m->spawn);
+    uint8_t n = (uint8_t)strnlen(m->lobby_code, sizeof m->lobby_code - 1);
+    w_u8(w, n);
+    for (int i = 0; i < n; i++) w_u8(w, (uint8_t)m->lobby_code[i]);
     msg_end(w, at);
 }
 static bool r_welcome(Reader *r, MsgWelcome *m) {
     m->your_id = r_u8(r);
     m->tick_rate = r_u8(r);
     m->spawn = r_car(r);
+    uint8_t n = r_u8(r);
+    if (n > sizeof m->lobby_code - 1) return false;
+    for (int i = 0; i < n; i++) m->lobby_code[i] = (char)r_u8(r);
+    m->lobby_code[n] = 0;
     return r->ok;
 }
 

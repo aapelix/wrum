@@ -110,6 +110,7 @@ typedef struct App {
     uint8_t my_id;
     uint32_t next_seq;
     uint32_t last_server_tick;
+    char lobby_code[LOBBY_CODE_LEN];
 
     InputRing pending;
 
@@ -224,6 +225,25 @@ static void client_sim_tick(void) {
 /* Net                                                                        */
 /* -------------------------------------------------------------------------- */
 
+
+static void send_empty_msg(uint8_t type) {
+    uint8_t buf[8];
+    Writer w = w_init(buf, sizeof buf);
+    size_t at = msg_begin(&w, type);
+    msg_end(&w, at);
+    if (w.ok) transport_send(app.transport, app.server, CH_RELIABLE, buf, w.len);
+}
+static void client_quickplay(void)    { send_empty_msg(MSG_QUICKPLAY); }
+static void client_create_lobby(void) { send_empty_msg(MSG_CREATE_LOBBY); }
+static void client_join_lobby(const char *code) {
+    MsgJoinLobby msg = {0};
+    TextCopy(msg.code, code);
+    uint8_t buf[64];
+    Writer w = w_init(buf, sizeof buf);
+    w_join_lobby(&w, &msg);
+    if (w.ok) transport_send(app.transport, app.server, CH_RELIABLE, buf, w.len);
+}
+
 static void client_apply_snapshot(const MsgSnapshot *snap) {
     app.last_server_tick = snap->server_tick;
 
@@ -273,6 +293,7 @@ static void client_poll_network(void) {
             w_hello(&w, &hello);
             if (w.ok) transport_send(app.transport, app.server, CH_RELIABLE, buf, w.len);
             TraceLog(LOG_INFO, "connected, sent hello");
+            client_quickplay();
             break;
         case NET_DISCONNECT:
             app.connected = false;
@@ -289,20 +310,19 @@ static void client_poll_network(void) {
                         app.my_id = w.your_id;
                         ensure_car(w.your_id, w.spawn);
                         app.connected = true;
-                        TraceLog(LOG_INFO, "connected as id %d", app.my_id);
+                        TextCopy(app.lobby_code, w.lobby_code);
+                        TraceLog(LOG_INFO, app.lobby_code[0] ? "joined private lobby %s" : "joined a public lobby", app.lobby_code);
                     }
                 } else if (m.type == MSG_SNAPSHOT) {
                     MsgSnapshot snap;
                     if (r_snapshot(&m.body, &snap)) client_apply_snapshot(&snap);
                 } else if (m.type == MSG_REJECT) {
                     MsgReject rej;
-                    if (r_reject(&m.body, &rej))
-                        TraceLog(
-                            LOG_ERROR,
-                            "server rejected connection (reason=%d)",
-                            rej.reason
-                        );
-                    app.running = false;
+                    if (r_reject(&m.body, &rej)){
+                        TraceLog(LOG_ERROR, "rejected (reason=%d)", rej.reason);
+                        if (rej.reason == REJECT_VERSION_MISMATCH || rej.reason == REJECT_SERVER_FULL)
+                            app.running = false;
+                    }
                 }
             }
             break;
@@ -310,7 +330,6 @@ static void client_poll_network(void) {
         }
     }
 }
-
 
 /* -------------------------------------------------------------------------- */
 /* Rendering state                                                            */
