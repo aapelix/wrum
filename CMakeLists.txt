@@ -61,6 +61,7 @@ add_executable(wrum
     src/sim.c
     src/collision.c
     src/map.c
+    src/level.c
     ${TRANSPORT_SRC}
 )
 
@@ -80,6 +81,7 @@ if(NOT EMSCRIPTEN)
         src/net/transport_enet.c
         src/net/transport_ws_server.c
         src/collision.c
+        src/level.c
     )
 
     add_library(mongoose STATIC
@@ -90,7 +92,7 @@ if(NOT EMSCRIPTEN)
     )
 
     target_link_libraries(server
-        PRIVATE raylib mongoose
+        PRIVATE raylib mongoose cJSON
     )
 
     target_include_directories(server PRIVATE

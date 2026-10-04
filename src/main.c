@@ -1,11 +1,13 @@
 #include "bytes.h"
 #include "camera.h"
 #include "interp.h"
+#include "level.h"
 #include "map.h"
 #include "net/proto.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "raylib.h"
 #include "raymath.h"
 
@@ -58,12 +60,45 @@ static void build_input_msg(InputRing *r, MsgInput *out) {
     for (int i = 0; i < n; i++) out->inputs[i] = r->items[(start + i) % PENDING_CAP];
 }
 
+/* -------------------------------------------------------------------------- */
+/* Y-sort                                                                     */
+/* -------------------------------------------------------------------------- */
+
+typedef enum { DR_CAR, DR_PROP } DrawKind;
+
+typedef struct {
+    float key;
+    DrawKind kind;
+    int index;
+} Drawable;
+
+#define MAX_DRAWABLES 1024
+static Drawable drawlist[MAX_DRAWABLES];
+static int draw_n;
+
+static void draw_push(float key, DrawKind kind, int index) {
+    if (draw_n < MAX_DRAWABLES)
+        drawlist[draw_n++] = (Drawable){ key, kind, index };
+}
+static int draw_cmp(const void *a, const void *b) {
+    const Drawable *x = a, *y = b;
+    if (x->key < y->key) return -1;
+    if (x->key > y->key) return 1;
+    if (x->kind != y->kind) return x->kind - y->kind;
+    return x->index - y->index;
+}
+
+/* -------------------------------------------------------------------------- */
+/* App                                                                        */
+/* -------------------------------------------------------------------------- */
+
 typedef struct App {
     RenderTexture2D canvas;
     RenderTexture2D shadow_canvas;
 
     GameCamera camera;
     Map* map;
+    Level *level;
 
     Car cars[MAX_CARS];
     bool car_active[MAX_CARS];
@@ -130,6 +165,9 @@ static bool app_init(void) {
     app.map = map_load("assets/maps/untitled.json");
     if (!app.map) return false;
 
+    app.level = level_load("assets/maps/untitled.json");
+    if (!app.level) return false;
+
     app.running = true;
     return true;
 }
@@ -168,6 +206,7 @@ static void client_sim_tick(void) {
     Car *me = &app.cars[app.my_id];
     app.prev_sim = me->sim;
     car_step(&me->sim, in);
+    level_resolve_car(app.level, &me->sim);
     client_predict_car_collisions(&me->sim);
 
     ring_push(&app.pending, in);
@@ -203,6 +242,7 @@ static void client_apply_snapshot(const MsgSnapshot *snap) {
             for (int j = 0; j < app.pending.len; j++) {
                 int idx = (app.pending.head + j) % PENDING_CAP;
                 car_step(&s, app.pending.items[idx]);
+                level_resolve_car(app.level, &s);
                 client_predict_car_collisions(&s);
             }
             me->sim = s;
@@ -389,14 +429,27 @@ static void app_draw(void) {
             (Color){ 255, 255, 255, 180 }
         );
 
-        map_draw_props(app.map, &app.camera);
+        draw_n = 0;
 
         for (int i = 0; i < MAX_CARS; i++) {
-            if (app.car_active[i])
-                car_draw(
-                    &app.cars[i],
-                    &app.camera
-                );
+            if (!app.car_active[i]) continue;
+            Vector2 p = camera_apply_pos(&app.camera, (Vector2){ app.cars[i].x, app.cars[i].y });
+            draw_push(p.y, DR_CAR, i);
+        }
+
+        for (int i = 0; i < map_prop_count(app.map); i++) {
+            Vector2 w = map_prop_pos(app.map, i);
+            Vector2 p = camera_apply_pos(&app.camera, w);
+            // if (p.x < -64 || p.x > 384 || p.y < -64 || p.y > 244) continue;
+            draw_push(p.y, DR_PROP, i);
+        }
+
+        qsort(drawlist, draw_n, sizeof(Drawable), draw_cmp);
+
+        for (int i = 0; i < draw_n; i++) {
+            Drawable *d = &drawlist[i];
+            if (d->kind == DR_CAR) car_draw(&app.cars[d->index], &app.camera);
+            else                   map_draw_prop(app.map, d->index, &app.camera);
         }
     EndTextureMode();
 
@@ -419,6 +472,7 @@ static void app_draw(void) {
 
 static void app_quit() {
     map_destroy(app.map);
+    level_destroy(app.level);
 
     for (int i = 0; i < MAX_CARS; i++)
         if (app.car_active[i]) car_destroy(&app.cars[i]);

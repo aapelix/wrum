@@ -178,13 +178,17 @@ void map_draw_layers(const Map *map, const GameCamera *cam) {
         }
     }
 }
-void map_draw_props(const Map *map, const GameCamera *cam) {
-    for (int i = 0; i < arrlenu(map->props); i++) {
-        Prop prop = map->props[i];
-        float a = camera_apply_a(cam, prop.a);
-        Vector2 world = camera_apply_pos(cam, prop.pos);
-        stack_draw(&prop.stack, world.x, world.y, a);
-    }
+Vector2 map_prop_pos(const Map *map, int index) {
+    return map->props[index].pos;
+}
+int map_prop_count(const Map *map) {
+    return arrlenu(map->props);
+}
+void map_draw_prop(const Map *map, int index, const GameCamera *cam) {
+    Prop prop = map->props[index];
+    float a = camera_apply_a(cam, prop.a);
+    Vector2 world = camera_apply_pos(cam, prop.pos);
+    stack_draw(&prop.stack, world.x, world.y, a);
 }
 void map_draw_shadows(const Map *map, const GameCamera *cam) {
     for (int i = 0; i < arrlenu(map->props); i++) {

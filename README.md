@@ -1,7 +1,10 @@
 # wrum
 
 todo:
-- y sort
+- lobbies
+- water, bridges
+- grass, trees
+- culling
 - more props
 - drift
 - particles

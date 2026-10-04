@@ -1,4 +1,5 @@
 #include "bytes.h"
+#include "level.h"
 #include "net/proto.h"
 #include "sim.h"
 #include "net/transport.h"
@@ -8,6 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h"
 
 static double now_sec(void) {
     struct timespec ts;
@@ -48,6 +51,7 @@ typedef struct Server {
     int n_transports;
     Client clients[MAX_CARS];
     uint32_t tick;
+    Level *level;
 } Server;
 
 static Client *alloc_client(Server *s) {
@@ -172,6 +176,7 @@ static void server_sim_tick(Server *s) {
             c->last_seq_applied = c->last_input.seq;
         }
         car_step(&c->car, c->last_input);
+        level_resolve_car(s->level, &c->car);
     }
     for (int i = 0; i < MAX_CARS; i++) {
         if (!s->clients[i].active) continue;
@@ -205,6 +210,9 @@ static void server_send_snapshots(Server *s) {
 
 int main(void) {
     Server s = {0};
+
+    s.level = level_load("assets/maps/untitled.json");
+    if (!s.level) { fprintf(stderr, "failed to load level\n"); return 1; }
 
     s.transports[s.n_transports++] = transport_enet_host(SERVER_PORT, MAX_CARS);
 
