@@ -76,7 +76,7 @@ var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIR
 
 // --pre-jses are emitted after the Module integration code, so that they can
 // refer to Module (if they choose; they can also define Module)
-// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmp1v8ikk5n.js
+// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpmgkdp32m.js
 
   if (!Module['expectedDataFileDownloads']) Module['expectedDataFileDownloads'] = 0;
   Module['expectedDataFileDownloads']++;
@@ -207,21 +207,21 @@ Module['FS_createPath']("/assets", "maps", true, true);
 
   })();
 
-// end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmp1v8ikk5n.js
-// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpxuc1dadf.js
+// end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpmgkdp32m.js
+// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpz96szxxq.js
 
     // All the pre-js content up to here must remain later on, we need to run
     // it.
     if ((typeof ENVIRONMENT_IS_WASM_WORKER != 'undefined' && ENVIRONMENT_IS_WASM_WORKER) || (typeof ENVIRONMENT_IS_PTHREAD != 'undefined' && ENVIRONMENT_IS_PTHREAD) || (typeof ENVIRONMENT_IS_AUDIO_WORKLET != 'undefined' && ENVIRONMENT_IS_AUDIO_WORKLET)) Module['preRun'] = [];
     var necessaryPreJSTasks = Module['preRun'].slice();
-  // end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpxuc1dadf.js
-// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmplh6joa58.js
+  // end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpz96szxxq.js
+// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpqui57w9a.js
 
     if (!Module['preRun']) throw 'Module.preRun should exist because file support used it; did a pre-js delete it?';
     necessaryPreJSTasks.forEach((task) => {
       if (Module['preRun'].indexOf(task) < 0) throw 'All preRun tasks that exist before user pre-js code should remain after; did you replace Module or modify Module.preRun?';
     });
-  // end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmplh6joa58.js
+  // end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpqui57w9a.js
 
 
 var programArgs = [];
@@ -7554,6 +7554,10 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
 
   var _glBindBuffer = _emscripten_glBindBuffer;
 
+  var _glBindFramebuffer = _emscripten_glBindFramebuffer;
+
+  var _glBindRenderbuffer = _emscripten_glBindRenderbuffer;
+
   var _glBindTexture = _emscripten_glBindTexture;
 
   var _glBlendFunc = _emscripten_glBlendFunc;
@@ -7561,6 +7565,8 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   var _glBufferData = _emscripten_glBufferData;
 
   var _glBufferSubData = _emscripten_glBufferSubData;
+
+  var _glCheckFramebufferStatus = _emscripten_glCheckFramebufferStatus;
 
   var _glClear = _emscripten_glClear;
 
@@ -7580,7 +7586,11 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
 
   var _glDeleteBuffers = _emscripten_glDeleteBuffers;
 
+  var _glDeleteFramebuffers = _emscripten_glDeleteFramebuffers;
+
   var _glDeleteProgram = _emscripten_glDeleteProgram;
+
+  var _glDeleteRenderbuffers = _emscripten_glDeleteRenderbuffers;
 
   var _glDeleteShader = _emscripten_glDeleteShader;
 
@@ -7602,15 +7612,25 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
 
   var _glEnableVertexAttribArray = _emscripten_glEnableVertexAttribArray;
 
+  var _glFramebufferRenderbuffer = _emscripten_glFramebufferRenderbuffer;
+
+  var _glFramebufferTexture2D = _emscripten_glFramebufferTexture2D;
+
   var _glFrontFace = _emscripten_glFrontFace;
 
   var _glGenBuffers = _emscripten_glGenBuffers;
+
+  var _glGenFramebuffers = _emscripten_glGenFramebuffers;
+
+  var _glGenRenderbuffers = _emscripten_glGenRenderbuffers;
 
   var _glGenTextures = _emscripten_glGenTextures;
 
   var _glGetAttribLocation = _emscripten_glGetAttribLocation;
 
   var _glGetFloatv = _emscripten_glGetFloatv;
+
+  var _glGetFramebufferAttachmentParameteriv = _emscripten_glGetFramebufferAttachmentParameteriv;
 
   var _glGetProgramInfoLog = _emscripten_glGetProgramInfoLog;
 
@@ -7629,6 +7649,8 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   var _glPixelStorei = _emscripten_glPixelStorei;
 
   var _glReadPixels = _emscripten_glReadPixels;
+
+  var _glRenderbufferStorage = _emscripten_glRenderbufferStorage;
 
   var _glShaderSource = _emscripten_glShaderSource;
 
@@ -9204,6 +9226,75 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
       GLFW.hints[target] = hint;
     };
 
+  
+  var _random_get = (buffer, size) => randomFill(HEAPU8.subarray(buffer, buffer + size));
+
+  var TN = {
+  next:1,
+  socks:{
+  },
+  };
+  function _tn_ws_close(id) {
+      var s = TN.socks[id];
+      if (s) {
+        try {
+          if (s.ws) s.ws.close();
+        } catch (e) {}
+        delete TN.socks[id];
+      }
+    }
+
+  
+  
+  function _tn_ws_open(urlPtr) {
+      var s = { ws: null, inbox: [], state: 0 };
+      var id = TN.next++;
+      TN.socks[id] = s;
+      try {
+        s.ws = new WebSocket(UTF8ToString(urlPtr));
+      } catch (e) {
+        s.state = 2;
+        return id;
+      }
+      s.ws.binaryType = "arraybuffer";
+      s.ws.onopen = function () {
+        s.state = 1;
+      };
+      s.ws.onmessage = function (e) {
+        if (e.data instanceof ArrayBuffer) s.inbox.push(new Uint8Array(e.data));
+      };
+      s.ws.onclose = function () {
+        s.state = 2;
+      };
+      s.ws.onerror = function () {
+        s.state = 2;
+      };
+      return id;
+    }
+
+  
+  function _tn_ws_recv(id, ptr, cap) {
+      var s = TN.socks[id];
+      if (!s || s.inbox.length === 0) return -1;
+      var m = s.inbox.shift();
+      if (m.length > cap) return -2;
+      HEAPU8.set(m, ptr);
+      return m.length;
+    }
+
+  
+  function _tn_ws_send(id, ptr, len) {
+      var s = TN.socks[id];
+      if (!s || s.state !== 1) return -1;
+      s.ws.send(HEAPU8.slice(ptr, ptr + len));
+      return 0;
+    }
+
+  function _tn_ws_state(id) {
+      var s = TN.socks[id];
+      return s ? s.state : 2;
+    }
+
 
 
   
@@ -10105,6 +10196,7 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'print',
   'printErr',
   'jstoi_s',
+  'TN',
 ];
 unexportedSymbols.forEach(unexportedRuntimeSymbol);
 
@@ -10144,49 +10236,49 @@ function checkIncomingModuleAPI() {
   ignoredModuleProp('wasmBinary');
 }
 var ASM_CONSTS = {
-  707346: () => { if (document.fullscreenElement) return 1; },  
- 707392: () => { return Module.canvas.width; },  
- 707424: () => { return parseInt(Module.canvas.style.width); },  
- 707472: () => { document.exitFullscreen(); },  
- 707499: () => { setTimeout(function(){ Module.requestFullscreen(false, false); }, 100); },  
- 707571: () => { if (document.fullscreenElement) return 1; },  
- 707617: () => { return Module.canvas.width; },  
- 707649: () => { return screen.width; },  
- 707674: () => { document.exitFullscreen(); },  
- 707701: ($0) => { const canvasId = UTF8ToString($0); setTimeout(function() { Module.requestFullscreen(false, true); setTimeout(function() { document.querySelector(canvasId).style.width="unset"; }, 100); }, 100); },  
- 707895: () => { return window.innerWidth; },  
- 707921: () => { return window.innerHeight; },  
- 707948: () => { if (document.fullscreenElement) return 1; },  
- 707994: () => { return Module.canvas.width; },  
- 708026: () => { return parseInt(Module.canvas.style.width); },  
- 708074: () => { if (document.fullscreenElement) return 1; },  
- 708120: () => { return Module.canvas.width; },  
- 708152: () => { return screen.width; },  
- 708177: () => { return window.innerWidth; },  
- 708203: () => { return window.innerHeight; },  
- 708230: () => { if (document.fullscreenElement) return 1; },  
- 708276: () => { return Module.canvas.width; },  
- 708308: () => { return screen.width; },  
- 708333: () => { document.exitFullscreen(); },  
- 708360: () => { if (document.fullscreenElement) return 1; },  
- 708406: () => { return Module.canvas.width; },  
- 708438: () => { return parseInt(Module.canvas.style.width); },  
- 708486: () => { document.exitFullscreen(); },  
- 708513: ($0) => { Module.canvas.style.opacity = $0; },  
- 708551: () => { return screen.width; },  
- 708576: () => { return screen.height; },  
- 708602: () => { return window.screenX; },  
- 708629: () => { return window.screenY; },  
- 708656: () => { return window.devicePixelRatio; },  
- 708692: ($0) => { navigator.clipboard.writeText(UTF8ToString($0)); },  
- 708745: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
- 708796: () => { Module.canvas.style.cursor = 'none'; },  
- 708833: ($0, $1, $2, $3) => { try { navigator.getGamepads()[$0].vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: $3, weakMagnitude: $1, strongMagnitude: $2 }); } catch (e) { try { navigator.getGamepads()[$0].hapticActuators[0].pulse($2, $3); } catch (e) { } } },  
- 709089: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
- 709140: () => { if (document.pointerLockElement) return 1; },  
- 709187: () => { if (document.fullscreenElement) return 1; },  
- 709233: () => { return window.innerWidth; },  
- 709259: () => { return window.innerHeight; }
+  734634: () => { if (document.fullscreenElement) return 1; },  
+ 734680: () => { return Module.canvas.width; },  
+ 734712: () => { return parseInt(Module.canvas.style.width); },  
+ 734760: () => { document.exitFullscreen(); },  
+ 734787: () => { setTimeout(function(){ Module.requestFullscreen(false, false); }, 100); },  
+ 734859: () => { if (document.fullscreenElement) return 1; },  
+ 734905: () => { return Module.canvas.width; },  
+ 734937: () => { return screen.width; },  
+ 734962: () => { document.exitFullscreen(); },  
+ 734989: ($0) => { const canvasId = UTF8ToString($0); setTimeout(function() { Module.requestFullscreen(false, true); setTimeout(function() { document.querySelector(canvasId).style.width="unset"; }, 100); }, 100); },  
+ 735183: () => { return window.innerWidth; },  
+ 735209: () => { return window.innerHeight; },  
+ 735236: () => { if (document.fullscreenElement) return 1; },  
+ 735282: () => { return Module.canvas.width; },  
+ 735314: () => { return parseInt(Module.canvas.style.width); },  
+ 735362: () => { if (document.fullscreenElement) return 1; },  
+ 735408: () => { return Module.canvas.width; },  
+ 735440: () => { return screen.width; },  
+ 735465: () => { return window.innerWidth; },  
+ 735491: () => { return window.innerHeight; },  
+ 735518: () => { if (document.fullscreenElement) return 1; },  
+ 735564: () => { return Module.canvas.width; },  
+ 735596: () => { return screen.width; },  
+ 735621: () => { document.exitFullscreen(); },  
+ 735648: () => { if (document.fullscreenElement) return 1; },  
+ 735694: () => { return Module.canvas.width; },  
+ 735726: () => { return parseInt(Module.canvas.style.width); },  
+ 735774: () => { document.exitFullscreen(); },  
+ 735801: ($0) => { Module.canvas.style.opacity = $0; },  
+ 735839: () => { return screen.width; },  
+ 735864: () => { return screen.height; },  
+ 735890: () => { return window.screenX; },  
+ 735917: () => { return window.screenY; },  
+ 735944: () => { return window.devicePixelRatio; },  
+ 735980: ($0) => { navigator.clipboard.writeText(UTF8ToString($0)); },  
+ 736033: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
+ 736084: () => { Module.canvas.style.cursor = 'none'; },  
+ 736121: ($0, $1, $2, $3) => { try { navigator.getGamepads()[$0].vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: $3, weakMagnitude: $1, strongMagnitude: $2 }); } catch (e) { try { navigator.getGamepads()[$0].hapticActuators[0].pulse($2, $3); } catch (e) { } } },  
+ 736377: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
+ 736428: () => { if (document.pointerLockElement) return 1; },  
+ 736475: () => { if (document.fullscreenElement) return 1; },  
+ 736521: () => { return window.innerWidth; },  
+ 736547: () => { return window.innerHeight; }
 };
 function SetCanvasIdJs(out,outSize) { var canvasId = "#" + Module.canvas.id; stringToUTF8(canvasId, out, outSize); }
 function __asyncjs__RequestClipboardData() { return Asyncify.handleAsync(async () => { if (navigator.clipboard && window.isSecureContext) { let items = await navigator.clipboard.read(); for (const item of items) { if (item.types.includes("text/plain")) { const blob = await item.getType("text/plain"); const text = await blob.text(); window._lastClipboardString = text; } else if (item.types.find(t => t.startsWith("image/"))) { const blob = await item.getType(item.types.find(t => t.startsWith("image/"))); const bitmap = await createImageBitmap(blob); const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height; const ctx = canvas.getContext('2d'); ctx.drawImage(bitmap, 0, 0); const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data; window._lastImgWidth = canvas.width; window._lastImgHeight = canvas.height; window._lastImgData = imgData; } } } else console.warn("Clipboard read() requires HTTPS/Localhost"); }); }
@@ -10246,12 +10338,13 @@ var _emscripten_stack_get_free = makeInvalidEarlyAccess('_emscripten_stack_get_f
 var __emscripten_stack_restore = makeInvalidEarlyAccess('__emscripten_stack_restore');
 var __emscripten_stack_alloc = makeInvalidEarlyAccess('__emscripten_stack_alloc');
 var _emscripten_stack_get_current = makeInvalidEarlyAccess('_emscripten_stack_get_current');
-var dynCall_ii = makeInvalidEarlyAccess('dynCall_ii');
-var dynCall_vi = makeInvalidEarlyAccess('dynCall_vi');
 var dynCall_iii = makeInvalidEarlyAccess('dynCall_iii');
 var dynCall_v = makeInvalidEarlyAccess('dynCall_v');
+var dynCall_ii = makeInvalidEarlyAccess('dynCall_ii');
+var dynCall_vi = makeInvalidEarlyAccess('dynCall_vi');
 var dynCall_vii = makeInvalidEarlyAccess('dynCall_vii');
 var dynCall_viii = makeInvalidEarlyAccess('dynCall_viii');
+var dynCall_jiii = makeInvalidEarlyAccess('dynCall_jiii');
 var dynCall_viff = makeInvalidEarlyAccess('dynCall_viff');
 var dynCall_viiiii = makeInvalidEarlyAccess('dynCall_viiiii');
 var dynCall_viiii = makeInvalidEarlyAccess('dynCall_viiii');
@@ -10334,12 +10427,13 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['_emscripten_stack_restore'] != 'undefined', 'missing Wasm export: _emscripten_stack_restore');
   assert(typeof wasmExports['_emscripten_stack_alloc'] != 'undefined', 'missing Wasm export: _emscripten_stack_alloc');
   assert(typeof wasmExports['emscripten_stack_get_current'] != 'undefined', 'missing Wasm export: emscripten_stack_get_current');
-  assert(typeof wasmExports['dynCall_ii'] != 'undefined', 'missing Wasm export: dynCall_ii');
-  assert(typeof wasmExports['dynCall_vi'] != 'undefined', 'missing Wasm export: dynCall_vi');
   assert(typeof wasmExports['dynCall_iii'] != 'undefined', 'missing Wasm export: dynCall_iii');
   assert(typeof wasmExports['dynCall_v'] != 'undefined', 'missing Wasm export: dynCall_v');
+  assert(typeof wasmExports['dynCall_ii'] != 'undefined', 'missing Wasm export: dynCall_ii');
+  assert(typeof wasmExports['dynCall_vi'] != 'undefined', 'missing Wasm export: dynCall_vi');
   assert(typeof wasmExports['dynCall_vii'] != 'undefined', 'missing Wasm export: dynCall_vii');
   assert(typeof wasmExports['dynCall_viii'] != 'undefined', 'missing Wasm export: dynCall_viii');
+  assert(typeof wasmExports['dynCall_jiii'] != 'undefined', 'missing Wasm export: dynCall_jiii');
   assert(typeof wasmExports['dynCall_viff'] != 'undefined', 'missing Wasm export: dynCall_viff');
   assert(typeof wasmExports['dynCall_viiiii'] != 'undefined', 'missing Wasm export: dynCall_viiiii');
   assert(typeof wasmExports['dynCall_viiii'] != 'undefined', 'missing Wasm export: dynCall_viiii');
@@ -10419,12 +10513,13 @@ function assignWasmExports(wasmExports) {
   __emscripten_stack_restore = wasmExports['_emscripten_stack_restore'];
   __emscripten_stack_alloc = wasmExports['_emscripten_stack_alloc'];
   _emscripten_stack_get_current = wasmExports['emscripten_stack_get_current'];
-  dynCall_ii = dynCalls['ii'] = createExportWrapper('dynCall_ii', wasmExports['dynCall_ii'], 2);
-  dynCall_vi = dynCalls['vi'] = createExportWrapper('dynCall_vi', wasmExports['dynCall_vi'], 2);
   dynCall_iii = dynCalls['iii'] = createExportWrapper('dynCall_iii', wasmExports['dynCall_iii'], 3);
   dynCall_v = dynCalls['v'] = createExportWrapper('dynCall_v', wasmExports['dynCall_v'], 1);
+  dynCall_ii = dynCalls['ii'] = createExportWrapper('dynCall_ii', wasmExports['dynCall_ii'], 2);
+  dynCall_vi = dynCalls['vi'] = createExportWrapper('dynCall_vi', wasmExports['dynCall_vi'], 2);
   dynCall_vii = dynCalls['vii'] = createExportWrapper('dynCall_vii', wasmExports['dynCall_vii'], 3);
   dynCall_viii = dynCalls['viii'] = createExportWrapper('dynCall_viii', wasmExports['dynCall_viii'], 4);
+  dynCall_jiii = dynCalls['jiii'] = createExportWrapper('dynCall_jiii', wasmExports['dynCall_jiii'], 4);
   dynCall_viff = dynCalls['viff'] = createExportWrapper('dynCall_viff', wasmExports['dynCall_viff'], 4);
   dynCall_viiiii = dynCalls['viiiii'] = createExportWrapper('dynCall_viiiii', wasmExports['dynCall_viiiii'], 6);
   dynCall_viiii = dynCalls['viiii'] = createExportWrapper('dynCall_viiii', wasmExports['dynCall_viiii'], 5);
@@ -10876,6 +10971,10 @@ var wasmImports = {
   /** @export */
   glBindBuffer: _glBindBuffer,
   /** @export */
+  glBindFramebuffer: _glBindFramebuffer,
+  /** @export */
+  glBindRenderbuffer: _glBindRenderbuffer,
+  /** @export */
   glBindTexture: _glBindTexture,
   /** @export */
   glBlendFunc: _glBlendFunc,
@@ -10883,6 +10982,8 @@ var wasmImports = {
   glBufferData: _glBufferData,
   /** @export */
   glBufferSubData: _glBufferSubData,
+  /** @export */
+  glCheckFramebufferStatus: _glCheckFramebufferStatus,
   /** @export */
   glClear: _glClear,
   /** @export */
@@ -10902,7 +11003,11 @@ var wasmImports = {
   /** @export */
   glDeleteBuffers: _glDeleteBuffers,
   /** @export */
+  glDeleteFramebuffers: _glDeleteFramebuffers,
+  /** @export */
   glDeleteProgram: _glDeleteProgram,
+  /** @export */
+  glDeleteRenderbuffers: _glDeleteRenderbuffers,
   /** @export */
   glDeleteShader: _glDeleteShader,
   /** @export */
@@ -10924,15 +11029,25 @@ var wasmImports = {
   /** @export */
   glEnableVertexAttribArray: _glEnableVertexAttribArray,
   /** @export */
+  glFramebufferRenderbuffer: _glFramebufferRenderbuffer,
+  /** @export */
+  glFramebufferTexture2D: _glFramebufferTexture2D,
+  /** @export */
   glFrontFace: _glFrontFace,
   /** @export */
   glGenBuffers: _glGenBuffers,
+  /** @export */
+  glGenFramebuffers: _glGenFramebuffers,
+  /** @export */
+  glGenRenderbuffers: _glGenRenderbuffers,
   /** @export */
   glGenTextures: _glGenTextures,
   /** @export */
   glGetAttribLocation: _glGetAttribLocation,
   /** @export */
   glGetFloatv: _glGetFloatv,
+  /** @export */
+  glGetFramebufferAttachmentParameteriv: _glGetFramebufferAttachmentParameteriv,
   /** @export */
   glGetProgramInfoLog: _glGetProgramInfoLog,
   /** @export */
@@ -10951,6 +11066,8 @@ var wasmImports = {
   glPixelStorei: _glPixelStorei,
   /** @export */
   glReadPixels: _glReadPixels,
+  /** @export */
+  glRenderbufferStorage: _glRenderbufferStorage,
   /** @export */
   glShaderSource: _glShaderSource,
   /** @export */
@@ -11018,7 +11135,19 @@ var wasmImports = {
   /** @export */
   glfwTerminate: _glfwTerminate,
   /** @export */
-  glfwWindowHint: _glfwWindowHint
+  glfwWindowHint: _glfwWindowHint,
+  /** @export */
+  random_get: _random_get,
+  /** @export */
+  tn_ws_close: _tn_ws_close,
+  /** @export */
+  tn_ws_open: _tn_ws_open,
+  /** @export */
+  tn_ws_recv: _tn_ws_recv,
+  /** @export */
+  tn_ws_send: _tn_ws_send,
+  /** @export */
+  tn_ws_state: _tn_ws_state
 };
 
 

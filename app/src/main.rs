@@ -1,4 +1,6 @@
-use raylib::{color::Color, drawing::RaylibDraw, ffi::KeyboardKey};
+use raylib::ffi::KeyboardKey;
+
+use crate::app::App;
 
 #[cfg(target_family = "wasm")]
 const GLSL_VERSION: i32 = 100;
@@ -12,10 +14,11 @@ fn main() {
     let (mut rl, thread) = raylib::init().size(1280, 720).title("wrum").build();
     rl.set_exit_key(Some(KeyboardKey::KEY_NULL));
 
-    while !rl.window_should_close() {
-        let mut d = rl.begin_drawing(&thread);
+    let mut a = App::new(&mut rl, &thread);
 
-        d.clear_background(Color::WHITE);
-        d.draw_text("Hello, world!", 12, 12, 20, Color::BLACK);
+    while !rl.window_should_close() {
+        a.update(&rl);
+        let mut d = rl.begin_drawing(&thread);
+        a.draw(&mut d);
     }
 }

@@ -19,4 +19,5 @@ rustflags = [
     # undefined" at runtime.
     "-C", "link-arg=-sEXPORTED_RUNTIME_METHODS=['ccall','wasmMemory','HEAPU8','HEAP32','HEAPF32']",
     "-C", "link-arg=--preload-file", "-C", "link-arg=assets@/assets",
+    "-C", "link-arg=--js-library=js/ws.js",
 ]
