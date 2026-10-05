@@ -1,15 +1,20 @@
 use raylib::{
     RaylibHandle, RaylibThread,
     color::Color,
-    drawing::{RaylibDraw, RaylibDrawHandle},
+    drawing::{RaylibDraw, RaylibDrawHandle, RaylibTextureModeExt},
+    math::Vector2,
     texture::RenderTexture2D,
 };
 use shared::net::ServerMessage;
 
-use crate::net::{Net, SERVER, Status};
+use crate::{
+    net::{Net, SERVER, Status},
+    stack::Stack,
+};
 
 pub struct App {
-    canvas: RenderTexture2D,
+    pub canvas: RenderTexture2D,
+    stack: Stack,
     net: Net,
 }
 
@@ -18,6 +23,7 @@ impl App {
         Self {
             canvas: rl.load_render_texture(thread, 360, 180).unwrap(),
             net: Net::new(SERVER).unwrap(),
+            stack: Stack::new(rl, thread, "assets/body.png", 10.),
         }
     }
 
@@ -39,13 +45,9 @@ impl App {
         }
     }
 
-    pub fn draw(&self, d: &mut RaylibDrawHandle) {
-        d.clear_background(Color::WHITE);
-        let s = match self.net.status() {
-            Status::Connecting => "connecting...",
-            Status::Connected => "connected",
-            Status::Disconnected(_) => "disconnected",
-        };
-        d.draw_text(s, 12, 12, 20, Color::BLACK);
+    pub fn draw(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
+        let mut tm = rl.begin_texture_mode(thread, &mut self.canvas);
+        tm.clear_background(Color::BLACK);
+        self.stack.draw(&mut tm, Vector2::zero(), 0.);
     }
 }
