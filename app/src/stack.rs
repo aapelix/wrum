@@ -1,11 +1,13 @@
 use raylib::{
-    RaylibHandle, RaylibThread,
+    RaylibHandle,
     color::Color,
     drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
     ffi::TextureFilter,
     math::{Rectangle, Vector2},
     texture::{RaylibRenderTexture2D, RaylibTexture2D, RenderTexture2D, Texture2D},
 };
+
+use crate::ctx::Context;
 
 pub struct Stack {
     tex: Texture2D,
@@ -19,17 +21,20 @@ pub struct Stack {
 }
 
 impl Stack {
-    pub fn new(rl: &mut RaylibHandle, thread: &RaylibThread, path: &str, sw: f32) -> Self {
-        let tex = rl.load_texture(thread, path).unwrap();
-        tex.set_texture_filter(thread, TextureFilter::TEXTURE_FILTER_POINT);
+    pub fn new(ctx: &mut Context, path: &str, sw: f32) -> Self {
+        let tex = ctx.rl.load_texture(&ctx.thread, path).unwrap();
+        tex.set_texture_filter(&ctx.thread, TextureFilter::TEXTURE_FILTER_POINT);
 
         let w = tex.width();
         let h = tex.height();
         let c = w / sw as i32;
 
-        let mut shadow = rl.load_render_texture(thread, w as u32, h as u32).unwrap();
+        let mut shadow = ctx
+            .rl
+            .load_render_texture(&ctx.thread, w as u32, h as u32)
+            .unwrap();
         {
-            let mut tm = rl.begin_texture_mode(thread, &mut shadow);
+            let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut shadow);
             tm.clear_background(Color::BLANK);
 
             for i in 0..c {
@@ -71,7 +76,7 @@ impl Stack {
             };
             let dst = Rectangle {
                 x: pos.x,
-                y: pos.y,
+                y: pos.y - i,
                 width: self.sw,
                 height: self.h,
             };

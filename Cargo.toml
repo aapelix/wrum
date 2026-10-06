@@ -1,3 +1,8 @@
 [workspace]
 members = ["app", "server", "shared"]
 resolver = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"

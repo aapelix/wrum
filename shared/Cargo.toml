@@ -10,8 +10,3 @@ tungstenite = { version = "0.30.0", default-features = false, features = ["hands
 [features]
 small-ptr = ["rkyv/pointer_width_16"]
 ws-server = ["dep:tungstenite"]
-
-[profile.release]
-lto = true
-codegen-units = 1
-panic = "abort"
