@@ -3,7 +3,7 @@ use raylib::{
     drawing::{RaylibDraw, RaylibTextureModeExt},
 };
 
-use crate::scene::Scene;
+use crate::scene::{Scene, menu::MenuScene};
 
 pub struct ConnectingScene;
 
@@ -18,8 +18,7 @@ impl Scene for ConnectingScene {
     }
 
     fn on_connect(&mut self, _ctx: &mut crate::ctx::Context) -> super::Transition {
-        println!("connected");
-        super::Transition::None
+        super::Transition::Switch(Box::new(MenuScene::default()))
     }
 
     fn blocks_draw(&self) -> bool {

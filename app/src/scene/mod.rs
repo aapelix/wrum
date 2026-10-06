@@ -2,7 +2,9 @@ use shared::net::{DisconnectReason, ServerMessage};
 
 use crate::ctx::Context;
 
+pub mod game;
 pub mod general;
+pub mod menu;
 
 pub trait Scene {
     fn update(&mut self, ctx: &mut Context, dt: f32) -> Transition;

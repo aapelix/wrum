@@ -23,7 +23,7 @@ pub mod ws_server;
 pub use codec::{CodecError, Message, Scratch};
 pub use conn::{Channel, Connection, Params, SendError, WINDOW};
 pub use endpoint::{Config, ConnId, DisconnectReason, Endpoint, Event};
-pub use proto::{ClientMessage, Input, ServerMessage};
+pub use proto::{ClientMessage, ServerMessage};
 pub use rkyv;
 
 #[cfg(feature = "ws-server")]
