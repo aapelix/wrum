@@ -96,9 +96,7 @@ impl Scene for MenuScene {
             ServerMessage::Welcome { .. } => {
                 // switch to game scene
             }
-            _ => {
-                println!("{:?}", msg)
-            }
+            _ => {}
         }
         super::Transition::None
     }
