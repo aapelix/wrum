@@ -31,6 +31,7 @@ pub struct Net {
     conn: ConnId,
     status: Status,
     inbox: VecDeque<ServerMessage>,
+    pub next_seq: u32,
 }
 
 impl Net {
@@ -59,6 +60,7 @@ impl Net {
             conn,
             status: Status::Connecting,
             inbox: VecDeque::new(),
+            next_seq: 0,
         })
     }
 

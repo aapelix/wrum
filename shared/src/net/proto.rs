@@ -29,10 +29,13 @@ pub enum ServerMessage {
         spawn: CarState,
         lobby_code: String,
     },
-    Snapshot {
-        server_tick: u32,
-        ack_seq: u32,
-        ents: Vec<(u8, CarState)>,
-    },
+    Snapshot(Snapshot),
     Reject(RejectReason),
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug)]
+pub struct Snapshot {
+    pub server_tick: u32,
+    pub ack_seq: u32,
+    pub ents: Vec<(u8, CarState)>,
 }

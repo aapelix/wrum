@@ -1,9 +1,10 @@
 use std::time::Instant;
 
 use shared::{
+    coll::Vec2,
     net::{
         Channel, ClientMessage, ConnId, Endpoint, Event, ServerMessage, Transport,
-        proto::{PROTO_VERSION, RejectReason},
+        proto::{PROTO_VERSION, RejectReason, Snapshot},
     },
     sim::{CarState, Input, TICK_RATE},
 };
@@ -278,11 +279,11 @@ impl Game {
                 continue;
             };
 
-            let snapshot = ServerMessage::Snapshot {
+            let snapshot = ServerMessage::Snapshot(Snapshot {
                 server_tick: lobby.tick,
                 ack_seq: client.last_seq_applied,
                 ents: Vec::new(),
-            };
+            });
 
             events.push(GameEvent::Send {
                 client: *client_id,
@@ -318,8 +319,10 @@ impl Game {
         client.lobby_slot = slot;
 
         client.car = CarState {
-            x: 100. + slot as f32 * 40.,
-            y: 100.,
+            pos: Vec2 {
+                x: 100. + slot as f32 * 40.,
+                y: 100.,
+            },
             ..Default::default()
         };
 
