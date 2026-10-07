@@ -295,7 +295,7 @@ impl GameScene {
 
         let decay = (-RECON_DECAY * dt).exp();
         self.err_p.x *= decay;
-        self.err_p.x *= decay;
+        self.err_p.y *= decay;
         self.err_a *= decay;
 
         me.p.x = ix + self.err_p.x;
