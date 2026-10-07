@@ -254,7 +254,7 @@ impl GameScene {
 
         for (id, car) in self.cars.iter_mut() {
             if *id == self.my_id {
-                return;
+                continue;
             }
 
             let sa = a.find_entity(*id);
@@ -280,8 +280,8 @@ impl GameScene {
                 x: r.pos.x,
                 y: r.pos.y,
             };
-            car.a = r.a.to_radians();
-            car.t = r.t.to_radians();
+            car.a = r.a.to_degrees();
+            car.t = r.t.to_degrees();
         }
     }
     fn update_own_render(&mut self, dt: f32) {
@@ -300,8 +300,8 @@ impl GameScene {
 
         me.p.x = ix + self.err_p.x;
         me.p.y = iy + self.err_p.y;
-        me.a = (ia + self.err_a).to_radians();
-        me.t = it.to_radians();
+        me.a = (ia + self.err_a).to_degrees();
+        me.t = it.to_degrees();
     }
 }
 
