@@ -72,10 +72,10 @@ impl Car {
                 draw_a += self.t;
             }
 
-            self.tire.draw(tm, draw_p, draw_a);
+            self.tire.draw_shadow(tm, draw_p, draw_a);
         }
 
         let (draw_p, draw_a) = camera.apply(shadow_p, self.a);
-        self.body.draw(tm, draw_p, draw_a);
+        self.body.draw_shadow(tm, draw_p, draw_a);
     }
 }

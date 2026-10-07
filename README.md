@@ -1,7 +1,8 @@
 # wrum
 
 todo:
-- translate game scene and sim from c
+- fix sim
+- server car to car coll
 - helper for rendering, assets
 - water, bridges
 - grass, trees

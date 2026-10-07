@@ -23,12 +23,7 @@ pub enum ClientMessage {
 }
 #[derive(Archive, Serialize, Deserialize, Debug)]
 pub enum ServerMessage {
-    Welcome {
-        your_id: u8,
-        tick_rate: u8,
-        spawn: CarState,
-        lobby_code: String,
-    },
+    Welcome(Welcome),
     Snapshot(Snapshot),
     Reject(RejectReason),
 }
@@ -38,4 +33,11 @@ pub struct Snapshot {
     pub server_tick: u32,
     pub ack_seq: u32,
     pub ents: Vec<(u8, CarState)>,
+}
+#[derive(Archive, Serialize, Deserialize, Debug)]
+pub struct Welcome {
+    pub your_id: u8,
+    pub tick_rate: u8,
+    pub spawn: CarState,
+    pub lobby_code: String,
 }

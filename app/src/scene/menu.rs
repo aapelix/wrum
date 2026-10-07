@@ -4,9 +4,9 @@ use raylib::{
     ffi::{KeyboardKey, MouseButton},
     math::Rectangle,
 };
-use shared::net::{Channel, ClientMessage, ServerMessage};
+use shared::net::{Channel, ClientMessage, ServerMessage, proto::RejectReason};
 
-use crate::scene::Scene;
+use crate::scene::{Scene, game::GameScene};
 
 pub const QUICK_RECT: Rectangle = Rectangle {
     x: 20. * 4.,
@@ -31,6 +31,15 @@ pub const JOIN_RECT: Rectangle = Rectangle {
 pub struct MenuScene {
     status: String,
     code: String,
+}
+
+impl MenuScene {
+    pub fn new(status: &str) -> Self {
+        Self {
+            status: status.into(),
+            code: String::new(),
+        }
+    }
 }
 
 impl Scene for MenuScene {
@@ -89,13 +98,19 @@ impl Scene for MenuScene {
 
     fn on_message(
         &mut self,
-        _ctx: &mut crate::ctx::Context,
+        ctx: &mut crate::ctx::Context,
         msg: shared::net::ServerMessage,
     ) -> super::Transition {
         match msg {
-            ServerMessage::Welcome { .. } => {
-                // switch to game scene
+            ServerMessage::Welcome(msg) => {
+                return super::Transition::Switch(Box::new(GameScene::new(ctx, &msg)));
             }
+            ServerMessage::Reject(reason) => match reason {
+                RejectReason::LobbyNotFound => self.status = "lobby not found".into(),
+                RejectReason::LobbyFull => self.status = "lobby is full".into(),
+                RejectReason::ServerFull => self.status = "server is full".into(),
+                RejectReason::VersionMismatch => self.status = "client out of date".into(),
+            },
             _ => {}
         }
         super::Transition::None

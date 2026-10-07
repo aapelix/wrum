@@ -4,7 +4,7 @@ use shared::{
     coll::Vec2,
     net::{
         Channel, ClientMessage, ConnId, Endpoint, Event, ServerMessage, Transport,
-        proto::{PROTO_VERSION, RejectReason, Snapshot},
+        proto::{PROTO_VERSION, RejectReason, Snapshot, Welcome},
     },
     sim::{CarState, Input, TICK_RATE},
 };
@@ -262,8 +262,8 @@ impl Game {
                 client.last_input = input;
             }
 
-            // car_step(&mut client.car, client.last_input);
-            // level_resolve_car(...);
+            client.car.step(&client.last_input);
+            // level_resolve_car(s->level, &c->car);
         }
 
         // todo: car-car collisions
@@ -279,10 +279,22 @@ impl Game {
                 continue;
             };
 
+            let ents: Vec<(u8, CarState)> = lobby
+                .clients
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, id)| {
+                    let id = (*id)?;
+                    let client = self.client(id)?;
+
+                    Some((slot as u8, client.car))
+                })
+                .collect();
+
             let snapshot = ServerMessage::Snapshot(Snapshot {
                 server_tick: lobby.tick,
                 ack_seq: client.last_seq_applied,
-                ents: Vec::new(),
+                ents: ents,
             });
 
             events.push(GameEvent::Send {
@@ -326,12 +338,12 @@ impl Game {
             ..Default::default()
         };
 
-        let welcome = ServerMessage::Welcome {
+        let welcome = ServerMessage::Welcome(Welcome {
             your_id: slot as u8,
             tick_rate: TICK_RATE,
             spawn: client.car,
             lobby_code,
-        };
+        });
 
         self.lobbies[lobby_index].clients[slot] = Some(id);
 

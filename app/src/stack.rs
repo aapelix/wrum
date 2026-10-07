@@ -15,7 +15,6 @@ pub struct Stack {
     center: Vector2,
 
     sw: f32,
-    w: f32,
     h: f32,
     c: i32,
 }
@@ -60,7 +59,6 @@ impl Stack {
                 y: h as f32 / 2.,
             },
             sw,
-            w: w as f32,
             h: h as f32,
             c,
         }

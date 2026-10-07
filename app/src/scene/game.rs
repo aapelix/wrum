@@ -1,19 +1,28 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use raylib::{
     RaylibHandle,
+    color::Color,
+    drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
     ffi::KeyboardKey,
-    math::{Vector2, lerp},
-    texture::RenderTexture2D,
+    math::{Rectangle, Vector2, lerp},
+    texture::{RaylibRenderTexture2D, RenderTexture2D},
 };
 use shared::{
     coll::{Obb, Vec2},
     interp::{INTERP_DELAY_TICKS, INTERP_SMOOTH, INTERP_SNAP_TICKS, SnapshotBuffer, lerp_angle},
-    net::{Channel, ClientMessage, proto::Snapshot},
+    net::{
+        Channel, ClientMessage,
+        proto::{Snapshot, Welcome},
+    },
     sim::{CAR_HALFS, CAR_RESTITUTION, CarState, Input, TICK_DT},
 };
 
-use crate::{camera::Camera, entity::car::Car, scene::Scene};
+use crate::{
+    camera::Camera,
+    entity::car::Car,
+    scene::{Scene, menu::MenuScene},
+};
 
 const PENDING_CAP: usize = 64;
 const RECON_SNAP_DIST: f32 = 100.0;
@@ -63,7 +72,7 @@ pub struct GameScene {
     // map: Map,
     // level: Level
     //
-    cars: Vec<Car>,
+    cars: HashMap<u8, Car>,
 
     my_id: u8,
     code: String,
@@ -83,21 +92,37 @@ pub struct GameScene {
 }
 
 impl GameScene {
-    fn ensure_car(&mut self, ctx: &mut crate::ctx::Context, id: u8, spawn: &CarState) {
-        if self.cars.get(id as usize).is_some() {
-            return;
+    pub fn new(ctx: &mut crate::ctx::Context, msg: &Welcome) -> Self {
+        let shadow_c = ctx.rl.load_render_texture(&ctx.thread, 320, 180).unwrap();
+        Self {
+            shadow_c,
+            camera: Camera::default(),
+            cars: HashMap::new(),
+            my_id: msg.your_id,
+            code: msg.lobby_code.clone(),
+            last_server_tick: 0,
+            pending: InputRing::new(),
+            prev_sim: CarState::default(),
+            err_p: Vector2::zero(),
+            err_a: 0.,
+            snapbuf: SnapshotBuffer::new(),
+            render_tick: 0.,
+            acc: 0.,
+            pending_spawn: msg.spawn,
         }
-        let mut car = Car::new(
-            ctx,
-            Vector2 {
-                x: spawn.pos.x,
-                y: spawn.pos.y,
-            },
-            spawn.a,
-            spawn.t,
-        );
-        car.sim = *spawn;
-        self.cars.push(car);
+    }
+
+    fn ensure_car(&mut self, ctx: &mut crate::ctx::Context, id: u8, spawn: CarState) {
+        self.cars.entry(id).or_insert_with(|| {
+            let mut car = Car::new(
+                ctx,
+                Vector2::new(spawn.pos.x, spawn.pos.y),
+                spawn.a,
+                spawn.t,
+            );
+            car.sim = spawn;
+            car
+        });
     }
 
     fn sim_tick(&mut self, ctx: &mut crate::ctx::Context) {
@@ -107,12 +132,10 @@ impl GameScene {
 
         // sim
 
-        let my_id = self.my_id;
         let ghosts: Vec<Obb> = self
             .cars
             .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != my_id as usize)
+            .filter(|(id, _)| **id != self.my_id)
             .map(|(_, car)| Obb {
                 pos: Vec2 {
                     x: car.p.x,
@@ -122,7 +145,7 @@ impl GameScene {
                 a: car.a.to_radians(),
             })
             .collect();
-        let me = &mut self.cars[my_id as usize];
+        let me = self.cars.get_mut(&self.my_id).unwrap();
 
         self.prev_sim = me.sim;
         me.sim.step(&input);
@@ -148,7 +171,7 @@ impl GameScene {
         self.last_server_tick = snap.server_tick;
 
         for (id, state) in &mut snap.ents {
-            self.ensure_car(ctx, *id, state);
+            self.ensure_car(ctx, *id, state.clone());
 
             if *id != self.my_id {
                 continue;
@@ -156,15 +179,13 @@ impl GameScene {
 
             self.pending.discard_upto(snap.ack_seq);
 
-            let my_id = self.my_id as usize;
-            let before = self.cars[my_id].sim;
+            let before = self.cars.get(&self.my_id).unwrap().sim;
             let mut sim = *state;
 
             let ghosts: Vec<Obb> = self
                 .cars
                 .iter()
-                .enumerate()
-                .filter(|(i, _)| *i != my_id)
+                .filter(|(id, _)| **id != self.my_id)
                 .map(|(_, car)| Obb {
                     pos: Vec2 {
                         x: car.p.x,
@@ -183,7 +204,7 @@ impl GameScene {
                 }
             }
 
-            self.cars[my_id].sim = sim;
+            self.cars.get_mut(&self.my_id).unwrap().sim = sim;
 
             let dx = before.pos.x - sim.pos.x;
             let dy = before.pos.y - sim.pos.y;
@@ -231,14 +252,13 @@ impl GameScene {
             return;
         };
 
-        for (id, car) in self.cars.iter_mut().enumerate() {
-            let id = id as u8;
-            if id == self.my_id {
+        for (id, car) in self.cars.iter_mut() {
+            if *id == self.my_id {
                 return;
             }
 
-            let sa = a.find_entity(id);
-            let sc = c.find_entity(id);
+            let sa = a.find_entity(*id);
+            let sc = c.find_entity(*id);
 
             let mut r = CarState::default();
             if let Some(sa) = sa
@@ -264,8 +284,8 @@ impl GameScene {
             car.t = r.t.to_radians();
         }
     }
-    fn update_own_reder(&mut self, dt: f32) {
-        let me = &mut self.cars[self.my_id as usize];
+    fn update_own_render(&mut self, dt: f32) {
+        let me = self.cars.get_mut(&self.my_id).unwrap();
 
         let alpha = (self.acc / TICK_DT).clamp(0., 1.);
         let ix = lerp(self.prev_sim.pos.x, me.sim.pos.x, alpha);
@@ -288,16 +308,110 @@ impl GameScene {
 impl Scene for GameScene {
     fn update(&mut self, ctx: &mut crate::ctx::Context, dt: f32) -> super::Transition {
         self.acc += dt;
+        if self.acc > 0.25 {
+            self.acc = 0.25;
+        }
+        while self.acc >= TICK_DT {
+            self.acc -= TICK_DT;
+            self.sim_tick(ctx);
+        }
+        self.update_own_render(dt);
+        self.update_render_tick(dt);
+        self.interp_others();
+
+        let me = self.cars.get(&self.my_id).unwrap();
+        self.camera.update(me.p, me.a, dt);
+
+        // todo:
+        // if (IsKeyPressed(KEY_ESCAPE)) scene_push(make_pause_scene());
 
         super::Transition::None
     }
-    fn draw(&mut self, ctx: &mut crate::ctx::Context) {}
+    fn draw(&mut self, ctx: &mut crate::ctx::Context) {
+        {
+            let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut self.shadow_c);
+            tm.clear_background(Color::BLANK);
+            // map_draw_shadows(g->map, &g->camera);
+
+            for (_, car) in &self.cars {
+                car.draw_shadow(&mut tm, &self.camera);
+            }
+        }
+
+        let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut ctx.canvas);
+        tm.clear_background(Color::BLACK);
+
+        // map_draw_layers(g->map, &g->camera);
+
+        tm.draw_texture_rec(
+            self.shadow_c.texture(),
+            Rectangle::new(0., 0., 320., -180.),
+            Vector2::zero(),
+            Color::new(255, 255, 255, 180),
+        );
+
+        // (y, index, drawable)
+        let mut drawables: Vec<(f32, u8, &dyn Drawable)> = Vec::new();
+        for (id, car) in &self.cars {
+            let (pos, _) = self.camera.apply(car.p, car.a);
+            drawables.push((pos.y, *id, car));
+        }
+
+        drawables.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.1.cmp(&b.1))
+        });
+
+        for (_, _, d) in drawables {
+            d.draw_y_sort(&mut tm, &self.camera);
+        }
+
+        if self.code.len() != 0 {
+            tm.draw_text(&self.code, 20, 10, 10, Color::WHITE);
+        }
+    }
+
+    fn enter(&mut self, ctx: &mut crate::ctx::Context) {
+        self.ensure_car(ctx, self.my_id, self.pending_spawn);
+    }
+
+    fn on_message(
+        &mut self,
+        ctx: &mut crate::ctx::Context,
+        msg: shared::net::ServerMessage,
+    ) -> super::Transition {
+        match msg {
+            shared::net::ServerMessage::Snapshot(mut snap) => {
+                self.apply_snapshot(ctx, &mut snap);
+            }
+            _ => {}
+        }
+
+        super::Transition::None
+    }
+    fn on_disconnect(
+        &mut self,
+        _ctx: &mut crate::ctx::Context,
+        _reason: shared::net::DisconnectReason,
+    ) -> super::Transition {
+        super::Transition::Switch(Box::new(MenuScene::new("disconnected from server")))
+    }
 
     fn blocks_update(&self) -> bool {
         true
     }
     fn blocks_draw(&self) -> bool {
         true
+    }
+}
+
+pub trait Drawable {
+    fn draw_y_sort(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, camera: &Camera);
+}
+impl Drawable for Car {
+    fn draw_y_sort(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, camera: &Camera) {
+        self.draw(tm, camera);
     }
 }
 
