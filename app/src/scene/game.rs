@@ -1,9 +1,9 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use raylib::{
     RaylibHandle,
     color::Color,
-    drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
+    drawing::{RaylibDraw, RaylibTextureModeExt},
     ffi::KeyboardKey,
     math::{Rectangle, Vector2, lerp},
     texture::{RaylibRenderTexture2D, RenderTexture2D},
@@ -11,6 +11,7 @@ use raylib::{
 use shared::{
     coll::{Obb, Vec2},
     interp::{INTERP_DELAY_TICKS, INTERP_SMOOTH, INTERP_SNAP_TICKS, SnapshotBuffer, lerp_angle},
+    level::Level,
     net::{
         Channel, ClientMessage,
         proto::{INPUT_REDUNDANCY, Snapshot, Welcome},
@@ -21,7 +22,8 @@ use shared::{
 use crate::{
     camera::Camera,
     entity::car::Car,
-    scene::{Scene, menu::MenuScene},
+    map::Map,
+    scene::{Scene, general::PauseScene, menu::MenuScene},
 };
 
 const PENDING_CAP: usize = 64;
@@ -75,9 +77,9 @@ impl InputRing {
 pub struct GameScene {
     shadow_c: RenderTexture2D,
     camera: Camera,
-    // map: Map,
-    // level: Level
-    //
+    map: Map,
+    level: Level,
+
     cars: HashMap<u8, Car>,
 
     my_id: u8,
@@ -100,9 +102,11 @@ pub struct GameScene {
 impl GameScene {
     pub fn new(ctx: &mut crate::ctx::Context, msg: &Welcome) -> Self {
         let shadow_c = ctx.rl.load_render_texture(&ctx.thread, 320, 180).unwrap();
+        let map = Map::load(ctx, "assets/maps/untitled.json");
         Self {
             shadow_c,
             camera: Camera::default(),
+            map,
             cars: HashMap::new(),
             my_id: msg.your_id,
             code: msg.lobby_code.clone(),
@@ -115,6 +119,7 @@ impl GameScene {
             render_tick: 0.,
             acc: 0.,
             pending_spawn: msg.spawn,
+            level: Level::load("assets/maps/untitled.json"),
         }
     }
 
@@ -155,7 +160,7 @@ impl GameScene {
 
         self.prev_sim = me.sim;
         me.sim.step(&input);
-        // level_resolve_car(g->level, &me->sim);
+        self.level.resolve_car(&mut me.sim);
 
         for ghost in ghosts {
             me.sim.resolve_vs_obstacle(ghost, CAR_RESTITUTION);
@@ -207,7 +212,7 @@ impl GameScene {
 
             for input in &self.pending.items {
                 sim.step(input);
-                // level_resolve_car(&self.level, &mut sim);
+                self.level.resolve_car(&mut sim);
                 for ghost in &ghosts {
                     sim.resolve_vs_obstacle(*ghost, CAR_RESTITUTION);
                 }
@@ -239,6 +244,10 @@ impl GameScene {
             self.err_p.y += dy;
             self.err_a += da;
         }
+
+        let present: HashSet<u8> = snap.ents.iter().map(|(id, _)| *id).collect();
+        self.cars
+            .retain(|id, _| *id == self.my_id || present.contains(id));
 
         self.snapbuf.push(snap);
     }
@@ -334,8 +343,9 @@ impl Scene for GameScene {
         let me = self.cars.get(&self.my_id).unwrap();
         self.camera.update(me.p, me.a, dt);
 
-        // todo:
-        // if (IsKeyPressed(KEY_ESCAPE)) scene_push(make_pause_scene());
+        if ctx.rl.is_key_pressed(KeyboardKey::KEY_ESCAPE) {
+            return super::Transition::Push(Box::new(PauseScene));
+        }
 
         super::Transition::None
     }
@@ -343,7 +353,7 @@ impl Scene for GameScene {
         {
             let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut self.shadow_c);
             tm.clear_background(Color::BLANK);
-            // map_draw_shadows(g->map, &g->camera);
+            self.map.draw_shadows(&mut tm, &self.camera);
 
             for (_, car) in &self.cars {
                 car.draw_shadow(&mut tm, &self.camera);
@@ -353,7 +363,7 @@ impl Scene for GameScene {
         let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut ctx.canvas);
         tm.clear_background(Color::BLACK);
 
-        // map_draw_layers(g->map, &g->camera);
+        self.map.draw_layers(&mut tm, &self.camera);
 
         tm.draw_texture_rec(
             self.shadow_c.texture(),
@@ -362,11 +372,14 @@ impl Scene for GameScene {
             Color::new(255, 255, 255, 180),
         );
 
-        // (y, index, drawable)
-        let mut drawables: Vec<(f32, u8, &dyn Drawable)> = Vec::new();
-        for (id, car) in &self.cars {
+        let mut drawables: Vec<(f32, usize, Drawable)> = Vec::new();
+        for (i, (id, car)) in self.cars.iter().enumerate() {
             let (pos, _) = self.camera.apply(car.p, car.a);
-            drawables.push((pos.y, *id, car));
+            drawables.push((pos.y, i, Drawable::Car(*id)));
+        }
+        for (i, prop) in self.map.props.iter().enumerate() {
+            let (pos, _) = self.camera.apply(prop.pos, prop.a);
+            drawables.push((pos.y, i, Drawable::Prop));
         }
 
         drawables.sort_by(|a, b| {
@@ -375,8 +388,16 @@ impl Scene for GameScene {
                 .then(a.1.cmp(&b.1))
         });
 
-        for (_, _, d) in drawables {
-            d.draw_y_sort(&mut tm, &self.camera);
+        for (_, i, d) in drawables {
+            match d {
+                Drawable::Car(id) => {
+                    let car = self.cars.get(&id).unwrap();
+                    car.draw(&mut tm, &self.camera);
+                }
+                Drawable::Prop => {
+                    self.map.draw_prop(&mut tm, i, &self.camera);
+                }
+            }
         }
 
         if self.code.len() != 0 {
@@ -418,13 +439,9 @@ impl Scene for GameScene {
     }
 }
 
-pub trait Drawable {
-    fn draw_y_sort(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, camera: &Camera);
-}
-impl Drawable for Car {
-    fn draw_y_sort(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, camera: &Camera) {
-        self.draw(tm, camera);
-    }
+pub enum Drawable {
+    Car(u8),
+    Prop,
 }
 
 fn sample_input(rl: &RaylibHandle) -> Input {

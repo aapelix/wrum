@@ -1,7 +1,9 @@
 use std::{collections::VecDeque, time::Instant};
 
+use rand::RngExt;
 use shared::{
     coll::{CollisionBody, Vec2, resolve_collision},
+    level::Level,
     net::{
         Channel, ClientMessage, ConnId, Endpoint, Event, ServerMessage, Transport,
         proto::{PROTO_VERSION, RejectReason, Snapshot, Welcome},
@@ -41,6 +43,7 @@ pub struct Lobby {
     private: bool,
     code: Option<String>,
 
+    level: Level,
     clients: Vec<Option<ConnId>>,
     tick: u32,
 }
@@ -258,6 +261,8 @@ impl Game {
             .copied()
             .collect();
 
+        let level = self.lobbies[lobby_index].level.clone();
+
         for id in &client_ids {
             let Some(client) = self.client_mut(*id) else {
                 continue;
@@ -275,7 +280,7 @@ impl Game {
                 }
                 client.car.step(&client.last_input);
             }
-            // level_resolve_car(s->level, &c->car);
+            level.resolve_car(&mut client.car);
         }
 
         for i in 0..client_ids.len() {
@@ -415,6 +420,12 @@ impl Game {
             .all(Option::is_none)
         {
             self.lobbies.remove(lobby_index);
+            for c in &mut self.clients {
+                match c.lobby {
+                    Some(l) if l > lobby_index => c.lobby = Some(l - 1),
+                    _ => {}
+                }
+            }
         }
     }
     fn create_public_lobby(&mut self) -> usize {
@@ -423,18 +434,31 @@ impl Game {
             code: None,
             clients: vec![None; 8],
             tick: 0,
+            level: Level::load("assets/maps/untitled.json"),
         });
 
         self.lobbies.len() - 1
     }
     fn create_private_lobby(&mut self) -> usize {
-        let code = format!("LOBBY-{}", self.lobbies.len());
+        let mut rng = rand::rng();
+        let code = loop {
+            let code = format!("{:06}", rng.random_range(0..1_000_000));
+
+            if !self
+                .lobbies
+                .iter()
+                .any(|l| l.code.as_deref() == Some(&code))
+            {
+                break code;
+            }
+        };
 
         self.lobbies.push(Lobby {
             private: true,
             code: Some(code),
             clients: vec![None; 8],
             tick: 0,
+            level: Level::load("assets/maps/untitled.json"),
         });
 
         self.lobbies.len() - 1

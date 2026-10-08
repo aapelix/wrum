@@ -76,7 +76,7 @@ var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIR
 
 // --pre-jses are emitted after the Module integration code, so that they can
 // refer to Module (if they choose; they can also define Module)
-// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpylikiiqi.js
+// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpabp8ri2b.js
 
   if (!Module['expectedDataFileDownloads']) Module['expectedDataFileDownloads'] = 0;
   Module['expectedDataFileDownloads']++;
@@ -165,9 +165,10 @@ var ENVIRONMENT_IS_SHELL = !ENVIRONMENT_IS_WEB && !ENVIRONMENT_IS_NODE && !ENVIR
         if (!check) throw new Error(msg);
       }
 Module['FS_createPath']("/", "assets", true, true);
-Module['FS_createPath']("/assets", "glsl100", true, true);
-Module['FS_createPath']("/assets", "glsl330", true, true);
 Module['FS_createPath']("/assets", "maps", true, true);
+Module['FS_createPath']("/assets", "shaders", true, true);
+Module['FS_createPath']("/assets/shaders", "glsl100", true, true);
+Module['FS_createPath']("/assets/shaders", "glsl330", true, true);
 
       async function processPackageData(arrayBuffer) {
         assert(arrayBuffer, 'Loading data file failed.');
@@ -203,25 +204,25 @@ Module['FS_createPath']("/assets", "maps", true, true);
     }
 
     }
-    loadPackage({"files": [{"filename": "/assets/body.png", "start": 0, "end": 363}, {"filename": "/assets/fence.png", "start": 363, "end": 596}, {"filename": "/assets/glsl100/water.fs", "start": 596, "end": 2298}, {"filename": "/assets/glsl100/water.vs", "start": 2298, "end": 2298}, {"filename": "/assets/glsl330/water.fs", "start": 2298, "end": 3781}, {"filename": "/assets/glsl330/water.vs", "start": 3781, "end": 3958}, {"filename": "/assets/maps/untitled.json", "start": 3958, "end": 25180}, {"filename": "/assets/shell.html", "start": 25180, "end": 25794}, {"filename": "/assets/tiles.png", "start": 25794, "end": 31760}, {"filename": "/assets/tire.png", "start": 31760, "end": 31863}], "remote_package_size": 31863});
+    loadPackage({"files": [{"filename": "/assets/body.png", "start": 0, "end": 363}, {"filename": "/assets/fence.png", "start": 363, "end": 596}, {"filename": "/assets/maps/untitled.json", "start": 596, "end": 21818}, {"filename": "/assets/shaders/glsl100/water.fs", "start": 21818, "end": 23520}, {"filename": "/assets/shaders/glsl100/water.vs", "start": 23520, "end": 23708}, {"filename": "/assets/shaders/glsl330/water.fs", "start": 23708, "end": 25191}, {"filename": "/assets/shaders/glsl330/water.vs", "start": 25191, "end": 25368}, {"filename": "/assets/shell.html", "start": 25368, "end": 25982}, {"filename": "/assets/tiles.png", "start": 25982, "end": 31948}, {"filename": "/assets/tire.png", "start": 31948, "end": 32051}], "remote_package_size": 32051});
 
   })();
 
-// end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpylikiiqi.js
-// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmp5dglnp9r.js
+// end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpabp8ri2b.js
+// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpbrvq3fbh.js
 
     // All the pre-js content up to here must remain later on, we need to run
     // it.
     if ((typeof ENVIRONMENT_IS_WASM_WORKER != 'undefined' && ENVIRONMENT_IS_WASM_WORKER) || (typeof ENVIRONMENT_IS_PTHREAD != 'undefined' && ENVIRONMENT_IS_PTHREAD) || (typeof ENVIRONMENT_IS_AUDIO_WORKLET != 'undefined' && ENVIRONMENT_IS_AUDIO_WORKLET)) Module['preRun'] = [];
     var necessaryPreJSTasks = Module['preRun'].slice();
-  // end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmp5dglnp9r.js
-// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmp6wei4np5.js
+  // end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpbrvq3fbh.js
+// include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpgg4hzohx.js
 
     if (!Module['preRun']) throw 'Module.preRun should exist because file support used it; did a pre-js delete it?';
     necessaryPreJSTasks.forEach((task) => {
       if (Module['preRun'].indexOf(task) < 0) throw 'All preRun tasks that exist before user pre-js code should remain after; did you replace Module or modify Module.preRun?';
     });
-  // end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmp6wei4np5.js
+  // end include: /var/folders/qr/gbk52f291091z9hmj0lh5yy00000gn/T/tmpgg4hzohx.js
 
 
 var programArgs = [];
@@ -3947,6 +3948,17 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   }
   
 
+  function ___syscall_fstat64(fd, buf) {
+  try {
+  
+      return SYSCALLS.writeStat(buf, FS.fstat(fd));
+    } catch (e) {
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
+    return -e.errno;
+  }
+  }
+  
+
   
   
   var stringToUTF8 = (str, outPtr, maxBytesToWrite) => {
@@ -4070,6 +4082,35 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
   }
   
 
+  function ___syscall_lstat64(path, buf) {
+  try {
+  
+      path = SYSCALLS.getStr(path);
+      return SYSCALLS.writeStat(buf, FS.lstat(path));
+    } catch (e) {
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
+    return -e.errno;
+  }
+  }
+  
+
+  function ___syscall_newfstatat(dirfd, path, buf, flags) {
+  try {
+  
+      path = SYSCALLS.getStr(path);
+      var nofollow = flags & 256;
+      var allowEmpty = flags & 4096;
+      flags = flags & (~6400);
+      assert(!flags, `unknown flags in __syscall_newfstatat: ${flags}`);
+      path = SYSCALLS.calculateAt(dirfd, path, allowEmpty);
+      return SYSCALLS.writeStat(buf, nofollow ? FS.lstat(path) : FS.stat(path));
+    } catch (e) {
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
+    return -e.errno;
+  }
+  }
+  
+
   
   function ___syscall_openat(dirfd, path, flags, varargs) {
   SYSCALLS.varargs = varargs;
@@ -4082,6 +4123,18 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
         mode &= ~SYSCALLS.currentUmask;
       }
       return FS.open(path, flags, mode).fd;
+    } catch (e) {
+    if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
+    return -e.errno;
+  }
+  }
+  
+
+  function ___syscall_stat64(path, buf) {
+  try {
+  
+      path = SYSCALLS.getStr(path);
+      return SYSCALLS.writeStat(buf, FS.stat(path));
     } catch (e) {
     if (typeof FS == 'undefined' || !(e.name === 'ErrnoError')) throw e;
     return -e.errno;
@@ -7660,9 +7713,25 @@ var stringToUTF8Array = (str, heap, outIdx, maxBytesToWrite) => {
 
   var _glTexParameteri = _emscripten_glTexParameteri;
 
+  var _glUniform1fv = _emscripten_glUniform1fv;
+
   var _glUniform1i = _emscripten_glUniform1i;
 
+  var _glUniform1iv = _emscripten_glUniform1iv;
+
+  var _glUniform2fv = _emscripten_glUniform2fv;
+
+  var _glUniform2iv = _emscripten_glUniform2iv;
+
+  var _glUniform3fv = _emscripten_glUniform3fv;
+
+  var _glUniform3iv = _emscripten_glUniform3iv;
+
   var _glUniform4f = _emscripten_glUniform4f;
+
+  var _glUniform4fv = _emscripten_glUniform4fv;
+
+  var _glUniform4iv = _emscripten_glUniform4iv;
 
   var _glUniformMatrix4fv = _emscripten_glUniformMatrix4fv;
 
@@ -10238,49 +10307,49 @@ function checkIncomingModuleAPI() {
   ignoredModuleProp('wasmBinary');
 }
 var ASM_CONSTS = {
-  738586: () => { if (document.fullscreenElement) return 1; },  
- 738632: () => { return Module.canvas.width; },  
- 738664: () => { return parseInt(Module.canvas.style.width); },  
- 738712: () => { document.exitFullscreen(); },  
- 738739: () => { setTimeout(function(){ Module.requestFullscreen(false, false); }, 100); },  
- 738811: () => { if (document.fullscreenElement) return 1; },  
- 738857: () => { return Module.canvas.width; },  
- 738889: () => { return screen.width; },  
- 738914: () => { document.exitFullscreen(); },  
- 738941: ($0) => { const canvasId = UTF8ToString($0); setTimeout(function() { Module.requestFullscreen(false, true); setTimeout(function() { document.querySelector(canvasId).style.width="unset"; }, 100); }, 100); },  
- 739135: () => { return window.innerWidth; },  
- 739161: () => { return window.innerHeight; },  
- 739188: () => { if (document.fullscreenElement) return 1; },  
- 739234: () => { return Module.canvas.width; },  
- 739266: () => { return parseInt(Module.canvas.style.width); },  
- 739314: () => { if (document.fullscreenElement) return 1; },  
- 739360: () => { return Module.canvas.width; },  
- 739392: () => { return screen.width; },  
- 739417: () => { return window.innerWidth; },  
- 739443: () => { return window.innerHeight; },  
- 739470: () => { if (document.fullscreenElement) return 1; },  
- 739516: () => { return Module.canvas.width; },  
- 739548: () => { return screen.width; },  
- 739573: () => { document.exitFullscreen(); },  
- 739600: () => { if (document.fullscreenElement) return 1; },  
- 739646: () => { return Module.canvas.width; },  
- 739678: () => { return parseInt(Module.canvas.style.width); },  
- 739726: () => { document.exitFullscreen(); },  
- 739753: ($0) => { Module.canvas.style.opacity = $0; },  
- 739791: () => { return screen.width; },  
- 739816: () => { return screen.height; },  
- 739842: () => { return window.screenX; },  
- 739869: () => { return window.screenY; },  
- 739896: () => { return window.devicePixelRatio; },  
- 739932: ($0) => { navigator.clipboard.writeText(UTF8ToString($0)); },  
- 739985: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
- 740036: () => { Module.canvas.style.cursor = 'none'; },  
- 740073: ($0, $1, $2, $3) => { try { navigator.getGamepads()[$0].vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: $3, weakMagnitude: $1, strongMagnitude: $2 }); } catch (e) { try { navigator.getGamepads()[$0].hapticActuators[0].pulse($2, $3); } catch (e) { } } },  
- 740329: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
- 740380: () => { if (document.pointerLockElement) return 1; },  
- 740427: () => { if (document.fullscreenElement) return 1; },  
- 740473: () => { return window.innerWidth; },  
- 740499: () => { return window.innerHeight; }
+  801194: () => { if (document.fullscreenElement) return 1; },  
+ 801240: () => { return Module.canvas.width; },  
+ 801272: () => { return parseInt(Module.canvas.style.width); },  
+ 801320: () => { document.exitFullscreen(); },  
+ 801347: () => { setTimeout(function(){ Module.requestFullscreen(false, false); }, 100); },  
+ 801419: () => { if (document.fullscreenElement) return 1; },  
+ 801465: () => { return Module.canvas.width; },  
+ 801497: () => { return screen.width; },  
+ 801522: () => { document.exitFullscreen(); },  
+ 801549: ($0) => { const canvasId = UTF8ToString($0); setTimeout(function() { Module.requestFullscreen(false, true); setTimeout(function() { document.querySelector(canvasId).style.width="unset"; }, 100); }, 100); },  
+ 801743: () => { return window.innerWidth; },  
+ 801769: () => { return window.innerHeight; },  
+ 801796: () => { if (document.fullscreenElement) return 1; },  
+ 801842: () => { return Module.canvas.width; },  
+ 801874: () => { return parseInt(Module.canvas.style.width); },  
+ 801922: () => { if (document.fullscreenElement) return 1; },  
+ 801968: () => { return Module.canvas.width; },  
+ 802000: () => { return screen.width; },  
+ 802025: () => { return window.innerWidth; },  
+ 802051: () => { return window.innerHeight; },  
+ 802078: () => { if (document.fullscreenElement) return 1; },  
+ 802124: () => { return Module.canvas.width; },  
+ 802156: () => { return screen.width; },  
+ 802181: () => { document.exitFullscreen(); },  
+ 802208: () => { if (document.fullscreenElement) return 1; },  
+ 802254: () => { return Module.canvas.width; },  
+ 802286: () => { return parseInt(Module.canvas.style.width); },  
+ 802334: () => { document.exitFullscreen(); },  
+ 802361: ($0) => { Module.canvas.style.opacity = $0; },  
+ 802399: () => { return screen.width; },  
+ 802424: () => { return screen.height; },  
+ 802450: () => { return window.screenX; },  
+ 802477: () => { return window.screenY; },  
+ 802504: () => { return window.devicePixelRatio; },  
+ 802540: ($0) => { navigator.clipboard.writeText(UTF8ToString($0)); },  
+ 802593: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
+ 802644: () => { Module.canvas.style.cursor = 'none'; },  
+ 802681: ($0, $1, $2, $3) => { try { navigator.getGamepads()[$0].vibrationActuator.playEffect('dual-rumble', { startDelay: 0, duration: $3, weakMagnitude: $1, strongMagnitude: $2 }); } catch (e) { try { navigator.getGamepads()[$0].hapticActuators[0].pulse($2, $3); } catch (e) { } } },  
+ 802937: ($0) => { Module.canvas.style.cursor = UTF8ToString($0); },  
+ 802988: () => { if (document.pointerLockElement) return 1; },  
+ 803035: () => { if (document.fullscreenElement) return 1; },  
+ 803081: () => { return window.innerWidth; },  
+ 803107: () => { return window.innerHeight; }
 };
 function SetCanvasIdJs(out,outSize) { var canvasId = "#" + Module.canvas.id; stringToUTF8(canvasId, out, outSize); }
 function __asyncjs__RequestClipboardData() { return Asyncify.handleAsync(async () => { if (navigator.clipboard && window.isSecureContext) { let items = await navigator.clipboard.read(); for (const item of items) { if (item.types.includes("text/plain")) { const blob = await item.getType("text/plain"); const text = await blob.text(); window._lastClipboardString = text; } else if (item.types.find(t => t.startsWith("image/"))) { const blob = await item.getType(item.types.find(t => t.startsWith("image/"))); const bitmap = await createImageBitmap(blob); const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height; const ctx = canvas.getContext('2d'); ctx.drawImage(bitmap, 0, 0); const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data; window._lastImgWidth = canvas.width; window._lastImgHeight = canvas.height; window._lastImgData = imgData; } } } else console.warn("Clipboard read() requires HTTPS/Localhost"); }); }
@@ -10340,18 +10409,19 @@ var _emscripten_stack_get_free = makeInvalidEarlyAccess('_emscripten_stack_get_f
 var __emscripten_stack_restore = makeInvalidEarlyAccess('__emscripten_stack_restore');
 var __emscripten_stack_alloc = makeInvalidEarlyAccess('__emscripten_stack_alloc');
 var _emscripten_stack_get_current = makeInvalidEarlyAccess('_emscripten_stack_get_current');
-var dynCall_iii = makeInvalidEarlyAccess('dynCall_iii');
 var dynCall_vi = makeInvalidEarlyAccess('dynCall_vi');
-var dynCall_v = makeInvalidEarlyAccess('dynCall_v');
-var dynCall_ii = makeInvalidEarlyAccess('dynCall_ii');
+var dynCall_iii = makeInvalidEarlyAccess('dynCall_iii');
+var dynCall_viiif = makeInvalidEarlyAccess('dynCall_viiif');
 var dynCall_vii = makeInvalidEarlyAccess('dynCall_vii');
 var dynCall_viii = makeInvalidEarlyAccess('dynCall_viii');
+var dynCall_viiii = makeInvalidEarlyAccess('dynCall_viiii');
+var dynCall_ii = makeInvalidEarlyAccess('dynCall_ii');
+var dynCall_v = makeInvalidEarlyAccess('dynCall_v');
 var dynCall_jiii = makeInvalidEarlyAccess('dynCall_jiii');
+var dynCall_iiii = makeInvalidEarlyAccess('dynCall_iiii');
 var dynCall_viff = makeInvalidEarlyAccess('dynCall_viff');
 var dynCall_viiiii = makeInvalidEarlyAccess('dynCall_viiiii');
-var dynCall_viiii = makeInvalidEarlyAccess('dynCall_viiii');
 var dynCall_vidd = makeInvalidEarlyAccess('dynCall_vidd');
-var dynCall_iiii = makeInvalidEarlyAccess('dynCall_iiii');
 var dynCall_vffff = makeInvalidEarlyAccess('dynCall_vffff');
 var dynCall_vf = makeInvalidEarlyAccess('dynCall_vf');
 var dynCall_viiiiiiii = makeInvalidEarlyAccess('dynCall_viiiiiiii');
@@ -10429,18 +10499,19 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['_emscripten_stack_restore'] != 'undefined', 'missing Wasm export: _emscripten_stack_restore');
   assert(typeof wasmExports['_emscripten_stack_alloc'] != 'undefined', 'missing Wasm export: _emscripten_stack_alloc');
   assert(typeof wasmExports['emscripten_stack_get_current'] != 'undefined', 'missing Wasm export: emscripten_stack_get_current');
-  assert(typeof wasmExports['dynCall_iii'] != 'undefined', 'missing Wasm export: dynCall_iii');
   assert(typeof wasmExports['dynCall_vi'] != 'undefined', 'missing Wasm export: dynCall_vi');
-  assert(typeof wasmExports['dynCall_v'] != 'undefined', 'missing Wasm export: dynCall_v');
-  assert(typeof wasmExports['dynCall_ii'] != 'undefined', 'missing Wasm export: dynCall_ii');
+  assert(typeof wasmExports['dynCall_iii'] != 'undefined', 'missing Wasm export: dynCall_iii');
+  assert(typeof wasmExports['dynCall_viiif'] != 'undefined', 'missing Wasm export: dynCall_viiif');
   assert(typeof wasmExports['dynCall_vii'] != 'undefined', 'missing Wasm export: dynCall_vii');
   assert(typeof wasmExports['dynCall_viii'] != 'undefined', 'missing Wasm export: dynCall_viii');
+  assert(typeof wasmExports['dynCall_viiii'] != 'undefined', 'missing Wasm export: dynCall_viiii');
+  assert(typeof wasmExports['dynCall_ii'] != 'undefined', 'missing Wasm export: dynCall_ii');
+  assert(typeof wasmExports['dynCall_v'] != 'undefined', 'missing Wasm export: dynCall_v');
   assert(typeof wasmExports['dynCall_jiii'] != 'undefined', 'missing Wasm export: dynCall_jiii');
+  assert(typeof wasmExports['dynCall_iiii'] != 'undefined', 'missing Wasm export: dynCall_iiii');
   assert(typeof wasmExports['dynCall_viff'] != 'undefined', 'missing Wasm export: dynCall_viff');
   assert(typeof wasmExports['dynCall_viiiii'] != 'undefined', 'missing Wasm export: dynCall_viiiii');
-  assert(typeof wasmExports['dynCall_viiii'] != 'undefined', 'missing Wasm export: dynCall_viiii');
   assert(typeof wasmExports['dynCall_vidd'] != 'undefined', 'missing Wasm export: dynCall_vidd');
-  assert(typeof wasmExports['dynCall_iiii'] != 'undefined', 'missing Wasm export: dynCall_iiii');
   assert(typeof wasmExports['dynCall_vffff'] != 'undefined', 'missing Wasm export: dynCall_vffff');
   assert(typeof wasmExports['dynCall_vf'] != 'undefined', 'missing Wasm export: dynCall_vf');
   assert(typeof wasmExports['dynCall_viiiiiiii'] != 'undefined', 'missing Wasm export: dynCall_viiiiiiii');
@@ -10515,18 +10586,19 @@ function assignWasmExports(wasmExports) {
   __emscripten_stack_restore = wasmExports['_emscripten_stack_restore'];
   __emscripten_stack_alloc = wasmExports['_emscripten_stack_alloc'];
   _emscripten_stack_get_current = wasmExports['emscripten_stack_get_current'];
-  dynCall_iii = dynCalls['iii'] = createExportWrapper('dynCall_iii', wasmExports['dynCall_iii'], 3);
   dynCall_vi = dynCalls['vi'] = createExportWrapper('dynCall_vi', wasmExports['dynCall_vi'], 2);
-  dynCall_v = dynCalls['v'] = createExportWrapper('dynCall_v', wasmExports['dynCall_v'], 1);
-  dynCall_ii = dynCalls['ii'] = createExportWrapper('dynCall_ii', wasmExports['dynCall_ii'], 2);
+  dynCall_iii = dynCalls['iii'] = createExportWrapper('dynCall_iii', wasmExports['dynCall_iii'], 3);
+  dynCall_viiif = dynCalls['viiif'] = createExportWrapper('dynCall_viiif', wasmExports['dynCall_viiif'], 5);
   dynCall_vii = dynCalls['vii'] = createExportWrapper('dynCall_vii', wasmExports['dynCall_vii'], 3);
   dynCall_viii = dynCalls['viii'] = createExportWrapper('dynCall_viii', wasmExports['dynCall_viii'], 4);
+  dynCall_viiii = dynCalls['viiii'] = createExportWrapper('dynCall_viiii', wasmExports['dynCall_viiii'], 5);
+  dynCall_ii = dynCalls['ii'] = createExportWrapper('dynCall_ii', wasmExports['dynCall_ii'], 2);
+  dynCall_v = dynCalls['v'] = createExportWrapper('dynCall_v', wasmExports['dynCall_v'], 1);
   dynCall_jiii = dynCalls['jiii'] = createExportWrapper('dynCall_jiii', wasmExports['dynCall_jiii'], 4);
+  dynCall_iiii = dynCalls['iiii'] = createExportWrapper('dynCall_iiii', wasmExports['dynCall_iiii'], 4);
   dynCall_viff = dynCalls['viff'] = createExportWrapper('dynCall_viff', wasmExports['dynCall_viff'], 4);
   dynCall_viiiii = dynCalls['viiiii'] = createExportWrapper('dynCall_viiiii', wasmExports['dynCall_viiiii'], 6);
-  dynCall_viiii = dynCalls['viiii'] = createExportWrapper('dynCall_viiii', wasmExports['dynCall_viiii'], 5);
   dynCall_vidd = dynCalls['vidd'] = createExportWrapper('dynCall_vidd', wasmExports['dynCall_vidd'], 4);
-  dynCall_iiii = dynCalls['iiii'] = createExportWrapper('dynCall_iiii', wasmExports['dynCall_iiii'], 4);
   dynCall_vffff = dynCalls['vffff'] = createExportWrapper('dynCall_vffff', wasmExports['dynCall_vffff'], 5);
   dynCall_vf = dynCalls['vf'] = createExportWrapper('dynCall_vf', wasmExports['dynCall_vf'], 2);
   dynCall_viiiiiiii = dynCalls['viiiiiiii'] = createExportWrapper('dynCall_viiiiiiii', wasmExports['dynCall_viiiiiiii'], 9);
@@ -10561,11 +10633,19 @@ var wasmImports = {
   /** @export */
   __syscall_fcntl64: ___syscall_fcntl64,
   /** @export */
+  __syscall_fstat64: ___syscall_fstat64,
+  /** @export */
   __syscall_getcwd: ___syscall_getcwd,
   /** @export */
   __syscall_ioctl: ___syscall_ioctl,
   /** @export */
+  __syscall_lstat64: ___syscall_lstat64,
+  /** @export */
+  __syscall_newfstatat: ___syscall_newfstatat,
+  /** @export */
   __syscall_openat: ___syscall_openat,
+  /** @export */
+  __syscall_stat64: ___syscall_stat64,
   /** @export */
   _abort_js: __abort_js,
   /** @export */
@@ -11079,9 +11159,25 @@ var wasmImports = {
   /** @export */
   glTexParameteri: _glTexParameteri,
   /** @export */
+  glUniform1fv: _glUniform1fv,
+  /** @export */
   glUniform1i: _glUniform1i,
   /** @export */
+  glUniform1iv: _glUniform1iv,
+  /** @export */
+  glUniform2fv: _glUniform2fv,
+  /** @export */
+  glUniform2iv: _glUniform2iv,
+  /** @export */
+  glUniform3fv: _glUniform3fv,
+  /** @export */
+  glUniform3iv: _glUniform3iv,
+  /** @export */
   glUniform4f: _glUniform4f,
+  /** @export */
+  glUniform4fv: _glUniform4fv,
+  /** @export */
+  glUniform4iv: _glUniform4iv,
   /** @export */
   glUniformMatrix4fv: _glUniformMatrix4fv,
   /** @export */
