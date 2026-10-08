@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{collections::VecDeque, time::Instant};
 
 use shared::{
     coll::{CollisionBody, Vec2, resolve_collision},
@@ -29,7 +29,8 @@ pub struct Client {
     lobby: Option<usize>,
     lobby_slot: usize,
 
-    pending_inputs: Vec<Input>,
+    pending_inputs: VecDeque<Input>,
+    queued_seq: Option<u32>,
     last_input: Input,
     last_seq_applied: u32,
 
@@ -148,7 +149,8 @@ impl Game {
             handshaked: false,
             lobby: None,
             lobby_slot: 0,
-            pending_inputs: Vec::new(),
+            pending_inputs: VecDeque::new(),
+            queued_seq: None,
             last_input: Input::default(),
             last_seq_applied: 0,
             car: CarState::default(),
@@ -192,12 +194,16 @@ impl Game {
         let Some(client) = self.client_mut(id) else {
             return;
         };
-
         if client.lobby.is_none() {
             return;
         }
 
-        client.pending_inputs.extend(inputs);
+        for i in inputs {
+            if client.queued_seq.map_or(true, |s| i.seq > s) {
+                client.queued_seq = Some(i.seq);
+                client.pending_inputs.push_back(i);
+            }
+        }
     }
     fn quickplay(&mut self, id: ConnId) -> Vec<GameEvent> {
         let Some(lobby) = self.find_public_lobby() else {
@@ -257,12 +263,18 @@ impl Game {
                 continue;
             };
 
-            if let Some(input) = client.pending_inputs.pop() {
-                client.last_seq_applied = input.seq;
-                client.last_input = input;
+            let steps = if client.pending_inputs.len() > 4 {
+                2
+            } else {
+                1
+            };
+            for _ in 0..steps {
+                if let Some(input) = client.pending_inputs.pop_front() {
+                    client.last_seq_applied = input.seq;
+                    client.last_input = input;
+                }
+                client.car.step(&client.last_input);
             }
-
-            client.car.step(&client.last_input);
             // level_resolve_car(s->level, &c->car);
         }
 

@@ -8,7 +8,11 @@ use shared::net::{
     native::UdpTransport,
 };
 
-pub const TICK_DT: Duration = Duration::from_millis(16);
+use shared::sim::TICK_RATE;
+
+fn tick_dt() -> Duration {
+    Duration::from_secs_f64(1.0 / TICK_RATE as f64)
+}
 pub const MAX_ACCUMULATOR: Duration = Duration::from_millis(250);
 
 use crate::server::{Game, Server};
@@ -32,27 +36,27 @@ fn main() -> io::Result<()> {
         game: Game::new(),
     };
 
-    let mut last = Instant::now();
-    let mut accumulator = Duration::ZERO;
+    let tick = tick_dt();
+    let mut next = Instant::now() + tick;
 
     loop {
-        let now = Instant::now();
-        let dt = now - last;
-        last = now;
-
-        accumulator += dt;
-
-        if accumulator > MAX_ACCUMULATOR {
-            accumulator = MAX_ACCUMULATOR;
-        }
-
         server.poll_network();
 
-        while accumulator >= TICK_DT {
-            accumulator -= TICK_DT;
+        let now = Instant::now();
+        let mut ticks = 0;
+        while now >= next && ticks < 5 {
             server.tick();
+            next += tick;
+            ticks += 1;
+        }
+        if now >= next + tick * 5 {
+            next = now + tick;
         }
 
-        server.net.transport_mut().wait(TICK_DT / 4);
+        let wait = next.saturating_duration_since(Instant::now());
+        server
+            .net
+            .transport_mut()
+            .wait(wait.min(Duration::from_millis(2)));
     }
 }

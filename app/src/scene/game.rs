@@ -173,6 +173,10 @@ impl GameScene {
         }
     }
     fn apply_snapshot(&mut self, ctx: &mut crate::ctx::Context, snap: &mut Snapshot) {
+        if snap.server_tick <= self.last_server_tick && self.last_server_tick != 0 {
+            return;
+        }
+
         self.last_server_tick = snap.server_tick;
 
         for (id, state) in &mut snap.ents {
@@ -213,8 +217,11 @@ impl GameScene {
 
             let dx = before.pos.x - sim.pos.x;
             let dy = before.pos.y - sim.pos.y;
-
             let mut da = angle_diff(sim.a, before.a);
+
+            self.prev_sim.pos.x -= dx;
+            self.prev_sim.pos.y -= dy;
+            self.prev_sim.a -= da;
 
             let mut dx = dx;
             let mut dy = dy;
