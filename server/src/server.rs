@@ -1,12 +1,12 @@
 use std::time::Instant;
 
 use shared::{
-    coll::Vec2,
+    coll::{CollisionBody, Vec2, resolve_collision},
     net::{
         Channel, ClientMessage, ConnId, Endpoint, Event, ServerMessage, Transport,
         proto::{PROTO_VERSION, RejectReason, Snapshot, Welcome},
     },
-    sim::{CarState, Input, TICK_RATE},
+    sim::{CAR_RESTITUTION, CarState, Input, TICK_RATE},
 };
 
 pub const SNAPSHOT_EVERY: u32 = 2;
@@ -266,35 +266,70 @@ impl Game {
             // level_resolve_car(s->level, &c->car);
         }
 
-        // todo: car-car collisions
+        for i in 0..client_ids.len() {
+            let (l, r) = client_ids.split_at(i + 1);
+            let a = &l[i];
+            for b in r {
+                self.resolve_car_pair(a, b);
+            }
+        }
 
         self.lobbies[lobby_index].tick += 1;
     }
 
+    fn resolve_car_pair(&mut self, a_id: &ConnId, b_id: &ConnId) {
+        let Some(a) = self.client(*a_id) else {
+            return;
+        };
+        let Some(b) = self.client(*b_id) else {
+            return;
+        };
+        let mut ba = CollisionBody {
+            box_: a.car.obb(),
+            vel: a.car.vel(),
+            inv_mass: 1.,
+        };
+        let mut bb = CollisionBody {
+            box_: b.car.obb(),
+            vel: b.car.vel(),
+            inv_mass: 1.,
+        };
+        resolve_collision(&mut ba, &mut bb, CAR_RESTITUTION);
+        let Some(a) = self.client_mut(*a_id) else {
+            return;
+        };
+        a.car.pos = ba.box_.pos;
+        a.car.apply_vel(ba.vel);
+        let Some(b) = self.client_mut(*b_id) else {
+            return;
+        };
+        b.car.pos = bb.box_.pos;
+        b.car.apply_vel(bb.vel);
+    }
     fn send_snapshot(&self, lobby_index: usize, events: &mut Vec<GameEvent>) {
         let lobby = &self.lobbies[lobby_index];
+
+        let ents: Vec<(u8, CarState)> = lobby
+            .clients
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, id)| {
+                let id = (*id)?;
+                let client = self.client(id)?;
+
+                Some((slot as u8, client.car))
+            })
+            .collect();
 
         for client_id in lobby.clients.iter().flatten() {
             let Some(client) = self.client(*client_id) else {
                 continue;
             };
 
-            let ents: Vec<(u8, CarState)> = lobby
-                .clients
-                .iter()
-                .enumerate()
-                .filter_map(|(slot, id)| {
-                    let id = (*id)?;
-                    let client = self.client(id)?;
-
-                    Some((slot as u8, client.car))
-                })
-                .collect();
-
             let snapshot = ServerMessage::Snapshot(Snapshot {
                 server_tick: lobby.tick,
                 ack_seq: client.last_seq_applied,
-                ents: ents,
+                ents: ents.clone(),
             });
 
             events.push(GameEvent::Send {

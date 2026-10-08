@@ -41,7 +41,7 @@ impl Car {
             let base = TIRE_POSITIONS[i];
             let world = Vector2 {
                 x: self.p.x + base.x * c - base.y * s,
-                y: self.p.y + base.x * s - base.y * c,
+                y: self.p.y + base.x * s + base.y * c,
             };
             let (draw_p, mut draw_a) = camera.apply(world, self.a);
             if i < 2 {
@@ -65,7 +65,7 @@ impl Car {
             let base = TIRE_POSITIONS[i];
             let world = Vector2 {
                 x: shadow_p.x + base.x * c - base.y * s,
-                y: shadow_p.y + base.x * s - base.y * c,
+                y: shadow_p.y + base.x * s + base.y * c,
             };
             let (draw_p, mut draw_a) = camera.apply(world, self.a);
             if i < 2 {

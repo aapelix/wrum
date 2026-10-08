@@ -13,7 +13,7 @@ use shared::{
     interp::{INTERP_DELAY_TICKS, INTERP_SMOOTH, INTERP_SNAP_TICKS, SnapshotBuffer, lerp_angle},
     net::{
         Channel, ClientMessage,
-        proto::{Snapshot, Welcome},
+        proto::{INPUT_REDUNDANCY, Snapshot, Welcome},
     },
     sim::{CAR_HALFS, CAR_RESTITUTION, CarState, Input, TICK_DT},
 };
@@ -51,18 +51,24 @@ impl InputRing {
             items: VecDeque::with_capacity(PENDING_CAP),
         }
     }
-
     fn push(&mut self, input: Input) {
         if self.items.len() == PENDING_CAP {
             self.items.pop_front();
         }
         self.items.push_back(input);
     }
-
     fn discard_upto(&mut self, seq: u32) {
         while self.items.front().is_some_and(|x| x.seq <= seq) {
             self.items.pop_front();
         }
+    }
+    fn recent(&self, n: usize) -> Vec<Input> {
+        let n = n.min(self.items.len());
+        self.items
+            .iter()
+            .skip(self.items.len() - n)
+            .copied()
+            .collect()
     }
 }
 
@@ -117,8 +123,8 @@ impl GameScene {
             let mut car = Car::new(
                 ctx,
                 Vector2::new(spawn.pos.x, spawn.pos.y),
-                spawn.a,
-                spawn.t,
+                spawn.a.to_degrees(),
+                spawn.t.to_degrees(),
             );
             car.sim = spawn;
             car
@@ -158,14 +164,13 @@ impl GameScene {
         // input
 
         self.pending.push(input);
-        ctx.net
-            .send(
-                Channel::Unreliable,
-                &ClientMessage::Input {
-                    inputs: self.pending.items.clone().into(),
-                },
-            )
-            .unwrap();
+        let msg = ClientMessage::Input {
+            inputs: self.pending.recent(INPUT_REDUNDANCY),
+        };
+
+        if let Err(e) = ctx.net.send(Channel::Unreliable, &msg) {
+            eprintln!("failed to send input: {e:?}");
+        }
     }
     fn apply_snapshot(&mut self, ctx: &mut crate::ctx::Context, snap: &mut Snapshot) {
         self.last_server_tick = snap.server_tick;
