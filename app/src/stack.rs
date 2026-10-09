@@ -7,16 +7,16 @@ use raylib::{
     texture::{RaylibRenderTexture2D, RaylibTexture2D, RenderTexture2D, Texture2D},
 };
 
-use crate::ctx::Context;
+use crate::{camera::Camera, ctx::Context};
 
 pub struct Stack {
     tex: Texture2D,
     shadow: RenderTexture2D,
     center: Vector2,
-
     sw: f32,
     h: f32,
     c: i32,
+    spacing: f32,
 }
 
 impl Stack {
@@ -61,27 +61,47 @@ impl Stack {
             sw,
             h: h as f32,
             c,
+            spacing: 1.,
         }
     }
-    pub fn draw(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, pos: Vector2, a: f32) {
+    pub fn with_spacing(mut self, spacing: f32) -> Self {
+        self.spacing = spacing;
+        self
+    }
+    pub fn draw(
+        &self,
+        tm: &mut RaylibTextureMode<'_, RaylibHandle>,
+        pos: Vector2,
+        a: f32,
+        camera: &Camera,
+    ) {
+        let (pos, a) = camera.apply(pos, a);
         for i in 0..self.c {
-            let i = i as f32;
+            let lift = (i as f32 * self.spacing).round();
             let src = Rectangle {
-                x: i * self.sw,
+                x: i as f32 * self.sw,
                 y: 0.,
                 width: self.sw,
                 height: self.h,
             };
             let dst = Rectangle {
                 x: pos.x,
-                y: pos.y - i,
+                y: pos.y - lift,
                 width: self.sw,
                 height: self.h,
             };
             tm.draw_texture_pro(&self.tex, src, dst, self.center, a, Color::WHITE);
         }
     }
-    pub fn draw_shadow(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, pos: Vector2, a: f32) {
+    pub fn draw_shadow(
+        &self,
+        tm: &mut RaylibTextureMode<'_, RaylibHandle>,
+        pos: Vector2,
+        a: f32,
+        camera: &Camera,
+        offset: Vector2,
+    ) {
+        let (pos, a) = camera.apply(pos + offset, a);
         tm.draw_texture_pro(
             &self.shadow.texture(),
             Rectangle {

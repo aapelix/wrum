@@ -354,6 +354,8 @@ impl Scene for GameScene {
             }
         }
 
+        self.map.draw_ground_shadows(ctx, &self.camera);
+
         let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut ctx.canvas);
         tm.clear_background(Color::BLACK);
 
@@ -372,6 +374,9 @@ impl Scene for GameScene {
             drawables.push((pos.y, i, Drawable::Car(*id)));
         }
         for (i, prop) in self.map.props.iter().enumerate() {
+            if prop.ground {
+                continue;
+            }
             let (pos, _) = self.camera.apply(prop.pos, prop.a);
             drawables.push((pos.y, i, Drawable::Prop));
         }

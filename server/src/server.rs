@@ -384,8 +384,8 @@ impl Game {
 
         client.car = CarState {
             pos: Vec2 {
-                x: 100. + slot as f32 * 40.,
-                y: 100.,
+                x: 1056. + slot as f32 * 40.,
+                y: 200.,
             },
             ..Default::default()
         };

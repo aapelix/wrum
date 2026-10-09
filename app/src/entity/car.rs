@@ -1,7 +1,7 @@
 use raylib::{RaylibHandle, drawing::RaylibTextureMode, math::Vector2};
 use shared::sim::CarState;
 
-use crate::{camera::Camera, ctx::Context, stack::Stack};
+use crate::{camera::Camera, ctx::Context, entity::SHADOW_OFFSET, stack::Stack};
 
 pub const TIRE_COUNT: usize = 4;
 pub const TIRE_POSITIONS: [Vector2; TIRE_COUNT] = [
@@ -10,7 +10,6 @@ pub const TIRE_POSITIONS: [Vector2; TIRE_COUNT] = [
     Vector2 { x: -3.5, y: 4.0 },
     Vector2 { x: 3.5, y: 4.0 },
 ];
-pub const SHADOW_OFFSET: Vector2 = Vector2 { x: 1., y: 0.5 };
 
 pub struct Car {
     pub p: Vector2,
@@ -43,39 +42,37 @@ impl Car {
                 x: self.p.x + base.x * c - base.y * s,
                 y: self.p.y + base.x * s + base.y * c,
             };
-            let (draw_p, mut draw_a) = camera.apply(world, self.a);
+            let mut draw_a = self.a;
             if i < 2 {
                 draw_a += self.t;
             }
 
-            self.tire.draw(tm, draw_p, draw_a);
+            self.tire.draw(tm, world, draw_a, camera);
         }
 
-        let (draw_p, draw_a) = camera.apply(self.p, self.a);
-        self.body.draw(tm, draw_p, draw_a);
+        self.body.draw(tm, self.p, self.a, camera);
     }
     pub fn draw_shadow(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, camera: &Camera) {
         let rad = self.a.to_radians();
         let s = rad.sin();
         let c = rad.cos();
 
-        let shadow_p = self.p + SHADOW_OFFSET;
-
         for i in 0..TIRE_COUNT - 1 {
             let base = TIRE_POSITIONS[i];
             let world = Vector2 {
-                x: shadow_p.x + base.x * c - base.y * s,
-                y: shadow_p.y + base.x * s + base.y * c,
+                x: self.p.x + base.x * c - base.y * s,
+                y: self.p.y + base.x * s + base.y * c,
             };
-            let (draw_p, mut draw_a) = camera.apply(world, self.a);
+            let mut draw_a = self.a;
             if i < 2 {
                 draw_a += self.t;
             }
 
-            self.tire.draw_shadow(tm, draw_p, draw_a);
+            self.tire
+                .draw_shadow(tm, world, draw_a, camera, SHADOW_OFFSET);
         }
 
-        let (draw_p, draw_a) = camera.apply(shadow_p, self.a);
-        self.body.draw_shadow(tm, draw_p, draw_a);
+        self.body
+            .draw_shadow(tm, self.p, self.a, camera, SHADOW_OFFSET);
     }
 }

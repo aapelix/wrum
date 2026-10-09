@@ -65,6 +65,8 @@ pub enum ObjectKindJson {
     Wall,
     #[serde(rename = "water")]
     Water,
+    #[serde(rename = "bridge")]
+    Bridge,
 }
 
 #[derive(Debug, Deserialize)]
