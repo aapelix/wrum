@@ -20,9 +20,8 @@ use crate::server::{Game, Server};
 pub mod server;
 
 fn main() -> io::Result<()> {
-    let mut args = std::env::args().skip(1);
-    let udp_port = args.next().unwrap_or_else(|| "7777".into());
-    let ws_port = args.next().unwrap_or_else(|| "7778".into());
+    let udp_port = std::env::var("UDP_PORT").unwrap_or_else(|_| "7777".into());
+    let ws_port = std::env::var("PORT").unwrap_or_else(|_| "7778".into());
 
     let transport = Dual::new(
         UdpTransport::bind(format!("0.0.0.0:{udp_port}"))?,

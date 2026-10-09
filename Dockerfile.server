@@ -1,0 +1,14 @@
+FROM rust:1-slim AS build
+WORKDIR /app
+
+COPY . .
+RUN cargo build --release --bin server
+
+FROM debian:bookworm-slim
+WORKDIR /app
+
+COPY --from=build /app/target/release/server /usr/local/bin/server
+copy assets/ ./assets/
+
+ENV UDP_PORT=7777
+CMD ["/usr/local/bin/server"]

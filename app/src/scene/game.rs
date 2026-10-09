@@ -397,8 +397,6 @@ impl Scene for GameScene {
         if self.code.len() != 0 {
             tm.draw_text(&self.code, 20, 10, 10, Color::WHITE);
         }
-
-        tm.draw_fps(20, 10);
     }
 
     fn enter(&mut self, ctx: &mut crate::ctx::Context) {
