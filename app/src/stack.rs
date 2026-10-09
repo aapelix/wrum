@@ -74,8 +74,10 @@ impl Stack {
         pos: Vector2,
         a: f32,
         camera: &Camera,
+        offset_y: f32,
     ) {
-        let (pos, a) = camera.apply(pos, a);
+        let (mut pos, a) = camera.apply(pos, a);
+        pos.y -= offset_y;
         for i in 0..self.c {
             let lift = (i as f32 * self.spacing).round();
             let src = Rectangle {

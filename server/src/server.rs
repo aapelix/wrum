@@ -1,8 +1,9 @@
 use std::{collections::VecDeque, time::Instant};
 
+use glam::Vec2;
 use rand::RngExt;
 use shared::{
-    coll::{CollisionBody, Vec2, resolve_collision},
+    coll::{CollisionBody, resolve_collision},
     level::Level,
     net::{
         Channel, ClientMessage, ConnId, Endpoint, Event, ServerMessage, Transport,
@@ -278,7 +279,7 @@ impl Game {
                     client.last_seq_applied = input.seq;
                     client.last_input = input;
                 }
-                client.car.step(&client.last_input);
+                level.step_car(&mut client.car, &client.last_input);
             }
             level.resolve_car(&mut client.car);
         }
@@ -301,6 +302,9 @@ impl Game {
         let Some(b) = self.client(*b_id) else {
             return;
         };
+        if a.car.sink > 0 || b.car.sink > 0 {
+            return;
+        }
         let mut ba = CollisionBody {
             box_: a.car.obb(),
             vel: a.car.vel(),

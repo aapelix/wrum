@@ -3,6 +3,7 @@ members = ["app", "server", "shared"]
 resolver = "3"
 
 [workspace.dependencies]
+glam = { version = "0.34.1", default-features = false, features = ["float-types", "std", "rkyv-08", "bytecheck"]}
 
 [profile.release]
 lto = true

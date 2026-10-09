@@ -124,8 +124,8 @@ impl Map {
                                         props.push(Prop {
                                             stack,
                                             pos: Vector2::new(
-                                                object.x + object.width / 2. - TILE_SIZE,
-                                                object.y + object.height / 2. - TILE_SIZE / 2.,
+                                                object.x + object.width / 2.,
+                                                object.y + object.height / 2.,
                                             ),
                                             a: 0.,
                                             ground: true,
@@ -212,7 +212,7 @@ impl Map {
         layer: usize,
     ) {
         for prop in self.props.iter().filter(|p| p.ground && p.layer == layer) {
-            prop.stack.draw(tm, prop.pos, prop.a, camera);
+            prop.stack.draw(tm, prop.pos, prop.a, camera, 0.);
         }
     }
     pub fn draw_ground_shadows(&mut self, ctx: &mut Context, camera: &Camera) {
@@ -269,6 +269,6 @@ impl Map {
         camera: &Camera,
     ) {
         let prop = &self.props[i];
-        prop.stack.draw(tm, prop.pos, prop.a, camera);
+        prop.stack.draw(tm, prop.pos, prop.a, camera, 0.);
     }
 }

@@ -8,6 +8,7 @@ rkyv = { version = "0.8.18", default-features = false, features = ["std", "bytec
 tungstenite = { version = "0.30.0", default-features = false, features = ["handshake"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+glam.workspace = true
 
 [features]
 small-ptr = ["rkyv/pointer_width_16"]

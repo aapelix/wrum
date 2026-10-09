@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use glam::Vec2;
 use raylib::{
     RaylibHandle,
     color::Color,
@@ -9,7 +10,7 @@ use raylib::{
     texture::{RaylibRenderTexture2D, RenderTexture2D},
 };
 use shared::{
-    coll::{Obb, Vec2},
+    coll::Obb,
     interp::{INTERP_DELAY_TICKS, INTERP_SMOOTH, INTERP_SNAP_TICKS, SnapshotBuffer, lerp_angle},
     level::Level,
     net::{
@@ -91,6 +92,7 @@ pub struct GameScene {
 
     err_p: Vector2,
     err_a: f32,
+    err_z: f32,
 
     snapbuf: SnapshotBuffer,
     render_tick: f32,
@@ -114,6 +116,7 @@ impl GameScene {
             prev_sim: CarState::default(),
             err_p: Vector2::zero(),
             err_a: 0.,
+            err_z: 0.,
             snapbuf: SnapshotBuffer::new(),
             render_tick: 0.,
             pending_spawn: msg.spawn,
@@ -128,6 +131,7 @@ impl GameScene {
                 Vector2::new(spawn.pos.x, spawn.pos.y),
                 spawn.a.to_degrees(),
                 spawn.t.to_degrees(),
+                spawn.z,
             );
             car.sim = spawn;
             car
@@ -157,8 +161,13 @@ impl GameScene {
         let me = self.cars.get_mut(&self.my_id).unwrap();
 
         self.prev_sim = me.sim;
-        me.sim.step(&input);
-        self.level.resolve_car(&mut me.sim);
+        self.level.step_car(&mut me.sim, &input);
+
+        if me.sim.epoch != self.prev_sim.epoch {
+            self.prev_sim = me.sim;
+            self.err_p = Vector2::zero();
+            self.err_a = 0.;
+        }
 
         for ghost in ghosts {
             me.sim.resolve_vs_obstacle(ghost, CAR_RESTITUTION);
@@ -209,8 +218,7 @@ impl GameScene {
                 .collect();
 
             for input in &self.pending.items {
-                sim.step(input);
-                self.level.resolve_car(&mut sim);
+                self.level.step_car(&mut sim, input);
                 for ghost in &ghosts {
                     sim.resolve_vs_obstacle(*ghost, CAR_RESTITUTION);
                 }
@@ -220,10 +228,12 @@ impl GameScene {
 
             let dx = before.pos.x - sim.pos.x;
             let dy = before.pos.y - sim.pos.y;
+            let dz = before.z - sim.z;
             let mut da = angle_diff(sim.a, before.a);
 
             self.prev_sim.pos.x -= dx;
             self.prev_sim.pos.y -= dy;
+            self.prev_sim.z -= dz;
             self.prev_sim.a -= da;
 
             let mut dx = dx;
@@ -240,6 +250,7 @@ impl GameScene {
 
             self.err_p.x += dx;
             self.err_p.y += dy;
+            self.err_z += dz;
             self.err_a += da;
         }
 
@@ -285,6 +296,7 @@ impl GameScene {
             {
                 r.pos.x = lerp(sa.pos.x, sc.pos.x, t);
                 r.pos.y = lerp(sa.pos.y, sc.pos.y, t);
+                r.z = lerp(sa.z, sc.z, t);
                 r.a = lerp_angle(sa.a, sc.a, t);
                 r.t = lerp_angle(sa.t, sc.t, t);
             } else if let Some(sc) = sc {
@@ -299,6 +311,7 @@ impl GameScene {
                 x: r.pos.x,
                 y: r.pos.y,
             };
+            car.z = r.z;
             car.a = r.a.to_degrees();
             car.t = r.t.to_degrees();
         }
@@ -309,16 +322,19 @@ impl GameScene {
         let alpha = (alpha).clamp(0., 1.);
         let ix = lerp(self.prev_sim.pos.x, me.sim.pos.x, alpha);
         let iy = lerp(self.prev_sim.pos.y, me.sim.pos.y, alpha);
+        let iz = lerp(self.prev_sim.z, me.sim.z, alpha);
         let ia = lerp_angle(self.prev_sim.a, me.sim.a, alpha);
         let it = lerp(self.prev_sim.t, me.sim.t, alpha);
 
         let decay = (-RECON_DECAY * dt).exp();
         self.err_p.x *= decay;
         self.err_p.y *= decay;
+        self.err_z *= decay;
         self.err_a *= decay;
 
         me.p.x = ix + self.err_p.x;
         me.p.y = iy + self.err_p.y;
+        me.z = iz + self.err_z;
         me.a = (ia + self.err_a).to_degrees();
         me.t = it.to_degrees();
     }

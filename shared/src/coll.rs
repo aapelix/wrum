@@ -1,92 +1,13 @@
-use std::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
+use glam::Vec2;
 
-use rkyv::{Archive, Deserialize, Serialize};
-
-#[derive(Archive, Serialize, Deserialize, Debug, Default, Clone, Copy)]
-pub struct Vec2 {
-    pub x: f32,
-    pub y: f32,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rect {
+    pub pos: Vec2,
+    pub size: Vec2,
 }
-impl Vec2 {
-    pub fn new(x: f32, y: f32) -> Vec2 {
-        Vec2 { x, y }
-    }
-    pub fn dot(&self, v: Vec2) -> f32 {
-        self.x * v.x + self.y * v.y
-    }
-}
-impl Neg for Vec2 {
-    type Output = Vec2;
-    fn neg(self) -> Self {
-        Vec2 {
-            x: -self.x,
-            y: -self.y,
-        }
-    }
-}
-impl Mul<f32> for Vec2 {
-    type Output = Vec2;
-    fn mul(self, value: f32) -> Self {
-        Vec2 {
-            x: self.x * value,
-            y: self.y * value,
-        }
-    }
-}
-impl Sub for Vec2 {
-    type Output = Vec2;
-    fn sub(self, rhs: Self) -> Self::Output {
-        Vec2 {
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-        }
-    }
-}
-impl Sub<f32> for Vec2 {
-    type Output = Vec2;
-    fn sub(self, value: f32) -> Self {
-        Vec2 {
-            x: self.x - value,
-            y: self.y - value,
-        }
-    }
-}
-impl SubAssign for Vec2 {
-    fn sub_assign(&mut self, v: Vec2) {
-        *self = *self - v;
-    }
-}
-impl SubAssign<f32> for Vec2 {
-    fn sub_assign(&mut self, value: f32) {
-        *self = *self - value;
-    }
-}
-impl Add for Vec2 {
-    type Output = Vec2;
-    fn add(self, rhs: Self) -> Self::Output {
-        Vec2 {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-        }
-    }
-}
-impl Add<f32> for Vec2 {
-    type Output = Vec2;
-    fn add(self, value: f32) -> Self {
-        Vec2 {
-            x: self.x + value,
-            y: self.y + value,
-        }
-    }
-}
-impl AddAssign for Vec2 {
-    fn add_assign(&mut self, v: Vec2) {
-        *self = *self + v;
-    }
-}
-impl AddAssign<f32> for Vec2 {
-    fn add_assign(&mut self, value: f32) {
-        *self = *self + value;
+impl Rect {
+    pub fn contains(&self, point: Vec2) -> bool {
+        point.cmpge(self.pos).all() && point.cmple(self.pos + self.size).all()
     }
 }
 

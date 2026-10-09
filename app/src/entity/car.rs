@@ -13,22 +13,26 @@ pub const TIRE_POSITIONS: [Vector2; TIRE_COUNT] = [
 
 pub struct Car {
     pub p: Vector2,
+    pub z: f32,
     pub a: f32,
     pub t: f32,
     tire: Stack,
     body: Stack,
     pub sim: CarState,
+    pub last_splach_epoch: Option<u8>,
 }
 
 impl Car {
-    pub fn new(ctx: &mut Context, p: Vector2, a: f32, t: f32) -> Car {
+    pub fn new(ctx: &mut Context, p: Vector2, a: f32, t: f32, z: f32) -> Car {
         Car {
             p,
+            z,
             a,
             t,
             tire: Stack::new(ctx, "assets/tire.png", 1.),
             body: Stack::new(ctx, "assets/body.png", 10.),
             sim: CarState::default(),
+            last_splach_epoch: None,
         }
     }
     pub fn draw(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, camera: &Camera) {
@@ -47,10 +51,10 @@ impl Car {
                 draw_a += self.t;
             }
 
-            self.tire.draw(tm, world, draw_a, camera);
+            self.tire.draw(tm, world, draw_a, camera, self.z);
         }
 
-        self.body.draw(tm, self.p, self.a, camera);
+        self.body.draw(tm, self.p, self.a, camera, self.z);
     }
     pub fn draw_shadow(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, camera: &Camera) {
         let rad = self.a.to_radians();
