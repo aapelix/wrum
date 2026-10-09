@@ -94,7 +94,6 @@ pub struct GameScene {
 
     snapbuf: SnapshotBuffer,
     render_tick: f32,
-    acc: f32,
 
     pending_spawn: CarState,
 }
@@ -117,7 +116,6 @@ impl GameScene {
             err_a: 0.,
             snapbuf: SnapshotBuffer::new(),
             render_tick: 0.,
-            acc: 0.,
             pending_spawn: msg.spawn,
             level: Level::load("assets/maps/untitled.json"),
         }
@@ -305,10 +303,10 @@ impl GameScene {
             car.t = r.t.to_degrees();
         }
     }
-    fn update_own_render(&mut self, dt: f32) {
+    fn update_own_render(&mut self, dt: f32, alpha: f32) {
         let me = self.cars.get_mut(&self.my_id).unwrap();
 
-        let alpha = (self.acc / TICK_DT).clamp(0., 1.);
+        let alpha = (alpha).clamp(0., 1.);
         let ix = lerp(self.prev_sim.pos.x, me.sim.pos.x, alpha);
         let iy = lerp(self.prev_sim.pos.y, me.sim.pos.y, alpha);
         let ia = lerp_angle(self.prev_sim.a, me.sim.a, alpha);
@@ -327,16 +325,12 @@ impl GameScene {
 }
 
 impl Scene for GameScene {
-    fn update(&mut self, ctx: &mut crate::ctx::Context, dt: f32) -> super::Transition {
-        self.acc += dt;
-        if self.acc > 0.25 {
-            self.acc = 0.25;
-        }
-        while self.acc >= TICK_DT {
-            self.acc -= TICK_DT;
-            self.sim_tick(ctx);
-        }
-        self.update_own_render(dt);
+    fn fixed_update(&mut self, ctx: &mut crate::ctx::Context) -> super::Transition {
+        self.sim_tick(ctx);
+        super::Transition::None
+    }
+    fn update(&mut self, ctx: &mut crate::ctx::Context, dt: f32, alpha: f32) -> super::Transition {
+        self.update_own_render(dt, alpha);
         self.update_render_tick(dt);
         self.interp_others();
 
@@ -403,6 +397,8 @@ impl Scene for GameScene {
         if self.code.len() != 0 {
             tm.draw_text(&self.code, 20, 10, 10, Color::WHITE);
         }
+
+        tm.draw_fps(20, 10);
     }
 
     fn enter(&mut self, ctx: &mut crate::ctx::Context) {

@@ -7,7 +7,10 @@ pub mod general;
 pub mod menu;
 
 pub trait Scene {
-    fn update(&mut self, ctx: &mut Context, dt: f32) -> Transition;
+    fn fixed_update(&mut self, _ctx: &mut Context) -> Transition {
+        Transition::None
+    }
+    fn update(&mut self, ctx: &mut Context, dt: f32, alpha: f32) -> Transition;
     fn draw(&mut self, ctx: &mut Context);
 
     fn on_connect(&mut self, _ctx: &mut Context) -> Transition {
@@ -46,11 +49,26 @@ impl SceneManager {
         }
     }
 
-    pub fn update(&mut self, ctx: &mut Context, dt: f32) {
+    pub fn fixed_update(&mut self, ctx: &mut Context) {
         let mut t = Transition::None;
 
         for scene in self.stack.iter_mut().rev() {
-            let res = scene.update(ctx, dt);
+            let res = scene.fixed_update(ctx);
+            if !matches!(res, Transition::None) {
+                t = res;
+            }
+            if scene.blocks_update() {
+                break;
+            }
+        }
+
+        self.apply(ctx, t);
+    }
+    pub fn update(&mut self, ctx: &mut Context, dt: f32, alpha: f32) {
+        let mut t = Transition::None;
+
+        for scene in self.stack.iter_mut().rev() {
+            let res = scene.update(ctx, dt, alpha);
             if !matches!(res, Transition::None) {
                 t = res;
             }
