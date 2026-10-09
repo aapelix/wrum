@@ -1,0 +1,35 @@
+FROM emscripten/emsdk:latest AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl build-essential pkg-config cmake git \
+    libclang-dev clang \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain 1.89.0
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+RUN rustup target add wasm32-unknown-emscripten
+
+WORKDIR /app
+COPY . .
+
+RUN cargo build --release \
+    --target wasm32-unknown-emscripten \
+    --bin wrum
+
+RUN mkdir -p /app/dist \
+    && cp target/wasm32-unknown-emscripten/release/deps/wrum.js /app/dist/ \
+    && cp target/wasm32-unknown-emscripten/release/deps/wrum.wasm /app/dist/ \
+    && cp target/wasm32-unknown-emscripten/release/deps/wrum.data /app/dist/ \
+    && cp web/index.html /app/dist/ \
+    && cp web/config.js /app/dist/
+
+# serve
+
+FROM caddy:alpine
+
+COPY --from=build /app/dist/ /usr/share/caddy/
+
+CMD ["/bin/sh", "-c", "printf 'window.WRUM_CONFIG = { wsUrl: \"%s\" };\\n' \"$WS_URL\" > /usr/share/caddy/config.js && exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]

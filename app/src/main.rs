@@ -1,3 +1,5 @@
+use raylib::ffi::KeyboardKey;
+
 use crate::app::App;
 
 #[cfg(target_family = "wasm")]
@@ -15,9 +17,10 @@ mod scene;
 mod stack;
 
 fn main() {
-    let mut app = App::new();
-    while !app.should_close() {
-        app.update();
-        app.draw();
-    }
+    let (mut rl, thread) = raylib::init().size(1280, 720).title("wrum").build();
+    rl.set_exit_key(Some(KeyboardKey::KEY_NULL));
+    let mut app = App::new(&mut rl, &thread);
+    raylib::core::game_loop::run(rl, thread, 0, move |rl, thread| {
+        app.frame(rl, thread);
+    });
 }

@@ -9,7 +9,12 @@ pub struct ConnectingScene;
 pub struct PauseScene;
 
 impl Scene for ConnectingScene {
-    fn update(&mut self, _ctx: &mut crate::ctx::Context, _dt: f32) -> super::Transition {
+    fn update(
+        &mut self,
+        _ctx: &mut crate::ctx::Context,
+        _dt: f32,
+        _alpha: f32,
+    ) -> super::Transition {
         super::Transition::None
     }
     fn draw(&mut self, ctx: &mut crate::ctx::Context) {
@@ -31,7 +36,12 @@ impl Scene for ConnectingScene {
 }
 
 impl Scene for PauseScene {
-    fn update(&mut self, ctx: &mut crate::ctx::Context, _dt: f32) -> super::Transition {
+    fn update(
+        &mut self,
+        ctx: &mut crate::ctx::Context,
+        _dt: f32,
+        _alpha: f32,
+    ) -> super::Transition {
         if ctx.rl.is_key_pressed(raylib::ffi::KeyboardKey::KEY_ESCAPE) {
             return super::Transition::Pop;
         }

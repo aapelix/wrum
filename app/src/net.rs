@@ -14,10 +14,18 @@ use shared::net::native::UdpTransport as Link;
 #[cfg(target_os = "emscripten")]
 use shared::net::web::WsClient as Link;
 
-#[cfg(not(target_os = "emscripten"))]
-pub const SERVER: &str = "127.0.0.1:7777";
 #[cfg(target_os = "emscripten")]
-pub const SERVER: &str = "ws://127.0.0.1:7778";
+pub fn server_url() -> String {
+    std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "ws://localhost:7778".into())
+}
+#[cfg(not(target_os = "emscripten"))]
+pub fn server_url() -> String {
+    std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "127.0.0.1:7777".into())
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Status {

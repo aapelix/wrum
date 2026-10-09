@@ -11,6 +11,10 @@ web:
 
 web-release:
     cargo build --release --target wasm32-unknown-emscripten --bin wrum
+    mkdir -p web/dist
+    cp target/wasm32-unknown-emscripten/release/deps/wrum.{js,wasm,data} web/dist/
+    cp web/index.html web/dist/
+    cp web/config.js web/dist/
 
 serve:
     cp target/wasm32-unknown-emscripten/debug/deps/wrum.{js,wasm,data} web/

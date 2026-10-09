@@ -1,5 +1,6 @@
 .DS_Store
 web/wrum.*
+web/dist
 
 # Added by cargo
 

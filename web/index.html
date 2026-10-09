@@ -30,6 +30,7 @@
       oncontextmenu="event.preventDefault()"
       tabindex="-1"
     ></canvas>
+    <script src="/config.js"></script>
     <script>
       // Browsers block AudioContext until the user interacts with the page.
       // Resume on first click so raylib's audio comes through.
@@ -42,6 +43,7 @@
       }, { once: true });
       var Module = {
         canvas: document.getElementById("canvas"),
+        arguments: [window.WRUM_CONFIG.wsUrl],
         print: function (t) {
           console.log(t);
         },

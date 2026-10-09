@@ -43,7 +43,12 @@ impl MenuScene {
 }
 
 impl Scene for MenuScene {
-    fn update(&mut self, ctx: &mut crate::ctx::Context, _dt: f32) -> super::Transition {
+    fn update(
+        &mut self,
+        ctx: &mut crate::ctx::Context,
+        _dt: f32,
+        _alpha: f32,
+    ) -> super::Transition {
         let mouse = ctx.rl.get_mouse_position();
         if ctx
             .rl
