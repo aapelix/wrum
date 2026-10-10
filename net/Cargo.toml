@@ -5,20 +5,26 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
+rkyv = { version = "0.8.18", default-features = false, features = ["std", "bytecheck", "unaligned"]}
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-quinn = "0.11.12"
-rustls = { version = "0.23.45", default-features = false, features = ["ring", "std"] }
-tokio = { version = "1.53.2", features = ["rt-multi-thread", "sync", "time"] }
+wtransport.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-channel = "0.3.34"
+futures-util = "0.3.34"
 wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
 js-sys = "0.3.106"
 web-sys = { version = "0.3.106", features = [
-    "WebSocket",
-    "MessageEvent",
-    "ErrorEvent",
-    "CloseEvent",
-    "BinaryType",
-    "console",
+    "WebTransport",
+    "WebTransportDatagramDuplexStream",
+    "WebTransportSendStream",
+    "WebTransportReceiveStream",
+    "WebTransportBidirectionalStream",
+    "WritableStream",
+    "WritableStreamDefaultWriter",
+    "ReadableStream",
+    "ReadableStreamDefaultReader",
+    "console"
 ]}

@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 raylib = "6.0.0"
 anyhow.workspace = true
+wrum_net = { path = "../net" }
