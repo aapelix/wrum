@@ -1,15 +1,54 @@
-use wrum_net::{Packet, PlatformTransport, Transport, connect};
+use wrum_net::{
+    Channel, ConnState, PlatformTransport, Transport, connect,
+    proto::{ServerMsg, decode_server},
+};
+
+pub enum NetEvent {
+    Connected,
+    Message(ServerMsg),
+    Disconnected(Option<String>),
+}
 
 pub struct Net {
-    transport: PlatformTransport,
+    url: String,
+    t: PlatformTransport,
+    phase: ConnState,
 }
 
 impl Net {
     pub fn connect(url: &str) -> anyhow::Result<Net> {
-        let transport = connect(url)?;
-        Ok(Net { transport })
+        let t = connect(url)?;
+        Ok(Net {
+            url: url.into(),
+            t,
+            phase: ConnState::Connecting,
+        })
     }
-    pub fn poll(&mut self) -> anyhow::Result<Option<Packet>> {
-        self.transport.poll()
+    pub fn reconnect(&mut self) -> anyhow::Result<()> {
+        self.t = connect(&self.url)?;
+        self.phase = ConnState::Connecting;
+        Ok(())
+    }
+    pub fn state(&self) -> ConnState {
+        self.t.state()
+    }
+    pub fn send(&mut self, ch: Channel, bytes: &[u8]) -> anyhow::Result<()> {
+        self.t.send(ch, bytes)
+    }
+    pub fn pump(&mut self, out: &mut Vec<NetEvent>) -> anyhow::Result<()> {
+        let s = self.t.state();
+        if s == ConnState::Open && self.phase == ConnState::Connecting {
+            self.phase = ConnState::Open;
+            out.push(NetEvent::Connected);
+        }
+        while let Ok(Some((_, b))) = self.t.poll() {
+            let msg = decode_server(&b)?;
+            out.push(NetEvent::Message(msg));
+        }
+        if s == ConnState::Closed && self.phase != ConnState::Closed {
+            self.phase = ConnState::Closed;
+            out.push(NetEvent::Disconnected(self.t.error()));
+        }
+        Ok(())
     }
 }

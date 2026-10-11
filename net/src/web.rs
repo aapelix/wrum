@@ -3,7 +3,7 @@ use std::{
     os::raw::{c_char, c_int},
 };
 
-use crate::{Channel, MAX_PACKET_SIZE, Transport};
+use crate::{Channel, ConnState, MAX_PACKET_SIZE, Transport};
 
 unsafe extern "C" {
     fn wt_open(url: *const c_char);
@@ -58,8 +58,15 @@ impl Transport for EmscriptenTransport {
         };
         Ok(Some((ch, self.buf[1..n as usize].to_vec())))
     }
-    fn is_connected(&self) -> bool {
-        unsafe { wt_state() == 1 }
+    fn state(&self) -> ConnState {
+        match unsafe { wt_state() } {
+            0 => ConnState::Connecting,
+            1 => ConnState::Open,
+            _ => ConnState::Closed,
+        }
+    }
+    fn error(&self) -> Option<String> {
+        None
     }
 }
 

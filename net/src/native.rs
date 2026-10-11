@@ -1,6 +1,6 @@
 use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock,
+    atomic::{AtomicU8, Ordering},
 };
 
 use futures_channel::mpsc::{TryRecvError, UnboundedReceiver, UnboundedSender, unbounded};
@@ -9,137 +9,193 @@ use wtransport::{ClientConfig, Connection, Endpoint, RecvStream, VarInt};
 
 use crate::{Channel, MAX_PACKET_SIZE, Packet, Transport};
 
-static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+const CONNECTING: u8 = 0;
+const OPEN: u8 = 1;
+const CLOSED: u8 = 2;
+
+struct Shared {
+    state: AtomicU8,
+    error: Mutex<Option<String>>,
+    conn: OnceLock<Connection>,
+}
+impl Shared {
+    fn close(&self, reason: Option<String>) {
+        let mut e = self.error.lock().unwrap();
+        if e.is_none() {
+            *e = reason;
+        }
+        self.state.store(CLOSED, Ordering::Release);
+    }
+}
 
 pub struct NativeTransport {
-    conn: Connection,
+    shared: Arc<Shared>,
     reliable_tx: UnboundedSender<Vec<u8>>,
     incoming: UnboundedReceiver<Packet>,
-    connected: Arc<AtomicBool>,
+}
+
+fn runtime() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .expect("tokio runtime")
+    })
 }
 
 impl NativeTransport {
     pub fn connect(url: &str) -> anyhow::Result<Self> {
-        let rt = RT.get_or_init(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(1)
-                .enable_all()
-                .build()
-                .expect("tokio runtime")
+        let shared = Arc::new(Shared {
+            state: AtomicU8::new(CONNECTING),
+            error: Mutex::new(None),
+            conn: OnceLock::new(),
         });
-        rt.block_on(Self::open(url))
-    }
-    pub async fn open(url: &str) -> anyhow::Result<Self> {
-        let config = ClientConfig::default();
-        let conn = Endpoint::client(config)?.connect(url).await?;
-
-        let mut send = conn.open_uni().await?.await?;
-
-        let (reliable_tx, mut reliable_rx) = unbounded::<Vec<u8>>();
+        let (reliable_tx, reliable_rx) = unbounded::<Vec<u8>>();
         let (incoming_tx, incoming) = unbounded::<Packet>();
-        let connected = Arc::new(AtomicBool::new(true));
 
-        // reliable send
-        {
-            let connected = connected.clone();
-            tokio::spawn(async move {
-                while let Some(bytes) = reliable_rx.next().await {
-                    let mut framed = Vec::with_capacity(4 + bytes.len());
-                    framed.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-                    framed.extend_from_slice(&bytes);
-                    if send.write_all(&framed).await.is_err() {
-                        connected.store(false, Ordering::Relaxed);
-                        break;
-                    }
-                }
-            });
-        }
-
-        // unreliable recv
-        {
-            let conn = conn.clone();
-            let tx = incoming_tx.clone();
-            let connected = connected.clone();
-            tokio::spawn(async move {
-                loop {
-                    match conn.receive_datagram().await {
-                        Ok(dg) => {
-                            if tx
-                                .unbounded_send((Channel::Unreliable, dg.payload().to_vec()))
-                                .is_err()
-                            {
-                                break;
-                            }
-                        }
-                        Err(_) => {
-                            connected.store(false, Ordering::Relaxed);
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-
-        // reliable recv
-        {
-            let conn = conn.clone();
-            let connected = connected.clone();
-            tokio::spawn(async move {
-                loop {
-                    match conn.accept_uni().await {
-                        Ok(stream) => {
-                            let tx = incoming_tx.clone();
-                            let connected = connected.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = read_reliable_stream(stream, tx).await {
-                                    eprintln!("reliable stream error: {e}");
-                                    connected.store(false, Ordering::Relaxed);
-                                }
-                            });
-                        }
-                        Err(_) => {
-                            connected.store(false, Ordering::Relaxed);
-                            break;
-                        }
-                    }
-                }
-            });
-        }
-
-        // closed watcher
-        {
-            let conn = conn.clone();
-            let connected = connected.clone();
-            tokio::spawn(async move {
-                let _ = conn.closed().await;
-                connected.store(false, Ordering::Relaxed);
-            });
-        }
-
+        let (url, sh) = (url.to_string(), shared.clone());
+        runtime().spawn(async move {
+            if let Err(e) = run(url, sh.clone(), reliable_rx, incoming_tx).await {
+                sh.close(Some(e.to_string()));
+            }
+        });
         Ok(Self {
-            conn,
+            shared,
             reliable_tx,
             incoming,
-            connected,
         })
     }
 }
 
+async fn run(
+    url: String,
+    shared: Arc<Shared>,
+    mut reliable_rx: UnboundedReceiver<Vec<u8>>,
+    incoming_tx: UnboundedSender<Packet>,
+) -> anyhow::Result<()> {
+    let config = ClientConfig::default();
+    let conn = Endpoint::client(config)?.connect(&url).await?;
+
+    if shared.state.load(Ordering::Acquire) == CLOSED {
+        conn.close(VarInt::from_u32(0), b"cancelled");
+        return Ok(());
+    }
+
+    let mut send = conn.open_uni().await?.await?;
+    let _ = shared.conn.set(conn.clone());
+
+    // Spawn the same four tasks as before: reliable writer, datagram receiver,
+    // accept_uni loop, closed watcher. Replace every `connected.store(false, ..)`
+    // with `shared.close(None)`, and in the closed watcher use
+    // `shared.close(Some(conn.closed().await.to_string()))`.
+
+    // reliable send
+    {
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            while let Some(bytes) = reliable_rx.next().await {
+                let mut framed = Vec::with_capacity(4 + bytes.len());
+                framed.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                framed.extend_from_slice(&bytes);
+                if send.write_all(&framed).await.is_err() {
+                    shared.close(None);
+                    break;
+                }
+            }
+        });
+    }
+
+    // unreliable recv
+    {
+        let conn = conn.clone();
+        let tx = incoming_tx.clone();
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            loop {
+                match conn.receive_datagram().await {
+                    Ok(dg) => {
+                        if tx
+                            .unbounded_send((Channel::Unreliable, dg.payload().to_vec()))
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        shared.close(None);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    // reliable recv
+    {
+        let conn = conn.clone();
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            loop {
+                match conn.accept_uni().await {
+                    Ok(stream) => {
+                        let tx = incoming_tx.clone();
+                        let shared = shared.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = read_reliable_stream(stream, tx).await {
+                                eprintln!("reliable stream error: {e}");
+                                shared.close(None);
+                            }
+                        });
+                    }
+                    Err(_) => {
+                        shared.close(None);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    // closed watcher
+    {
+        let conn = conn.clone();
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            let _ = conn.closed().await;
+            shared.close(Some(conn.closed().await.to_string()))
+        });
+    }
+
+    shared.state.store(OPEN, Ordering::Release);
+    Ok(())
+}
+
 impl Transport for NativeTransport {
     fn send(&mut self, ch: Channel, bytes: &[u8]) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.shared.state.load(Ordering::Acquire) == OPEN,
+            "not connected"
+        );
         match ch {
             Channel::Reliable => self
                 .reliable_tx
                 .unbounded_send(bytes.to_vec())
                 .map_err(|e| anyhow::anyhow!("send queue closed: {e}")),
             Channel::Unreliable => {
-                let max = self.conn.max_datagram_size().unwrap_or(0);
+                let conn = self
+                    .shared
+                    .conn
+                    .get()
+                    .ok_or_else(|| anyhow::anyhow!("not connected"))?;
+                let max = conn.max_datagram_size().unwrap_or(0);
                 anyhow::ensure!(
                     bytes.len() <= max,
                     "datagram too large: {} > {max}",
                     bytes.len()
                 );
-                self.conn.send_datagram(bytes)?;
+                conn.send_datagram(bytes)?;
                 Ok(())
             }
         }
@@ -151,15 +207,24 @@ impl Transport for NativeTransport {
             Err(e) => Err(anyhow::anyhow!("recv queue error: {e}")),
         }
     }
-    fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::Relaxed)
+    fn state(&self) -> crate::ConnState {
+        match self.shared.state.load(Ordering::Acquire) {
+            CONNECTING => crate::ConnState::Connecting,
+            OPEN => crate::ConnState::Open,
+            _ => crate::ConnState::Closed,
+        }
+    }
+    fn error(&self) -> Option<String> {
+        self.shared.error.lock().unwrap().clone()
     }
 }
 
 impl Drop for NativeTransport {
     fn drop(&mut self) {
-        self.connected.store(false, Ordering::Relaxed);
-        self.conn.close(VarInt::from_u32(0), b"client closed");
+        self.shared.close(None);
+        if let Some(c) = self.shared.conn.get() {
+            c.close(VarInt::from_u32(0), b"client closed");
+        }
     }
 }
 

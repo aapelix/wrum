@@ -11,6 +11,6 @@ futures-util.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wtransport.workspace = true
-tokio = { version = "1.53.2", features = ["rt", "macros", "io-util"] }
+tokio = { version = "1.53.2", features = ["rt", "macros", "io-util", "rt-multi-thread"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
