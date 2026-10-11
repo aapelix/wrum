@@ -6,6 +6,8 @@ resolver = "3"
 glam = { version = "0.34.1", default-features = false, features = ["float-types", "std", "rkyv-08", "bytecheck"]}
 anyhow = "1.0.104"
 wtransport = "0.7.2"
+futures-channel = "0.3.34"
+futures-util = "0.3.34"
 
 [profile.release]
 lto = true

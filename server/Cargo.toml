@@ -8,3 +8,6 @@ tokio = { version = "1.53.2", features = ["full"] }
 wrum_net = { path = "../net" }
 anyhow.workspace = true
 wtransport.workspace = true
+futures-channel.workspace = true
+futures-util.workspace = true
+rand = "0.10.3"

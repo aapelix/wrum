@@ -4,3 +4,4 @@ web/wrum*
 # Added by cargo
 
 /target
+certs/

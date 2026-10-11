@@ -1,16 +1,25 @@
 pub mod proto;
 
 #[cfg(not(target_os = "emscripten"))]
-pub mod native;
+mod native;
+#[cfg(not(target_os = "emscripten"))]
+pub use native::NativeTransport as PlatformTransport;
 #[cfg(target_os = "emscripten")]
-pub mod wasm;
+mod web;
+#[cfg(target_os = "emscripten")]
+pub use web::EmscriptenTransport as PlatformTransport;
+
+pub fn connect(url: &str) -> anyhow::Result<PlatformTransport> {
+    PlatformTransport::connect(url)
+}
+
+pub const MAX_PACKET_SIZE: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Channel {
     Unreliable,
     Reliable,
 }
-
 pub type Packet = (Channel, Vec<u8>);
 
 pub trait Transport {
