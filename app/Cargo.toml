@@ -7,3 +7,4 @@ edition = "2024"
 raylib = "6.0.0"
 anyhow.workspace = true
 wrum_net = { path = "../net" }
+wrum_core = { path = "../core" }

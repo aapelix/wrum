@@ -1,5 +1,6 @@
 mod app;
 mod camera;
+mod car;
 mod ctx;
 mod game_loop;
 mod net;

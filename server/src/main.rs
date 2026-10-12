@@ -13,6 +13,10 @@ use futures_channel::{
 };
 use futures_util::StreamExt;
 use rand::RngExt;
+use wrum_core::{
+    PlayerId,
+    physics::{PhysicsWorld, Vec2},
+};
 use wrum_net::{
     MAX_PACKET_SIZE,
     proto::{ClientMsg, RejectReason, ServerMsg, TICK_RATE, decode_client, encode_server},
@@ -21,7 +25,6 @@ use wtransport::{
     Connection, Endpoint, Identity, RecvStream, ServerConfig, endpoint::IncomingSession,
 };
 
-type PlayerId = u64;
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone)]
@@ -210,37 +213,64 @@ fn find_lobby(l: &Lobbies, id: &str) -> Option<UnboundedSender<LobbyCmd>> {
         None => None,
     }
 }
+
 async fn run_lobby(mut rx: UnboundedReceiver<LobbyCmd>, _host: u64) {
     let mut players: HashMap<PlayerId, PlayerHandle> = HashMap::new();
+    let mut physics = PhysicsWorld::default();
+
     let mut tick = tokio::time::interval(Duration::from_millis(TICK_RATE as u64));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut tick_no: u32 = 0;
-    // let mut state = GameState::new();
 
     loop {
         tokio::select! {
             cmd = rx.next() => match cmd {
                 None => break,
                 Some(LobbyCmd::Join { id, handle, reply}) => {
+                    if players.contains_key(&id) {
+                        let _ = reply.send(Ok(()));
+                        continue;
+                    }
+
                     // if players.len() >= max_players { reply.send(Full) }
                     // state.add_player(id);
                     // send Joined msg to others
                     // send state to who joined
-                    players.insert(id, handle);
-                    let _ = reply.send(Ok(()));
+
+                    if let Ok(bytes) = encode_server(&ServerMsg::Welcome { your_id: id }) {
+                        handle.reliable_tx.unbounded_send(bytes);
+                        let spawn = Vec2::new(players.len() as f32 * 24.0, 0.);
+                        physics.spawn_car(id, spawn);
+                        players.insert(id, handle);
+                        let _ = reply.send(Ok(()));
+                    }
+                    let _ = reply.send(Err(JoinError::Gone));
                 }
                 Some(LobbyCmd::Leave { id }) => {
                     players.remove(&id);
-                    // state.remove_player(id);
+                    physics.remove_car(id);
                     // broadcast leave
                 }
-                Some(LobbyCmd::Msg {id: _, msg: _}) => {
-                    // handle input
+                Some(LobbyCmd::Msg {id, msg}) => {
+                    match msg {
+                        ClientMsg::Input { input } => {
+                            physics.set_input(id, input);
+                        }
+                        _ => {}
+                    }
                 }
             },
             _ = tick.tick() => {
                 tick_no = tick_no.wrapping_add(1);
-                // state.step(dt);
+                physics.step();
+
+                let cars = physics.states().collect();
+                let msg = ServerMsg::Snapshot { tick: tick_no, cars };
+                if let Ok(bytes) = encode_server(&msg) {
+                    for player in players.values() {
+                        let _ = player.conn.send_datagram(bytes.clone());
+                    }
+                }
                 // broadcast snapshots
             }
         }

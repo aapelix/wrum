@@ -3,6 +3,7 @@ use wrum_net::proto::ServerMsg;
 use crate::ctx::Context;
 
 pub mod basic;
+pub mod game;
 
 pub enum Transition {
     None,

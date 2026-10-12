@@ -1,4 +1,8 @@
 use rkyv::{Archive, Deserialize, Serialize, rancor};
+use wrum_core::{
+    PlayerId,
+    physics::{CarState, Input},
+};
 
 pub const TICK_RATE: u32 = 60;
 pub const SNAPSHOT_EVERY: u32 = 3;
@@ -9,19 +13,25 @@ pub enum ClientMsg {
     CreateLobby,
     JoinLobby { code: String },
     LeaveLobby,
-}
-
-#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
-pub struct Input {
-    pub seq: u32,
-    pub steer: f32,
-    pub throttle: f32,
+    Input { input: Input },
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub enum ServerMsg {
-    PlayerJoined { id: u32, name: String },
-    PlayerLeft { id: u32 },
+    PlayerJoined {
+        id: PlayerId,
+        name: String,
+    },
+    PlayerLeft {
+        id: PlayerId,
+    },
+    Welcome {
+        your_id: PlayerId,
+    },
+    Snapshot {
+        tick: u32,
+        cars: Vec<(PlayerId, CarState)>,
+    },
     Reject(RejectReason),
 }
 
