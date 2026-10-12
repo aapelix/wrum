@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glam::Vec2;
+pub use glam::Vec2;
 pub use rapier2d::{
     dynamics::{
         CCDSolver, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet,
@@ -19,17 +19,24 @@ pub struct Input {
     pub seq: u32,
     pub throttle: i8,
     pub steer: i8,
+    pub drift: bool,
 }
 
 const HALF_WIDTH: f32 = 4.;
 const HALF_LENGTH: f32 = 7.5;
 
 const CAR_MASS: f32 = 1.0;
-const ACC: f32 = 500.;
-const LATERAL_GRIP: f32 = 12.0;
-const DRAG: f32 = 0.8;
-const TURN_TORQUE: f32 = 100.0;
-const MAX_SPEED: f32 = 250.0;
+const MAX_SPEED: f32 = 140.0;
+const MAX_REVERSE: f32 = 80.0;
+const ACCEL: f32 = 220.0;
+const BRAKE: f32 = 450.0;
+const COAST_DECEL: f32 = 120.0;
+const LATERAL_GRIP: f32 = 16.0;
+const DRIFT_GRIP: f32 = 5.0;
+const TURN_RATE: f32 = 2.8;
+const DRIFT_TURN: f32 = TURN_RATE * 1.3;
+const TURN_SMOOTH: f32 = 14.0;
+const MIN_TURN_SPEED: f32 = 25.0;
 
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Default)]
 pub struct CarState {
@@ -83,7 +90,6 @@ impl PhysicsWorld {
     pub fn spawn_car(&mut self, id: PlayerId, pos: Vec2) {
         let body = RigidBodyBuilder::dynamic()
             .translation(Vector::new(pos.x, pos.y))
-            .additional_mass(CAR_MASS)
             .linear_damping(0.)
             .angular_damping(0.)
             .can_sleep(false)
@@ -91,6 +97,7 @@ impl PhysicsWorld {
             .build();
         let handle = self.bodies.insert(body);
         let collider = ColliderBuilder::cuboid(HALF_WIDTH, HALF_LENGTH)
+            .mass(CAR_MASS)
             .friction(0.4)
             .restitution(0.1)
             .build();
@@ -118,37 +125,58 @@ impl PhysicsWorld {
         if let Some(current) = self.inputs.get_mut(&id) {
             current.throttle = input.throttle.clamp(-1, 1);
             current.steer = input.steer.clamp(-1, 1);
+            current.drift = input.drift;
         }
     }
 
     pub fn step(&mut self) {
+        let dt = self.integration.dt;
+
         for (&id, &handle) in &self.cars {
             let input = self.inputs[&id];
             let body = &mut self.bodies[handle];
 
-            body.reset_forces(true);
-            body.reset_torques(true);
+            // body.reset_forces(true);
+            // body.reset_torques(true);
 
             let rot = body.rotation().angle();
-            let forward = Vector::new(-rot.sin(), rot.cos());
-            let right = Vector::new(forward.y, -forward.x);
+            let forward = Vector::new(rot.sin(), -rot.cos());
+            let right = Vector::new(rot.cos(), rot.sin());
 
             let vel = body.linvel();
-            let forward_speed = vel.dot(forward);
-            let lateral_speed = vel.dot(right);
+            let mut fwd = vel.dot(forward);
+            let mut lat = vel.dot(right);
 
-            body.add_force(forward * (input.throttle as f32 * ACC), true);
-            body.add_force(right * (-lateral_speed * LATERAL_GRIP), true);
-            body.add_force(-vel * DRAG, true);
-
-            let speed_factor = (forward_speed.abs() / 80.).clamp(0., 1.);
-
-            body.add_torque(input.steer as f32 * TURN_TORQUE * speed_factor, true);
-
-            let speed = vel.length();
-            if speed > MAX_SPEED {
-                body.set_linvel(vel * (MAX_SPEED / speed), true);
+            let throttle = input.throttle as f32;
+            if throttle != 0.0 {
+                let braking = fwd != 0.0 && throttle.signum() != fwd.signum();
+                let rate = if braking { BRAKE } else { ACCEL };
+                fwd += throttle * rate * dt;
+            } else {
+                let decel = COAST_DECEL * dt;
+                fwd = if fwd.abs() <= decel {
+                    0.0
+                } else {
+                    fwd - fwd.signum() * decel
+                };
             }
+            fwd = fwd.clamp(-MAX_REVERSE, MAX_SPEED);
+
+            let (lateral_grip, turn_rate) = if input.drift {
+                (DRIFT_GRIP, DRIFT_TURN)
+            } else {
+                (LATERAL_GRIP, TURN_RATE)
+            };
+
+            lat *= (-lateral_grip * dt).exp();
+
+            body.set_linvel(forward * fwd + right * lat, true);
+
+            let speed_factor = (fwd / MIN_TURN_SPEED).clamp(-1.0, 1.0);
+            let target_ang = input.steer as f32 * turn_rate * speed_factor;
+            let ang = body.angvel();
+            let blend = 1.0 - (-TURN_SMOOTH * dt).exp();
+            body.set_angvel(ang + (target_ang - ang) * blend, true);
         }
 
         self.pipeline.step(
@@ -190,12 +218,3 @@ impl PhysicsWorld {
             .filter_map(|&id| self.state(id).map(|state| (id, state)))
     }
 }
-
-// impl CarState {
-//     fn collider(&self) -> Cuboid {
-//         Cuboid::new(Vector::new(HALF_SIZE.x, HALF_SIZE.y))
-//     }
-//     fn pose(&self) -> Pose {
-//         Pose::new(self.pos, self.rot)
-//     }
-// }

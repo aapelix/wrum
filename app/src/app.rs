@@ -5,6 +5,7 @@ use raylib::{
     math::Rectangle,
     texture::RaylibRenderTexture2D,
 };
+use wrum_net::proto::TICK_RATE;
 
 use crate::{
     ctx::State,
@@ -16,6 +17,7 @@ pub struct App {
     state: State,
     scenes: SceneManager,
     events: Vec<NetEvent>,
+    stepper: Stepper,
 }
 
 impl App {
@@ -23,11 +25,13 @@ impl App {
         let mut state = State::new(rl, thread)?;
         let mut ctx = state.ctx(rl, thread);
         let scenes = SceneManager::new(ConnectingScene, &mut ctx);
+        let stepper = Stepper::new(TICK_RATE as f32);
 
         Ok(App {
             state,
             scenes,
             events: Vec::new(),
+            stepper,
         })
     }
     pub fn update(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
@@ -50,7 +54,11 @@ impl App {
             }
         }
 
-        self.scenes.update(&mut ctx, dt);
+        let (ticks, alpha) = self.stepper.advance(dt);
+        for _ in 0..ticks {
+            self.scenes.fixed_update(&mut ctx);
+        }
+        self.scenes.update(&mut ctx, dt, alpha);
     }
     pub fn draw(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
         let mut ctx = self.state.ctx(rl, thread);
@@ -69,5 +77,27 @@ impl App {
             0.,
             Color::WHITE,
         );
+    }
+}
+
+pub struct Stepper {
+    acc: f32,
+    dt: f32,
+}
+impl Stepper {
+    pub fn new(hz: f32) -> Self {
+        Self {
+            acc: 0.,
+            dt: 1. / hz,
+        }
+    }
+    pub fn advance(&mut self, frame_dt: f32) -> (u32, f32) {
+        self.acc = (self.acc + frame_dt).min(0.1);
+        let mut n = 0;
+        while self.acc >= self.dt && n < 3 {
+            self.acc -= self.dt;
+            n += 1;
+        }
+        (n, self.acc / self.dt)
     }
 }

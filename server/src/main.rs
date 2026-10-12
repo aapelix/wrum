@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -15,7 +15,7 @@ use futures_util::StreamExt;
 use rand::RngExt;
 use wrum_core::{
     PlayerId,
-    physics::{PhysicsWorld, Vec2},
+    physics::{CarState, PhysicsWorld, Vec2},
 };
 use wrum_net::{
     MAX_PACKET_SIZE,
@@ -31,6 +31,15 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 struct PlayerHandle {
     conn: Connection,
     reliable_tx: UnboundedSender<Vec<u8>>,
+}
+
+const MAX_PLAYERS: usize = 8;
+
+#[derive(Clone)]
+struct LobbyHandle {
+    tx: UnboundedSender<LobbyCmd>,
+    players: Arc<AtomicUsize>,
+    private: bool,
 }
 
 enum JoinError {
@@ -52,7 +61,7 @@ enum LobbyCmd {
     },
 }
 
-type Lobbies = Arc<Mutex<HashMap<String, UnboundedSender<LobbyCmd>>>>;
+type Lobbies = Arc<Mutex<HashMap<String, LobbyHandle>>>;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -149,6 +158,18 @@ async fn handle_session(incoming: IncomingSession, lobbies: Lobbies) -> anyhow::
                         }
                     }
                     ClientMsg::LeaveLobby => leave_current(&mut current, id),
+                    ClientMsg::JoinPublic => {
+                        leave_current(&mut current, id);
+                        match find_public_lobby(&lobbies) {
+                            Some((lid, tx)) => {
+                                join(&mut current, lid, tx, id, &me).await;
+                            }
+                            None => {
+                                let (lid, tx) = create_lobby(&lobbies, id);
+                                join(&mut current, lid, tx, id, &me).await;
+                            }
+                        }
+                    }
                     msg => {
                         if let Some((_, tx)) = &current {
                             if tx.unbounded_send(LobbyCmd::Msg { id, msg }).is_err() {
@@ -174,10 +195,40 @@ fn leave_current(current: &mut Option<(String, UnboundedSender<LobbyCmd>)>, id: 
 fn create_lobby(l: &Lobbies, host: PlayerId) -> (String, UnboundedSender<LobbyCmd>) {
     let lid = code();
     let (tx, rx) = unbounded();
-    tokio::spawn(run_lobby(rx, host));
-    l.lock().unwrap().insert(lid.clone(), tx.clone());
+    let players = Arc::new(AtomicUsize::new(0));
+
+    tokio::spawn(run_lobby(rx, host, players.clone()));
+    l.lock().unwrap().insert(
+        lid.clone(),
+        LobbyHandle {
+            tx: tx.clone(),
+            players,
+            private: false,
+        },
+    );
     (lid, tx)
 }
+
+fn find_lobby(l: &Lobbies, id: &str) -> Option<UnboundedSender<LobbyCmd>> {
+    let mut map = l.lock().unwrap();
+    match map.get(id) {
+        Some(handle) if !handle.tx.is_closed() => Some(handle.tx.clone()),
+        Some(_) => {
+            map.remove(id);
+            None
+        }
+        None => None,
+    }
+}
+fn find_public_lobby(l: &Lobbies) -> Option<(String, UnboundedSender<LobbyCmd>)> {
+    let mut map = l.lock().unwrap();
+    map.retain(|_, handle| !handle.tx.is_closed());
+
+    map.iter()
+        .find(|(_, handle)| !handle.private && handle.players.load(Ordering::Relaxed) < MAX_PLAYERS)
+        .map(|(id, handle)| (id.clone(), handle.tx.clone()))
+}
+
 async fn join(
     current: &mut Option<(String, UnboundedSender<LobbyCmd>)>,
     lobby_id: String,
@@ -202,23 +253,16 @@ async fn join(
         _ => send_reject(me, RejectReason::LobbyGone),
     }
 }
-fn find_lobby(l: &Lobbies, id: &str) -> Option<UnboundedSender<LobbyCmd>> {
-    let mut map = l.lock().unwrap();
-    match map.get(id) {
-        Some(tx) if !tx.is_closed() => Some(tx.clone()),
-        Some(_) => {
-            map.remove(id);
-            None
-        }
-        None => None,
-    }
-}
 
-async fn run_lobby(mut rx: UnboundedReceiver<LobbyCmd>, _host: u64) {
+async fn run_lobby(
+    mut rx: UnboundedReceiver<LobbyCmd>,
+    _host: u64,
+    player_count: Arc<AtomicUsize>,
+) {
     let mut players: HashMap<PlayerId, PlayerHandle> = HashMap::new();
     let mut physics = PhysicsWorld::default();
 
-    let mut tick = tokio::time::interval(Duration::from_millis(TICK_RATE as u64));
+    let mut tick = tokio::time::interval(Duration::from_secs_f64(1.0 / TICK_RATE as f64));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut tick_no: u32 = 0;
 
@@ -231,20 +275,31 @@ async fn run_lobby(mut rx: UnboundedReceiver<LobbyCmd>, _host: u64) {
                         let _ = reply.send(Ok(()));
                         continue;
                     }
-
-                    // if players.len() >= max_players { reply.send(Full) }
-                    // state.add_player(id);
-                    // send Joined msg to others
-                    // send state to who joined
-
-                    if let Ok(bytes) = encode_server(&ServerMsg::Welcome { your_id: id }) {
-                        handle.reliable_tx.unbounded_send(bytes);
-                        let spawn = Vec2::new(players.len() as f32 * 24.0, 0.);
-                        physics.spawn_car(id, spawn);
-                        players.insert(id, handle);
-                        let _ = reply.send(Ok(()));
+                    if players.len() >= MAX_PLAYERS {
+                        let _ = reply.send(Err(JoinError::Full));
+                        continue;
                     }
-                    let _ = reply.send(Err(JoinError::Gone));
+
+                    let existing = physics.states().collect();
+                    let spawn = Vec2::new(players.len() as f32 * 24.0, 0.);
+                    physics.spawn_car(id, spawn);
+
+                    let spawn = physics.state(id).unwrap_or_default();
+                    let msg = ServerMsg::PlayerJoined { id, name: "test".into(), spawn};
+                    if let Ok(bytes) = encode_server(&msg) {
+                        for player in players.values() {
+                            let _ = player.conn.send_datagram(bytes.clone());
+                        }
+                    }
+
+                    players.insert(id, handle);
+                    player_count.store(players.len(), Ordering::Relaxed);
+                    if let Ok(bytes) = encode_server(&ServerMsg::Welcome { your_id: id, spawn, existing }) {
+                        let _ = players[&id].reliable_tx.unbounded_send(bytes);
+                    }
+
+
+                    let _ = reply.send(Ok(()));
                 }
                 Some(LobbyCmd::Leave { id }) => {
                     players.remove(&id);

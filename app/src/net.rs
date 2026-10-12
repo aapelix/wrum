@@ -1,6 +1,6 @@
 use wrum_net::{
     Channel, ConnState, PlatformTransport, Transport, connect,
-    proto::{ServerMsg, decode_server},
+    proto::{ClientMsg, ServerMsg, decode_server, encode_client},
 };
 
 pub enum NetEvent {
@@ -32,8 +32,8 @@ impl Net {
     pub fn state(&self) -> ConnState {
         self.t.state()
     }
-    pub fn send(&mut self, ch: Channel, bytes: &[u8]) -> anyhow::Result<()> {
-        self.t.send(ch, bytes)
+    pub fn send(&mut self, ch: Channel, msg: &ClientMsg) -> anyhow::Result<()> {
+        self.t.send(ch, &encode_client(msg)?)
     }
     pub fn pump(&mut self, out: &mut Vec<NetEvent>) -> anyhow::Result<()> {
         let s = self.t.state();

@@ -12,6 +12,7 @@ pub enum ClientMsg {
     Hello { version: usize, name: String },
     CreateLobby,
     JoinLobby { code: String },
+    JoinPublic,
     LeaveLobby,
     Input { input: Input },
 }
@@ -21,12 +22,15 @@ pub enum ServerMsg {
     PlayerJoined {
         id: PlayerId,
         name: String,
+        spawn: CarState,
     },
     PlayerLeft {
         id: PlayerId,
     },
     Welcome {
         your_id: PlayerId,
+        spawn: CarState,
+        existing: Vec<(PlayerId, CarState)>,
     },
     Snapshot {
         tick: u32,
