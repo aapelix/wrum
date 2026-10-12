@@ -1,2 +1,8 @@
 [build]
 rustflags = ["--cfg=web_sys_unstable_apis"]
+
+[target.wasm32-unknown-emscripten]
+rustflags = [
+    "-C", "link-arg=--preload-file", "-C", "link-arg=assets@/assets",
+    "-C", "link-arg=--js-library=js/net.js"
+]

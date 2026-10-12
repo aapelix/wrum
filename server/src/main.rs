@@ -16,7 +16,7 @@ use rand::RngExt;
 use wrum_core::{
     PlayerId, TICK_DT,
     level::Level,
-    physics::{Input, PhysicsWorld, Vec2},
+    physics::{Input, PhysicsWorld},
 };
 use wrum_net::{
     MAX_PACKET_SIZE,
@@ -188,7 +188,10 @@ async fn handle_session(incoming: IncomingSession, lobbies: Lobbies) -> anyhow::
             _ = &mut closed => break,
             m = in_rx.next() => {
                 let Some(bytes) = m else { break };
-                let Ok(msg) = decode_client(&bytes) else { continue };
+                let msg = match decode_client(&bytes) {
+                    Ok(m) => m,
+                    Err(e) => { eprintln!("decode_client failed ({} bytes): {e}", bytes.len()); continue; }
+                };
 
                 match msg {
                     ClientMsg::CreateLobby => {

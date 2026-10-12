@@ -5,8 +5,6 @@ use crate::{
     physics::{Shape, Surface},
 };
 
-const TILE_SIZE: f32 = 16.;
-
 pub struct Obstacle {
     pub pos: Vec2,
     pub rot: f32,

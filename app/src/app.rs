@@ -4,6 +4,7 @@ use raylib::{
     ffi::{Color, Vector2},
     math::Rectangle,
     texture::RaylibRenderTexture2D,
+    trace_log,
 };
 use wrum_net::proto::TICK_RATE;
 

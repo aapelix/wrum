@@ -1,3 +1,4 @@
+use raylib::trace_log;
 use wrum_net::{
     Channel, ConnState, PlatformTransport, Transport, connect,
     proto::{ClientMsg, ServerMsg, decode_server, encode_client},
@@ -33,6 +34,7 @@ impl Net {
         self.t.state()
     }
     pub fn send(&mut self, ch: Channel, msg: &ClientMsg) -> anyhow::Result<()> {
+        println!("sending");
         self.t.send(ch, &encode_client(msg)?)
     }
     pub fn pump(&mut self, out: &mut Vec<NetEvent>) -> anyhow::Result<()> {
@@ -43,6 +45,7 @@ impl Net {
         }
         while let Ok(Some((_, b))) = self.t.poll() {
             let msg = decode_server(&b)?;
+            trace_log(raylib::ffi::TraceLogLevel::LOG_INFO, "recv message");
             out.push(NetEvent::Message(msg));
         }
         if s == ConnState::Closed && self.phase != ConnState::Closed {

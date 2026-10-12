@@ -55,16 +55,22 @@ mergeInto(LibraryManager.library, {
       S.t = t;
       t.closed.then(fail, fail);
       t.ready
-        .then(async () => {
-          const s = await t.createUnidirectionalStream();
-          S.w = s.getWriter();
+        .then(() => {
+          console.log("wt ready");
           S.dg = t.datagrams.writable.getWriter();
           S.state = 1;
           readDatagrams(t).catch(fail);
           acceptStreams(t).catch(fail);
+
+          S.chain = t.createUnidirectionalStream().then((s) => {
+            console.log("uni stream created");
+            S.w = s.getWriter();
+          });
+          S.chain.catch(fail);
         })
         .catch(fail);
     } catch (e) {
+      console.error("wt fail", e);
       fail();
     }
   },

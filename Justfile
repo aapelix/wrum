@@ -1,5 +1,5 @@
 set export
-EMCC_CFLAGS :="-v -O3 -sUSE_GLFW=3 -sASSERTIONS=1 -sWASM=1 -sASYNCIFY -sGL_ENABLE_GET_PROC_ADDRESS=1 --preload-file assets@/assets --js-library=js/net.js"
+EMCC_CFLAGS :="-v -O3 -sUSE_GLFW=3 -sASSERTIONS=1 -sWASM=1 -sASYNCIFY -sGL_ENABLE_GET_PROC_ADDRESS=1"
 
 default: run
 
