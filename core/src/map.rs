@@ -67,6 +67,16 @@ pub enum ObjectKindJson {
     Water,
     #[serde(rename = "spawn")]
     Spawn,
+    #[serde(rename = "grass")]
+    Grass { polygon: Vec<Polygon> },
+    #[serde(rename = "road")]
+    Road { polygon: Vec<Polygon> },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Polygon {
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Debug, Deserialize)]

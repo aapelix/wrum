@@ -1,5 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
+#[cfg(feature = "debug-renderer")]
+use raylib::drawing::RaylibTextureMode;
 use raylib::{
     RaylibHandle,
     drawing::{RaylibDraw, RaylibTextureModeExt},
@@ -7,6 +9,8 @@ use raylib::{
     math::Rectangle,
     texture::{RaylibRenderTexture2D, RenderTexture2D},
 };
+#[cfg(feature = "debug-renderer")]
+use wrum_core::physics::{DebugColor, Vector};
 use wrum_core::{
     PlayerId, TICK_DT,
     level::Level,
@@ -315,6 +319,9 @@ impl Scene for GameScene {
                 }
             }
         }
+
+        #[cfg(feature = "debug-renderer")]
+        render(&mut tm, &self.camera, &self.physics.debug_backend.lines);
     }
 
     fn on_message(
@@ -326,6 +333,11 @@ impl Scene for GameScene {
             ServerMsg::Snapshot { tick, cars } => self.apply_snapshot(ctx, *tick, cars),
             ServerMsg::PlayerJoined { id, name: _, spawn } => {
                 self.ensure_car(ctx, *id, spawn);
+            }
+            ServerMsg::PlayerLeft { id } => {
+                self.physics.remove_remote(*id);
+                self.remotes.remove(id);
+                self.cars.remove(id);
             }
             _ => {}
         }
@@ -377,4 +389,35 @@ fn sample(q: &VecDeque<(f32, CarState)>, t: f32) -> Option<(Vec2, f32)> {
     }
     let (_, last) = q.back()?;
     Some((last.pos, last.rot))
+}
+
+#[cfg(feature = "debug-renderer")]
+fn render(
+    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+    camera: &Camera,
+    lines: &Vec<(Vector, Vector, DebugColor)>,
+) {
+    for (s, e, c) in lines {
+        let (s, _) = camera.apply(Vector2 { x: s.x, y: s.y }, 0.0);
+        let (e, _) = camera.apply(Vector2 { x: e.x, y: e.y }, 0.0);
+
+        tm.draw_line_v(s, e, to_rgba(*c));
+    }
+}
+#[cfg(feature = "debug-renderer")]
+pub fn to_rgba([h, s, l, a]: DebugColor) -> Color {
+    let (h, s, l) = (h / 360.0, s, l);
+
+    let f = |n: f32| {
+        let k = (n + h * 12.0) % 12.0;
+        let x = s * l.min(1.0 - l);
+        l - x * (-1.0_f32).max((k - 3.0).min(9.0 - k).min(1.0))
+    };
+
+    Color::new(
+        (f(0.0) * 255.0).round() as u8,
+        (f(8.0) * 255.0).round() as u8,
+        (f(4.0) * 255.0).round() as u8,
+        (a.clamp(0.0, 1.0) * 255.0).round() as u8,
+    )
 }

@@ -5,7 +5,7 @@ use raylib::{
     ffi::{rlDisableBackfaceCulling, rlEnableBackfaceCulling},
     math::{Rectangle, Vector2},
     shaders::{RaylibShader, Shader},
-    texture::{RaylibRenderTexture2D, RenderTexture2D, Texture2D},
+    texture::Texture2D,
 };
 use wrum_core::map::{LayerJson, ObjectKindJson, load_map};
 
@@ -16,7 +16,6 @@ pub const CENTER: Vector2 = Vector2 {
     x: TILE_SIZE / 2.,
     y: TILE_SIZE / 2.,
 };
-pub const GROUND_SHADOW_OFFSET: Vector2 = Vector2 { x: 0., y: 7. };
 
 pub struct Tile {
     pos: Vector2,
@@ -80,7 +79,7 @@ impl Map {
                         };
 
                         tiles.push(Tile {
-                            pos: Vector2::new(x, y),
+                            pos: Vector2::new(x + TILE_SIZE / 2., y + TILE_SIZE / 2.),
                             src,
                         });
                     }

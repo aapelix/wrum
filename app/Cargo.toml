@@ -8,3 +8,6 @@ raylib = "6.0.0"
 anyhow.workspace = true
 wrum_net = { path = "../net" }
 wrum_core = { path = "../core" }
+
+[features]
+debug-renderer = ["wrum_core/debug-renderer"]

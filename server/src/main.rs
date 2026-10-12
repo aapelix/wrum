@@ -310,6 +310,7 @@ async fn run_lobby(
         Level {
             obstacles: Vec::new(),
             spawns: Vec::new(),
+            zones: Vec::new(),
         }
     });
 
@@ -362,7 +363,12 @@ async fn run_lobby(
                     players.remove(&id);
                     buffers.remove(&id);
                     physics.remove_car(id);
-                    // broadcast leave
+                    let msg = ServerMsg::PlayerLeft { id };
+                    if let Ok(bytes) = encode_server(&msg) {
+                        for player in players.values() {
+                            let _ = player.conn.send_datagram(bytes.clone());
+                        }
+                    }
                 }
                 Some(LobbyCmd::Msg {id, msg}) => {
                     match msg {
@@ -389,7 +395,6 @@ async fn run_lobby(
                         let _ = player.conn.send_datagram(bytes.clone());
                     }
                 }
-                // broadcast snapshots
             }
         }
     }

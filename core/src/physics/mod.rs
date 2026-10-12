@@ -1,7 +1,12 @@
 use std::collections::HashMap;
 
 pub use glam::Vec2;
-use rapier2d::math::Rotation;
+#[cfg(feature = "debug-renderer")]
+pub use rapier2d::pipeline::DebugColor;
+#[cfg(feature = "debug-renderer")]
+use rapier2d::pipeline::{
+    DebugRenderBackend, DebugRenderMode, DebugRenderPipeline, DebugRenderStyle,
+};
 pub use rapier2d::{
     dynamics::{
         CCDSolver, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet,
@@ -11,6 +16,7 @@ pub use rapier2d::{
     math::Vector,
     pipeline::PhysicsPipeline,
 };
+use rapier2d::{geometry::ColliderHandle, math::Rotation};
 use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::{PlayerId, TICK_DT, level::Level};
@@ -27,6 +33,47 @@ pub enum Shape {
     Box { hw: f32, hh: f32 },
     Convex { points: Vec<Vec2> },
     Wall { points: Vec<Vec2> },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum Surface {
+    Road = 0,
+    Grass = 1,
+}
+struct SurfaceParams {
+    max_speed: f32,
+    accel: f32,
+    grip: f32,
+    extra_decel: f32,
+}
+impl Surface {
+    fn from_u128(v: u128) -> Self {
+        if v == 1 {
+            Surface::Grass
+        } else {
+            Surface::Road
+        }
+    }
+    fn priority(self) -> u8 {
+        self as u8
+    }
+    fn params(self) -> SurfaceParams {
+        match self {
+            Surface::Road => SurfaceParams {
+                max_speed: 1.0,
+                accel: 1.0,
+                grip: 1.0,
+                extra_decel: 0.0,
+            },
+            Surface::Grass => SurfaceParams {
+                max_speed: 0.45,
+                accel: 0.6,
+                grip: 0.7,
+                extra_decel: 200.0,
+            },
+        }
+    }
 }
 
 const HALF_WIDTH: f32 = 4.;
@@ -68,8 +115,14 @@ pub struct PhysicsWorld {
     ccd: CCDSolver,
 
     cars: HashMap<PlayerId, RigidBodyHandle>,
+    car_colliders: HashMap<PlayerId, ColliderHandle>,
     remotes: HashMap<PlayerId, RigidBodyHandle>,
     inputs: HashMap<PlayerId, Input>,
+
+    #[cfg(feature = "debug-renderer")]
+    debug_render_pipeline: DebugRenderPipeline,
+    #[cfg(feature = "debug-renderer")]
+    pub debug_backend: LineCollector,
 }
 
 impl Default for PhysicsWorld {
@@ -89,9 +142,17 @@ impl Default for PhysicsWorld {
             multibody_joints: MultibodyJointSet::new(),
             soft_bodies: SoftBodySet::new(),
             ccd: CCDSolver::new(),
+            car_colliders: HashMap::new(),
             cars: HashMap::new(),
             remotes: HashMap::new(),
             inputs: HashMap::new(),
+            #[cfg(feature = "debug-renderer")]
+            debug_render_pipeline: DebugRenderPipeline::new(
+                DebugRenderStyle::default(),
+                DebugRenderMode::COLLIDER_SHAPES | DebugRenderMode::CONTACTS,
+            ),
+            #[cfg(feature = "debug-renderer")]
+            debug_backend: LineCollector { lines: vec![] },
         }
     }
 }
@@ -121,6 +182,19 @@ impl PhysicsWorld {
                 .build();
             self.colliders.insert(collider);
         }
+        for z in &level.zones {
+            let pts: Vec<Vector> = z.points.iter().map(|p| Vector::new(p.x, p.y)).collect();
+            let Some(b) = ColliderBuilder::convex_hull(&pts) else {
+                continue;
+            };
+            let c = b
+                .translation(Vector::new(z.pos.x, z.pos.y))
+                .rotation(z.rot)
+                .sensor(true)
+                .user_data(z.surface as u128)
+                .build();
+            self.colliders.insert(c);
+        }
     }
 
     pub fn spawn_car(&mut self, id: PlayerId, pos: Vec2, a: f32) {
@@ -138,9 +212,11 @@ impl PhysicsWorld {
             .friction(0.4)
             .restitution(0.1)
             .build();
-        self.colliders
+        let ch = self
+            .colliders
             .insert_with_parent(collider, handle, &mut self.bodies);
 
+        self.car_colliders.insert(id, ch);
         self.cars.insert(id, handle);
         self.inputs.insert(id, Input::default());
     }
@@ -178,6 +254,7 @@ impl PhysicsWorld {
     }
     pub fn remove_car(&mut self, id: PlayerId) {
         self.inputs.remove(&id);
+        self.car_colliders.remove(&id);
         if let Some(handle) = self.cars.remove(&id) {
             self.bodies.remove(
                 handle,
@@ -209,6 +286,7 @@ impl PhysicsWorld {
 
         for (&id, &handle) in &self.cars {
             let input = self.inputs[&id];
+            let surf = self.surface_under(id).params();
             let body = &mut self.bodies[handle];
 
             // body.reset_forces(true);
@@ -222,10 +300,13 @@ impl PhysicsWorld {
             let mut fwd = vel.dot(forward);
             let mut lat = vel.dot(right);
 
+            let max_speed = MAX_SPEED * surf.max_speed;
+            let max_reverse = MAX_REVERSE * surf.max_speed;
+
             let throttle = input.throttle as f32;
             if throttle != 0.0 {
                 let braking = fwd != 0.0 && throttle.signum() != fwd.signum();
-                let rate = if braking { BRAKE } else { ACCEL };
+                let rate = if braking { BRAKE } else { ACCEL * surf.accel };
                 fwd += throttle * rate * dt;
             } else {
                 let decel = COAST_DECEL * dt;
@@ -235,6 +316,11 @@ impl PhysicsWorld {
                     fwd - fwd.signum() * decel
                 };
             }
+            if fwd > max_speed {
+                fwd = (fwd - (COAST_DECEL + surf.extra_decel) * dt).max(max_speed);
+            } else if fwd < -max_reverse {
+                fwd = (fwd + (COAST_DECEL + surf.extra_decel) * dt).min(-max_reverse);
+            }
             fwd = fwd.clamp(-MAX_REVERSE, MAX_SPEED);
 
             let (lateral_grip, turn_rate) = if input.drift {
@@ -243,7 +329,7 @@ impl PhysicsWorld {
                 (LATERAL_GRIP, TURN_RATE)
             };
 
-            lat *= (-lateral_grip * dt).exp();
+            lat *= (-lateral_grip * surf.grip * dt).exp();
 
             body.set_linvel(forward * fwd + right * lat, true);
 
@@ -269,6 +355,37 @@ impl PhysicsWorld {
             &(),
             &(),
         );
+
+        #[cfg(feature = "debug-renderer")]
+        {
+            self.debug_backend.lines.clear();
+            self.debug_render_pipeline.render(
+                &mut self.debug_backend,
+                &mut self.bodies,
+                &mut self.colliders,
+                &mut self.impulse_joints,
+                &mut self.multibody_joints,
+                &mut self.narrow_phase,
+                &mut self.soft_bodies,
+            );
+        }
+    }
+    fn surface_under(&self, id: PlayerId) -> Surface {
+        let Some(&ch) = self.car_colliders.get(&id) else {
+            return Surface::Road;
+        };
+        let mut worst = Surface::Road;
+        for (a, b, intersecting) in self.narrow_phase.intersection_pairs_with(ch) {
+            if !intersecting {
+                continue;
+            }
+            let other = if a == ch { b } else { a };
+            let s = Surface::from_u128(self.colliders[other].user_data);
+            if s.priority() > worst.priority() {
+                worst = s;
+            }
+        }
+        worst
     }
 
     pub fn state(&self, id: PlayerId) -> Option<CarState> {
@@ -300,5 +417,22 @@ impl PhysicsWorld {
         body.set_rotation(Rotation::from_angle(s.rot), true);
         body.set_linvel(Vector::new(s.vel.x, s.vel.y), true);
         body.set_angvel(s.angular_vel, true);
+    }
+}
+
+#[cfg(feature = "debug-renderer")]
+pub struct LineCollector {
+    pub lines: Vec<(Vector, Vector, DebugColor)>,
+}
+#[cfg(feature = "debug-renderer")]
+impl DebugRenderBackend for LineCollector {
+    fn draw_line(
+        &mut self,
+        _object: rapier2d::prelude::DebugRenderObject,
+        a: Vector,
+        b: Vector,
+        color: DebugColor,
+    ) {
+        self.lines.push((a, b, color));
     }
 }
