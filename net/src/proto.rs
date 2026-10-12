@@ -14,7 +14,7 @@ pub enum ClientMsg {
     JoinLobby { code: String },
     JoinPublic,
     LeaveLobby,
-    Input { input: Input },
+    Input { inputs: Vec<Input> },
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]

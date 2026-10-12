@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 pub use glam::Vec2;
+use rapier2d::math::Rotation;
 pub use rapier2d::{
     dynamics::{
         CCDSolver, ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet,
@@ -12,7 +13,7 @@ pub use rapier2d::{
 };
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::PlayerId;
+use crate::{PlayerId, TICK_DT, level::Level};
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, Default)]
 pub struct Input {
@@ -22,11 +23,17 @@ pub struct Input {
     pub drift: bool,
 }
 
+pub enum Shape {
+    Box { hw: f32, hh: f32 },
+    Convex { points: Vec<Vec2> },
+    Wall { points: Vec<Vec2> },
+}
+
 const HALF_WIDTH: f32 = 4.;
 const HALF_LENGTH: f32 = 7.5;
 
 const CAR_MASS: f32 = 1.0;
-const MAX_SPEED: f32 = 140.0;
+const MAX_SPEED: f32 = 180.0;
 const MAX_REVERSE: f32 = 80.0;
 const ACCEL: f32 = 220.0;
 const BRAKE: f32 = 450.0;
@@ -44,6 +51,7 @@ pub struct CarState {
     pub rot: f32,
     pub vel: Vec2,
     pub angular_vel: f32,
+    pub ack: u32,
 }
 
 pub struct PhysicsWorld {
@@ -60,13 +68,14 @@ pub struct PhysicsWorld {
     ccd: CCDSolver,
 
     cars: HashMap<PlayerId, RigidBodyHandle>,
+    remotes: HashMap<PlayerId, RigidBodyHandle>,
     inputs: HashMap<PlayerId, Input>,
 }
 
 impl Default for PhysicsWorld {
     fn default() -> Self {
         let mut integration = IntegrationParameters::default();
-        integration.dt = 1.0 / 60.;
+        integration.dt = TICK_DT;
 
         Self {
             pipeline: PhysicsPipeline::new(),
@@ -81,17 +90,45 @@ impl Default for PhysicsWorld {
             soft_bodies: SoftBodySet::new(),
             ccd: CCDSolver::new(),
             cars: HashMap::new(),
+            remotes: HashMap::new(),
             inputs: HashMap::new(),
         }
     }
 }
 
 impl PhysicsWorld {
-    pub fn spawn_car(&mut self, id: PlayerId, pos: Vec2) {
+    pub fn load_level(&mut self, level: &Level) {
+        for o in &level.obstacles {
+            let v = |p: &Vec2| Vector::new(p.x, p.y);
+            let builder = match &o.shape {
+                Shape::Box { hw, hh } => ColliderBuilder::cuboid(*hw, *hh),
+                Shape::Convex { points } => {
+                    let pts: Vec<_> = points.iter().map(v).collect();
+                    match ColliderBuilder::convex_hull(&pts) {
+                        Some(b) => b,
+                        None => continue,
+                    }
+                }
+                Shape::Wall { points } => {
+                    ColliderBuilder::polyline(points.iter().map(v).collect(), None)
+                }
+            };
+            let collider = builder
+                .translation(Vector::new(o.pos.x, o.pos.y))
+                .rotation(o.rot)
+                .friction(0.0)
+                .restitution(0.2)
+                .build();
+            self.colliders.insert(collider);
+        }
+    }
+
+    pub fn spawn_car(&mut self, id: PlayerId, pos: Vec2, a: f32) {
         let body = RigidBodyBuilder::dynamic()
             .translation(Vector::new(pos.x, pos.y))
             .linear_damping(0.)
             .angular_damping(0.)
+            .rotation(a)
             .can_sleep(false)
             .ccd_enabled(true)
             .build();
@@ -107,6 +144,38 @@ impl PhysicsWorld {
         self.cars.insert(id, handle);
         self.inputs.insert(id, Input::default());
     }
+    pub fn spawn_remote(&mut self, id: PlayerId, s: &CarState) {
+        let body = RigidBodyBuilder::kinematic_position_based()
+            .translation(Vector::new(s.pos.x, s.pos.y))
+            .rotation(s.rot)
+            .build();
+        let handle = self.bodies.insert(body);
+        let collider = ColliderBuilder::cuboid(HALF_WIDTH, HALF_LENGTH)
+            .friction(0.4)
+            .restitution(0.1)
+            .build();
+        self.colliders
+            .insert_with_parent(collider, handle, &mut self.bodies);
+        self.remotes.insert(id, handle);
+    }
+    pub fn set_input(&mut self, id: PlayerId, input: Input) {
+        if let Some(cur) = self.inputs.get_mut(&id) {
+            *cur = Input {
+                seq: input.seq,
+                throttle: input.throttle.clamp(-1, 1),
+                steer: input.steer.clamp(-1, 1),
+                drift: input.drift,
+            };
+        }
+    }
+    pub fn set_remote(&mut self, id: PlayerId, pos: Vec2, rot: f32) {
+        let Some(&h) = self.remotes.get(&id) else {
+            return;
+        };
+        let body = &mut self.bodies[h];
+        body.set_next_kinematic_translation(Vector::new(pos.x, pos.y));
+        body.set_next_kinematic_rotation(Rotation::from_angle(rot));
+    }
     pub fn remove_car(&mut self, id: PlayerId) {
         self.inputs.remove(&id);
         if let Some(handle) = self.cars.remove(&id) {
@@ -121,11 +190,17 @@ impl PhysicsWorld {
             );
         }
     }
-    pub fn set_input(&mut self, id: PlayerId, input: Input) {
-        if let Some(current) = self.inputs.get_mut(&id) {
-            current.throttle = input.throttle.clamp(-1, 1);
-            current.steer = input.steer.clamp(-1, 1);
-            current.drift = input.drift;
+    pub fn remove_remote(&mut self, id: PlayerId) {
+        if let Some(handle) = self.remotes.remove(&id) {
+            self.bodies.remove(
+                handle,
+                &mut self.islands,
+                &mut self.colliders,
+                &mut self.impulse_joints,
+                &mut self.multibody_joints,
+                &mut self.soft_bodies,
+                true,
+            );
         }
     }
 
@@ -210,11 +285,20 @@ impl PhysicsWorld {
                 y: body.linvel().y,
             },
             angular_vel: body.angvel(),
+            ack: self.inputs.get(&id).map_or(0, |i| i.seq),
         })
     }
     pub fn states(&self) -> impl Iterator<Item = (PlayerId, CarState)> + '_ {
         self.cars
             .keys()
             .filter_map(|&id| self.state(id).map(|state| (id, state)))
+    }
+    pub fn set_state(&mut self, id: PlayerId, s: &CarState) {
+        let Some(&h) = self.cars.get(&id) else { return };
+        let body = &mut self.bodies[h];
+        body.set_translation(Vector::new(s.pos.x, s.pos.y), true);
+        body.set_rotation(Rotation::from_angle(s.rot), true);
+        body.set_linvel(Vector::new(s.vel.x, s.vel.y), true);
+        body.set_angvel(s.angular_vel, true);
     }
 }

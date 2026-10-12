@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -14,12 +14,13 @@ use futures_channel::{
 use futures_util::StreamExt;
 use rand::RngExt;
 use wrum_core::{
-    PlayerId,
-    physics::{CarState, PhysicsWorld, Vec2},
+    PlayerId, TICK_DT,
+    level::Level,
+    physics::{Input, PhysicsWorld, Vec2},
 };
 use wrum_net::{
     MAX_PACKET_SIZE,
-    proto::{ClientMsg, RejectReason, ServerMsg, TICK_RATE, decode_client, encode_server},
+    proto::{ClientMsg, RejectReason, ServerMsg, decode_client, encode_server},
 };
 use wtransport::{
     Connection, Endpoint, Identity, RecvStream, ServerConfig, endpoint::IncomingSession,
@@ -27,13 +28,58 @@ use wtransport::{
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
+const MAX_PLAYERS: usize = 8;
+const TARGET_DEPTH: usize = 2;
+const MAX_DEPTH: usize = 6;
+
+#[derive(Default)]
+struct InputBuffer {
+    queue: VecDeque<Input>,
+    newest_seq: u32,
+    has_any: bool,
+    last: Input,
+    primed: bool,
+}
+impl InputBuffer {
+    fn push(&mut self, inputs: &[Input]) {
+        for &i in inputs {
+            if !self.has_any || (i.seq.wrapping_sub(self.newest_seq) as i32) > 0 {
+                self.newest_seq = i.seq;
+                self.has_any = true;
+                self.queue.push_back(i);
+            }
+        }
+    }
+    fn next(&mut self) -> Input {
+        if self.queue.len() > MAX_DEPTH {
+            while self.queue.len() > TARGET_DEPTH {
+                self.queue.pop_front();
+            }
+        }
+        if !self.primed {
+            if self.queue.len() < TARGET_DEPTH {
+                return self.last;
+            }
+            self.primed = true;
+        }
+        match self.queue.pop_front() {
+            Some(i) => {
+                self.last = i;
+                i
+            }
+            None => {
+                self.primed = false;
+                self.last
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 struct PlayerHandle {
     conn: Connection,
     reliable_tx: UnboundedSender<Vec<u8>>,
 }
-
-const MAX_PLAYERS: usize = 8;
 
 #[derive(Clone)]
 struct LobbyHandle {
@@ -259,10 +305,20 @@ async fn run_lobby(
     _host: u64,
     player_count: Arc<AtomicUsize>,
 ) {
+    let level = Level::load("assets/maps/untitled.json").unwrap_or_else(|e| {
+        eprintln!("failed to load level: {e:#?}");
+        Level {
+            obstacles: Vec::new(),
+            spawns: Vec::new(),
+        }
+    });
+
     let mut players: HashMap<PlayerId, PlayerHandle> = HashMap::new();
     let mut physics = PhysicsWorld::default();
+    physics.load_level(&level);
+    let mut buffers: HashMap<PlayerId, InputBuffer> = HashMap::new();
 
-    let mut tick = tokio::time::interval(Duration::from_secs_f64(1.0 / TICK_RATE as f64));
+    let mut tick = tokio::time::interval(Duration::from_secs_f64(TICK_DT as f64));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut tick_no: u32 = 0;
 
@@ -281,8 +337,9 @@ async fn run_lobby(
                     }
 
                     let existing = physics.states().collect();
-                    let spawn = Vec2::new(players.len() as f32 * 24.0, 0.);
-                    physics.spawn_car(id, spawn);
+                    let (spawn_p, spawn_a) = level.spawns[players.len() % level.spawns.len()];
+                    physics.spawn_car(id, spawn_p, spawn_a);
+                    buffers.insert(id, InputBuffer::default());
 
                     let spawn = physics.state(id).unwrap_or_default();
                     let msg = ServerMsg::PlayerJoined { id, name: "test".into(), spawn};
@@ -303,13 +360,16 @@ async fn run_lobby(
                 }
                 Some(LobbyCmd::Leave { id }) => {
                     players.remove(&id);
+                    buffers.remove(&id);
                     physics.remove_car(id);
                     // broadcast leave
                 }
                 Some(LobbyCmd::Msg {id, msg}) => {
                     match msg {
-                        ClientMsg::Input { input } => {
-                            physics.set_input(id, input);
+                        ClientMsg::Input { inputs } => {
+                            if let Some(buf) = buffers.get_mut(&id) {
+                                buf.push(&inputs[..inputs.len().min(8)]);
+                            }
                         }
                         _ => {}
                     }
@@ -317,6 +377,9 @@ async fn run_lobby(
             },
             _ = tick.tick() => {
                 tick_no = tick_no.wrapping_add(1);
+                for (id, buf) in buffers.iter_mut() {
+                    physics.set_input(*id, buf.next());
+                }
                 physics.step();
 
                 let cars = physics.states().collect();

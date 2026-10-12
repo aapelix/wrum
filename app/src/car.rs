@@ -1,5 +1,4 @@
 use raylib::{RaylibHandle, drawing::RaylibTextureMode, math::Vector2};
-use wrum_core::physics::CarState;
 
 use crate::{camera::Camera, ctx::Context, stack::Stack};
 
@@ -19,7 +18,6 @@ pub struct Car {
     pub t: f32,
     tire: Stack,
     body: Stack,
-    pub sim: CarState,
 }
 
 impl Car {
@@ -31,7 +29,6 @@ impl Car {
             t,
             tire: Stack::new(ctx, "assets/tire.png", 1.),
             body: Stack::new(ctx, "assets/body.png", 10.),
-            sim: CarState::default(),
         }
     }
     pub fn draw(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
