@@ -1,367 +1,278 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
-use glam::Vec2;
+#[cfg(feature = "debug-renderer")]
+use raylib::drawing::RaylibTextureMode;
 use raylib::{
     RaylibHandle,
-    color::Color,
     drawing::{RaylibDraw, RaylibTextureModeExt},
-    ffi::KeyboardKey,
-    math::{Rectangle, Vector2, lerp},
+    ffi::{Color, KeyboardKey, Vector2},
+    math::Rectangle,
     texture::{RaylibRenderTexture2D, RenderTexture2D},
 };
-use shared::{
-    coll::Obb,
-    interp::{INTERP_DELAY_TICKS, INTERP_SMOOTH, INTERP_SNAP_TICKS, SnapshotBuffer, lerp_angle},
+#[cfg(feature = "debug-renderer")]
+use wrum_core::physics::{DebugColor, Vector};
+use wrum_core::{
+    PlayerId, TICK_DT,
     level::Level,
-    net::{
-        Channel, ClientMessage,
-        proto::{INPUT_REDUNDANCY, Snapshot, Welcome},
-    },
-    sim::{CAR_HALFS, CAR_RESTITUTION, CarState, Input, TICK_DT},
+    physics::{CarState, Input, PhysicsWorld, Vec2},
+};
+use wrum_net::{
+    Channel,
+    proto::{ClientMsg, ServerMsg},
 };
 
-use crate::{
-    camera::Camera,
-    entity::car::Car,
-    map::Map,
-    scene::{Scene, general::PauseScene, menu::MenuScene},
-};
+use crate::{camera::Camera, car::Car, ctx, map::Map, scene::Scene};
 
-const PENDING_CAP: usize = 64;
-const RECON_SNAP_DIST: f32 = 100.0;
-const RECON_DECAY: f32 = 12.0;
-
-use std::f32::consts::PI;
-
-fn angle_diff(from: f32, to: f32) -> f32 {
-    let mut d = to - from;
-    while d > PI {
-        d -= 2.0 * PI;
-    }
-    while d < -PI {
-        d += 2.0 * PI;
-    }
-    d
-}
-
-#[derive(Clone)]
-struct InputRing {
-    items: VecDeque<Input>,
-}
-impl InputRing {
-    fn new() -> Self {
-        Self {
-            items: VecDeque::with_capacity(PENDING_CAP),
-        }
-    }
-    fn push(&mut self, input: Input) {
-        if self.items.len() == PENDING_CAP {
-            self.items.pop_front();
-        }
-        self.items.push_back(input);
-    }
-    fn discard_upto(&mut self, seq: u32) {
-        while self.items.front().is_some_and(|x| x.seq <= seq) {
-            self.items.pop_front();
-        }
-    }
-    fn recent(&self, n: usize) -> Vec<Input> {
-        let n = n.min(self.items.len());
-        self.items
-            .iter()
-            .skip(self.items.len() - n)
-            .copied()
-            .collect()
-    }
-}
+const INTERP_DELAY: f32 = 0.1;
+const MAX_PENDING: usize = 120;
+const ERR_DECAY: f32 = 12.0;
+const SNAP_DIST: f32 = 40.0;
+const REDUNDANCY: usize = 3;
+const GHOST_LEAD: f32 = INTERP_DELAY;
 
 pub struct GameScene {
-    shadow_c: RenderTexture2D,
     camera: Camera,
+    cars: HashMap<PlayerId, Car>,
+    my_id: PlayerId,
     map: Map,
-    level: Level,
+    shadow_canvas: RenderTexture2D,
 
-    cars: HashMap<u8, Car>,
+    recent: VecDeque<Input>,
+    physics: PhysicsWorld,
+    next_seq: u32,
+    pending: VecDeque<Input>,
+    prev: CarState,
+    curr: CarState,
+    err_pos: Vec2,
+    err_rot: f32,
+    last_snap_tick: u32,
 
-    my_id: u8,
-    code: String,
-
-    last_server_tick: u32,
-    pending: InputRing,
-    prev_sim: CarState,
-
-    err_p: Vector2,
-    err_a: f32,
-    err_z: f32,
-
-    snapbuf: SnapshotBuffer,
-    render_tick: f32,
-
-    pending_spawn: CarState,
+    remotes: HashMap<PlayerId, VecDeque<(f32, CarState)>>,
+    render_time: f32,
+    latest_server_time: f32,
+    have_clock: bool,
 }
 
 impl GameScene {
-    pub fn new(ctx: &mut crate::ctx::Context, msg: &Welcome) -> Self {
-        let shadow_c = ctx.rl.load_render_texture(&ctx.thread, 320, 180).unwrap();
+    pub fn new(
+        ctx: &mut ctx::Context,
+        my_id: PlayerId,
+        spawn: &CarState,
+        existing: &Vec<(PlayerId, CarState)>,
+    ) -> Self {
+        let level = Level::load("assets/maps/untitled.json").unwrap();
         let map = Map::load(ctx, "assets/maps/untitled.json");
-        Self {
-            shadow_c,
+
+        let mut physics = PhysicsWorld::default();
+        physics.load_level(&level);
+        physics.spawn_car(my_id, spawn.pos, spawn.rot);
+        physics.set_state(my_id, spawn);
+
+        let shadow_canvas = ctx.rl.load_render_texture(ctx.thread, 320, 180).unwrap();
+
+        let mut s = Self {
             camera: Camera::default(),
-            map,
             cars: HashMap::new(),
-            my_id: msg.your_id,
-            code: msg.lobby_code.clone(),
-            last_server_tick: 0,
-            pending: InputRing::new(),
-            prev_sim: CarState::default(),
-            err_p: Vector2::zero(),
-            err_a: 0.,
-            err_z: 0.,
-            snapbuf: SnapshotBuffer::new(),
-            render_tick: 0.,
-            pending_spawn: msg.spawn,
-            level: Level::load("assets/maps/untitled.json"),
+            my_id,
+            map,
+            shadow_canvas,
+            recent: VecDeque::new(),
+            physics,
+            next_seq: 0,
+            pending: VecDeque::new(),
+            prev: *spawn,
+            curr: *spawn,
+            err_pos: Vec2::ZERO,
+            err_rot: 0.0,
+            last_snap_tick: 0,
+            remotes: HashMap::new(),
+            render_time: 0.0,
+            latest_server_time: 0.0,
+            have_clock: false,
+        };
+        s.ensure_car(ctx, my_id, spawn);
+        for (id, st) in existing {
+            s.ensure_car(ctx, *id, st);
         }
+        s
     }
 
-    fn ensure_car(&mut self, ctx: &mut crate::ctx::Context, id: u8, spawn: CarState) {
+    fn ensure_car(&mut self, ctx: &mut ctx::Context, id: PlayerId, spawn: &CarState) {
         self.cars.entry(id).or_insert_with(|| {
-            let mut car = Car::new(
+            Car::new(
                 ctx,
-                Vector2::new(spawn.pos.x, spawn.pos.y),
-                spawn.a.to_degrees(),
-                spawn.t.to_degrees(),
-                spawn.z,
-            );
-            car.sim = spawn;
-            car
+                Vector2 {
+                    x: spawn.pos.x,
+                    y: spawn.pos.y,
+                },
+                spawn.rot.to_degrees(),
+                0.,
+                0.,
+            )
         });
     }
+    fn sim_tick(&mut self, ctx: &mut ctx::Context) {
+        // input ---------------------------------------------------
+        self.next_seq = self.next_seq.wrapping_add(1);
+        let mut input = sample_input(ctx.rl);
+        input.seq = self.next_seq;
 
-    fn sim_tick(&mut self, ctx: &mut crate::ctx::Context) {
-        let mut input = sample_input(&ctx.rl);
-        input.seq = ctx.net.next_seq;
-        ctx.net.next_seq += 1;
+        self.recent.push_back(input);
+        while self.recent.len() > REDUNDANCY {
+            self.recent.pop_front();
+        }
+        let inputs: Vec<Input> = self.recent.iter().copied().collect();
 
-        // sim
-
-        let ghosts: Vec<Obb> = self
-            .cars
-            .iter()
-            .filter(|(id, _)| **id != self.my_id)
-            .map(|(_, car)| Obb {
-                pos: Vec2 {
-                    x: car.p.x,
-                    y: car.p.y,
-                },
-                halfs: CAR_HALFS,
-                a: car.a.to_radians(),
-            })
-            .collect();
-        let me = self.cars.get_mut(&self.my_id).unwrap();
-
-        self.prev_sim = me.sim;
-        self.level.step_car(&mut me.sim, &input);
-
-        if me.sim.epoch != self.prev_sim.epoch {
-            self.prev_sim = me.sim;
-            self.err_p = Vector2::zero();
-            self.err_a = 0.;
+        if let Err(e) = ctx
+            .net
+            .send(Channel::Unreliable, &ClientMsg::Input { inputs })
+        {
+            eprintln!("failed to send input: {e:#?}");
         }
 
-        for ghost in ghosts {
-            me.sim.resolve_vs_obstacle(ghost, CAR_RESTITUTION);
-        }
-
-        // input
-
-        self.pending.push(input);
-        let msg = ClientMessage::Input {
-            inputs: self.pending.recent(INPUT_REDUNDANCY),
-        };
-
-        if let Err(e) = ctx.net.send(Channel::Unreliable, &msg) {
-            eprintln!("failed to send input: {e:?}");
-        }
-    }
-    fn apply_snapshot(&mut self, ctx: &mut crate::ctx::Context, snap: &mut Snapshot) {
-        if snap.server_tick <= self.last_server_tick && self.last_server_tick != 0 {
-            return;
-        }
-
-        self.last_server_tick = snap.server_tick;
-
-        for (id, state) in &mut snap.ents {
-            self.ensure_car(ctx, *id, state.clone());
-
-            if *id != self.my_id {
-                continue;
-            }
-
-            self.pending.discard_upto(snap.ack_seq);
-
-            let before = self.cars.get(&self.my_id).unwrap().sim;
-            let mut sim = *state;
-
-            let ghosts: Vec<Obb> = self
-                .cars
-                .iter()
-                .filter(|(id, _)| **id != self.my_id)
-                .map(|(_, car)| Obb {
-                    pos: Vec2 {
-                        x: car.p.x,
-                        y: car.p.y,
-                    },
-                    halfs: CAR_HALFS,
-                    a: car.a.to_radians(),
-                })
-                .collect();
-
-            for input in &self.pending.items {
-                self.level.step_car(&mut sim, input);
-                for ghost in &ghosts {
-                    sim.resolve_vs_obstacle(*ghost, CAR_RESTITUTION);
+        // prediction ----------------------------------------------
+        if self.have_clock {
+            let t = self.render_time + GHOST_LEAD;
+            for (id, q) in &self.remotes {
+                if let Some((p, r)) = sample(q, t) {
+                    self.physics.set_remote(*id, p, r);
                 }
             }
-
-            self.cars.get_mut(&self.my_id).unwrap().sim = sim;
-
-            let dx = before.pos.x - sim.pos.x;
-            let dy = before.pos.y - sim.pos.y;
-            let dz = before.z - sim.z;
-            let mut da = angle_diff(sim.a, before.a);
-
-            self.prev_sim.pos.x -= dx;
-            self.prev_sim.pos.y -= dy;
-            self.prev_sim.z -= dz;
-            self.prev_sim.a -= da;
-
-            let mut dx = dx;
-            let mut dy = dy;
-
-            if dx * dx + dy * dy > RECON_SNAP_DIST * RECON_SNAP_DIST {
-                dx = 0.0;
-                dy = 0.0;
-            }
-
-            if da.abs() > 1.57 {
-                da = 0.0;
-            }
-
-            self.err_p.x += dx;
-            self.err_p.y += dy;
-            self.err_z += dz;
-            self.err_a += da;
         }
 
-        let present: HashSet<u8> = snap.ents.iter().map(|(id, _)| *id).collect();
-        self.cars
-            .retain(|id, _| *id == self.my_id || present.contains(id));
+        self.physics.set_input(self.my_id, input);
+        self.physics.step();
+        self.prev = self.curr;
+        if let Some(s) = self.physics.state(self.my_id) {
+            self.curr = s;
+        }
 
-        self.snapbuf.push(snap);
-    }
-
-    fn update_render_tick(&mut self, dt: f32) {
-        let Some(newest) = self.snapbuf.latest() else {
-            return;
-        };
-
-        self.render_tick += dt / TICK_DT;
-
-        let target = newest.tick as f32 - INTERP_DELAY_TICKS;
-        let diff = target - self.render_tick;
-
-        if diff.abs() > INTERP_SNAP_TICKS {
-            self.render_tick = target;
-        } else {
-            self.render_tick += diff * INTERP_SMOOTH;
+        self.pending.push_back(input);
+        while self.pending.len() > MAX_PENDING {
+            self.pending.pop_front();
         }
     }
-    fn interp_others(&mut self) {
-        let Some((a, c, t)) = self.snapbuf.find_bracket(self.render_tick) else {
+    fn apply_snapshot(
+        &mut self,
+        ctx: &mut ctx::Context,
+        tick: u32,
+        cars: &Vec<(PlayerId, CarState)>,
+    ) {
+        if tick <= self.last_snap_tick {
             return;
-        };
+        }
+        self.last_snap_tick = tick;
 
-        for (id, car) in self.cars.iter_mut() {
+        let t = tick as f32 * TICK_DT;
+        self.latest_server_time = self.latest_server_time.max(t);
+        if !self.have_clock {
+            self.render_time = t - INTERP_DELAY;
+            self.have_clock = true;
+        }
+
+        for (id, state) in cars {
             if *id == self.my_id {
-                continue;
-            }
-
-            let sa = a.find_entity(*id);
-            let sc = c.find_entity(*id);
-
-            let mut r = CarState::default();
-            if let Some(sa) = sa
-                && let Some(sc) = sc
-            {
-                r.pos.x = lerp(sa.pos.x, sc.pos.x, t);
-                r.pos.y = lerp(sa.pos.y, sc.pos.y, t);
-                r.z = lerp(sa.z, sc.z, t);
-                r.a = lerp_angle(sa.a, sc.a, t);
-                r.t = lerp_angle(sa.t, sc.t, t);
-            } else if let Some(sc) = sc {
-                r = *sc;
-            } else if let Some(sa) = sa {
-                r = *sa;
+                self.reconcile(state);
             } else {
-                continue;
+                self.ensure_car(ctx, *id, state);
+                if !self.remotes.contains_key(id) {
+                    self.physics.spawn_remote(*id, state);
+                }
+                let q = self.remotes.entry(*id).or_default();
+                q.push_back((t, *state));
+                while q.len() > 32 {
+                    q.pop_front();
+                }
             }
-
-            car.p = Vector2 {
-                x: r.pos.x,
-                y: r.pos.y,
-            };
-            car.z = r.z;
-            car.a = r.a.to_degrees();
-            car.t = r.t.to_degrees();
         }
     }
-    fn update_own_render(&mut self, dt: f32, alpha: f32) {
-        let me = self.cars.get_mut(&self.my_id).unwrap();
+    fn reconcile(&mut self, server: &CarState) {
+        let old = self.curr;
 
-        let alpha = (alpha).clamp(0., 1.);
-        let ix = lerp(self.prev_sim.pos.x, me.sim.pos.x, alpha);
-        let iy = lerp(self.prev_sim.pos.y, me.sim.pos.y, alpha);
-        let iz = lerp(self.prev_sim.z, me.sim.z, alpha);
-        let ia = lerp_angle(self.prev_sim.a, me.sim.a, alpha);
-        let it = lerp(self.prev_sim.t, me.sim.t, alpha);
+        while self
+            .pending
+            .front()
+            .is_some_and(|i| (i.seq.wrapping_sub(server.ack) as i32) <= 0)
+        {
+            self.pending.pop_front();
+        }
 
-        let decay = (-RECON_DECAY * dt).exp();
-        self.err_p.x *= decay;
-        self.err_p.y *= decay;
-        self.err_z *= decay;
-        self.err_a *= decay;
+        self.physics.set_state(self.my_id, server);
+        for input in &self.pending {
+            self.physics.set_input(self.my_id, *input);
+            self.physics.step();
+        }
+        let Some(new) = self.physics.state(self.my_id) else {
+            return;
+        };
 
-        me.p.x = ix + self.err_p.x;
-        me.p.y = iy + self.err_p.y;
-        me.z = iz + self.err_z;
-        me.a = (ia + self.err_a).to_degrees();
-        me.t = it.to_degrees();
+        let dp = new.pos - old.pos;
+        let dr = wrap_angle(new.rot - old.rot);
+
+        if dp.length() > SNAP_DIST || dr.abs() > 1.0 {
+            self.prev = new;
+            self.err_pos = Vec2::ZERO;
+            self.err_rot = 0.0;
+        } else {
+            self.err_pos -= dp;
+            self.err_rot -= dr;
+            self.prev.pos += dp;
+            self.prev.rot += dr;
+        }
+        self.curr = new;
     }
 }
 
 impl Scene for GameScene {
-    fn fixed_update(&mut self, ctx: &mut crate::ctx::Context) -> super::Transition {
+    fn fixed_update(&mut self, ctx: &mut ctx::Context) -> super::Transition {
         self.sim_tick(ctx);
         super::Transition::None
     }
-    fn update(&mut self, ctx: &mut crate::ctx::Context, dt: f32, alpha: f32) -> super::Transition {
-        self.update_own_render(dt, alpha);
-        self.update_render_tick(dt);
-        self.interp_others();
+    fn update(&mut self, _ctx: &mut ctx::Context, dt: f32, alpha: f32) -> super::Transition {
+        let k = (-ERR_DECAY * dt).exp();
+        self.err_pos *= k;
+        self.err_rot *= k;
 
-        let me = self.cars.get(&self.my_id).unwrap();
-        self.camera.update(me.p, me.a, dt);
-
-        if ctx.rl.is_key_pressed(KeyboardKey::KEY_ESCAPE) {
-            return super::Transition::Push(Box::new(PauseScene));
+        let pos = self.prev.pos.lerp(self.curr.pos, alpha) + self.err_pos;
+        let rot = self.prev.rot + wrap_angle(self.curr.rot - self.prev.rot) * alpha + self.err_rot;
+        if let Some(car) = self.cars.get_mut(&self.my_id) {
+            car.p = Vector2 { x: pos.x, y: pos.y };
+            car.a = rot.to_degrees();
         }
 
+        if self.have_clock {
+            self.render_time += dt;
+            let target = self.latest_server_time - INTERP_DELAY;
+            let diff = target - self.render_time;
+            if diff.abs() > 0.25 {
+                self.render_time = target;
+            } else {
+                self.render_time += diff * (1.0 - (-2.0 * dt).exp());
+            }
+
+            for (id, q) in self.remotes.iter_mut() {
+                while q.len() > 2 && q[1].0 <= self.render_time {
+                    q.pop_front();
+                }
+                if let (Some((p, r)), Some(car)) =
+                    (sample(q, self.render_time), self.cars.get_mut(id))
+                {
+                    car.p = Vector2 { x: p.x, y: p.y };
+                    car.a = r.to_degrees();
+                }
+            }
+        }
+
+        if let Some(me) = self.cars.get(&self.my_id) {
+            self.camera.update(me.p, me.a, dt);
+        }
         super::Transition::None
     }
-    fn draw(&mut self, ctx: &mut crate::ctx::Context) {
+    fn draw(&mut self, ctx: &mut ctx::Context) {
         {
-            let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut self.shadow_c);
+            let mut tm = ctx
+                .rl
+                .begin_texture_mode(&ctx.thread, &mut self.shadow_canvas);
             tm.clear_background(Color::BLANK);
             self.map.draw_shadows(&mut tm, &self.camera);
 
@@ -370,15 +281,12 @@ impl Scene for GameScene {
             }
         }
 
-        self.map.draw_ground_shadows(ctx, &self.camera);
-
-        let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut ctx.canvas);
+        let mut tm = ctx.rl.begin_texture_mode(ctx.thread, ctx.canvas);
         tm.clear_background(Color::BLACK);
 
         self.map.draw_layers(&mut tm, &self.camera);
-
         tm.draw_texture_rec(
-            self.shadow_c.texture(),
+            self.shadow_canvas.texture(),
             Rectangle::new(0., 0., 320., -180.),
             Vector2::zero(),
             Color::new(255, 255, 255, 180),
@@ -390,9 +298,6 @@ impl Scene for GameScene {
             drawables.push((pos.y, i, Drawable::Car(*id)));
         }
         for (i, prop) in self.map.props.iter().enumerate() {
-            if prop.ground {
-                continue;
-            }
             let (pos, _) = self.camera.apply(prop.pos, prop.a);
             drawables.push((pos.y, i, Drawable::Prop));
         }
@@ -415,47 +320,40 @@ impl Scene for GameScene {
             }
         }
 
-        if self.code.len() != 0 {
-            tm.draw_text(&self.code, 20, 10, 10, Color::WHITE);
-        }
-    }
-
-    fn enter(&mut self, ctx: &mut crate::ctx::Context) {
-        self.ensure_car(ctx, self.my_id, self.pending_spawn);
+        #[cfg(feature = "debug-renderer")]
+        render(&mut tm, &self.camera, &self.physics.debug_backend.lines);
     }
 
     fn on_message(
         &mut self,
-        ctx: &mut crate::ctx::Context,
-        msg: shared::net::ServerMessage,
+        ctx: &mut ctx::Context,
+        msg: &wrum_net::proto::ServerMsg,
     ) -> super::Transition {
         match msg {
-            shared::net::ServerMessage::Snapshot(mut snap) => {
-                self.apply_snapshot(ctx, &mut snap);
+            ServerMsg::Snapshot { tick, cars } => self.apply_snapshot(ctx, *tick, cars),
+            ServerMsg::PlayerJoined { id, name: _, spawn } => {
+                self.ensure_car(ctx, *id, spawn);
+            }
+            ServerMsg::PlayerLeft { id } => {
+                self.physics.remove_remote(*id);
+                self.remotes.remove(id);
+                self.cars.remove(id);
             }
             _ => {}
         }
-
         super::Transition::None
     }
-    fn on_disconnect(
-        &mut self,
-        _ctx: &mut crate::ctx::Context,
-        _reason: shared::net::DisconnectReason,
-    ) -> super::Transition {
-        super::Transition::Switch(Box::new(MenuScene::new("disconnected from server")))
-    }
 
-    fn blocks_update(&self) -> bool {
+    fn blocks_draw(&self) -> bool {
         true
     }
-    fn blocks_draw(&self) -> bool {
+    fn blocks_update(&self) -> bool {
         true
     }
 }
 
 pub enum Drawable {
-    Car(u8),
+    Car(PlayerId),
     Prop,
 }
 
@@ -463,6 +361,63 @@ fn sample_input(rl: &RaylibHandle) -> Input {
     Input {
         seq: 0,
         steer: rl.is_key_down(KeyboardKey::KEY_D) as i8 - rl.is_key_down(KeyboardKey::KEY_A) as i8,
-        thr: rl.is_key_down(KeyboardKey::KEY_W) as i8 - rl.is_key_down(KeyboardKey::KEY_S) as i8,
+        throttle: rl.is_key_down(KeyboardKey::KEY_W) as i8
+            - rl.is_key_down(KeyboardKey::KEY_S) as i8,
+        drift: rl.is_key_down(KeyboardKey::KEY_SPACE),
     }
+}
+fn wrap_angle(a: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+    (a + PI).rem_euclid(TAU) - PI
+}
+fn sample(q: &VecDeque<(f32, CarState)>, t: f32) -> Option<(Vec2, f32)> {
+    let (t_first, first) = q.front()?;
+    if t <= *t_first {
+        return Some((first.pos, first.rot));
+    }
+
+    for (a, b) in q.iter().zip(q.iter().skip(1)) {
+        let (t0, s0) = a;
+        let (t1, s1) = b;
+        if t >= *t0 && t <= *t1 {
+            let f = (t - t0) / (t1 - t0);
+            return Some((
+                s0.pos.lerp(s1.pos, f),
+                s0.rot + wrap_angle(s1.rot - s0.rot) * f,
+            ));
+        }
+    }
+    let (_, last) = q.back()?;
+    Some((last.pos, last.rot))
+}
+
+#[cfg(feature = "debug-renderer")]
+fn render(
+    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+    camera: &Camera,
+    lines: &Vec<(Vector, Vector, DebugColor)>,
+) {
+    for (s, e, c) in lines {
+        let (s, _) = camera.apply(Vector2 { x: s.x, y: s.y }, 0.0);
+        let (e, _) = camera.apply(Vector2 { x: e.x, y: e.y }, 0.0);
+
+        tm.draw_line_v(s, e, to_rgba(*c));
+    }
+}
+#[cfg(feature = "debug-renderer")]
+pub fn to_rgba([h, s, l, a]: DebugColor) -> Color {
+    let (h, s, l) = (h / 360.0, s, l);
+
+    let f = |n: f32| {
+        let k = (n + h * 12.0) % 12.0;
+        let x = s * l.min(1.0 - l);
+        l - x * (-1.0_f32).max((k - 3.0).min(9.0 - k).min(1.0))
+    };
+
+    Color::new(
+        (f(0.0) * 255.0).round() as u8,
+        (f(8.0) * 255.0).round() as u8,
+        (f(4.0) * 255.0).round() as u8,
+        (a.clamp(0.0, 1.0) * 255.0).round() as u8,
+    )
 }

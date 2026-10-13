@@ -3,31 +3,28 @@ use raylib::{
     texture::{RaylibTexture2D, RenderTexture2D},
 };
 
-use crate::net::{Net, Status, server_url};
+use crate::net::Net;
 
 pub struct State {
     pub net: Net,
-    pub last_status: Option<Status>,
     pub canvas: RenderTexture2D,
 }
 
 pub struct Context<'a> {
     pub net: &'a mut Net,
-    pub last_status: &'a mut Option<Status>,
     pub canvas: &'a mut RenderTexture2D,
     pub rl: &'a mut RaylibHandle,
     pub thread: &'a RaylibThread,
 }
 
 impl State {
-    pub fn new(rl: &mut RaylibHandle, thread: &RaylibThread) -> Self {
+    pub fn new(rl: &mut RaylibHandle, thread: &RaylibThread) -> anyhow::Result<Self> {
         let canvas = rl.load_render_texture(&thread, 360, 180).unwrap();
         canvas.set_texture_filter(&thread, raylib::ffi::TextureFilter::TEXTURE_FILTER_POINT);
-        Self {
-            net: Net::new(&server_url()).unwrap(),
-            last_status: None,
+        Ok(Self {
+            net: Net::connect("https://127.0.0.1:7778")?,
             canvas,
-        }
+        })
     }
     pub fn ctx<'a>(
         &'a mut self,
@@ -36,7 +33,6 @@ impl State {
     ) -> Context<'a> {
         Context {
             net: &mut self.net,
-            last_status: &mut self.last_status,
             canvas: &mut self.canvas,
             rl,
             thread,

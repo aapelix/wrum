@@ -1,25 +1,33 @@
-use shared::net::{DisconnectReason, ServerMessage};
+use wrum_net::proto::ServerMsg;
 
 use crate::ctx::Context;
 
+pub mod basic;
 pub mod game;
-pub mod general;
-pub mod menu;
+
+pub enum Transition {
+    None,
+    Push(Box<dyn Scene>),
+    Pop,
+    Switch(Box<dyn Scene>),
+}
 
 pub trait Scene {
     fn fixed_update(&mut self, _ctx: &mut Context) -> Transition {
         Transition::None
     }
-    fn update(&mut self, ctx: &mut Context, dt: f32, alpha: f32) -> Transition;
+    fn update(&mut self, _ctx: &mut Context, _dt: f32, _alpha: f32) -> Transition {
+        Transition::None
+    }
     fn draw(&mut self, ctx: &mut Context);
 
     fn on_connect(&mut self, _ctx: &mut Context) -> Transition {
         Transition::None
     }
-    fn on_disconnect(&mut self, _ctx: &mut Context, _reason: DisconnectReason) -> Transition {
+    fn on_disconnect(&mut self, _ctx: &mut Context) -> Transition {
         Transition::None
     }
-    fn on_message(&mut self, _ctx: &mut Context, _msg: ServerMessage) -> Transition {
+    fn on_message(&mut self, _ctx: &mut Context, _msg: &ServerMsg) -> Transition {
         Transition::None
     }
 
@@ -28,13 +36,6 @@ pub trait Scene {
 
     fn enter(&mut self, _ctx: &mut Context) {}
     fn exit(&mut self, _ctx: &mut Context) {}
-}
-
-pub enum Transition {
-    None,
-    Push(Box<dyn Scene>),
-    Pop,
-    Switch(Box<dyn Scene>),
 }
 
 pub struct SceneManager {
@@ -51,7 +52,6 @@ impl SceneManager {
 
     pub fn fixed_update(&mut self, ctx: &mut Context) {
         let mut t = Transition::None;
-
         for scene in self.stack.iter_mut().rev() {
             let res = scene.fixed_update(ctx);
             if !matches!(res, Transition::None) {
@@ -61,12 +61,10 @@ impl SceneManager {
                 break;
             }
         }
-
         self.apply(ctx, t);
     }
     pub fn update(&mut self, ctx: &mut Context, dt: f32, alpha: f32) {
         let mut t = Transition::None;
-
         for scene in self.stack.iter_mut().rev() {
             let res = scene.update(ctx, dt, alpha);
             if !matches!(res, Transition::None) {
@@ -76,7 +74,6 @@ impl SceneManager {
                 break;
             }
         }
-
         self.apply(ctx, t);
     }
     pub fn draw(&mut self, ctx: &mut Context) {
@@ -95,13 +92,13 @@ impl SceneManager {
             self.apply(ctx, t);
         }
     }
-    pub fn on_disconnect(&mut self, ctx: &mut Context, reason: DisconnectReason) {
+    pub fn on_disconnect(&mut self, ctx: &mut Context) {
         if let Some(last) = self.stack.last_mut() {
-            let t = last.on_disconnect(ctx, reason);
+            let t = last.on_disconnect(ctx);
             self.apply(ctx, t);
         }
     }
-    pub fn on_message(&mut self, ctx: &mut Context, msg: ServerMessage) {
+    pub fn on_message(&mut self, ctx: &mut Context, msg: &ServerMsg) {
         if let Some(last) = self.stack.last_mut() {
             let t = last.on_message(ctx, msg);
             self.apply(ctx, t);

@@ -1,8 +1,8 @@
 use raylib::{RaylibHandle, drawing::RaylibTextureMode, math::Vector2};
-use shared::sim::CarState;
 
-use crate::{camera::Camera, ctx::Context, entity::SHADOW_OFFSET, stack::Stack};
+use crate::{camera::Camera, ctx::Context, stack::Stack};
 
+pub const SHADOW_OFFSET: Vector2 = Vector2 { x: 1., y: 0.5 };
 pub const TIRE_COUNT: usize = 4;
 pub const TIRE_POSITIONS: [Vector2; TIRE_COUNT] = [
     Vector2 { x: -3.5, y: -4.0 },
@@ -18,8 +18,6 @@ pub struct Car {
     pub t: f32,
     tire: Stack,
     body: Stack,
-    pub sim: CarState,
-    pub last_splach_epoch: Option<u8>,
 }
 
 impl Car {
@@ -31,11 +29,9 @@ impl Car {
             t,
             tire: Stack::new(ctx, "assets/tire.png", 1.),
             body: Stack::new(ctx, "assets/body.png", 10.),
-            sim: CarState::default(),
-            last_splach_epoch: None,
         }
     }
-    pub fn draw(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, camera: &Camera) {
+    pub fn draw(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
         let rad = self.a.to_radians();
         let s = rad.sin();
         let c = rad.cos();
@@ -56,7 +52,7 @@ impl Car {
 
         self.body.draw(tm, self.p, self.a, camera, self.z);
     }
-    pub fn draw_shadow(&self, tm: &mut RaylibTextureMode<'_, RaylibHandle>, camera: &Camera) {
+    pub fn draw_shadow(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
         let rad = self.a.to_radians();
         let s = rad.sin();
         let c = rad.cos();

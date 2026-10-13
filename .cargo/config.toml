@@ -1,23 +1,8 @@
+[build]
+rustflags = ["--cfg=web_sys_unstable_apis"]
+
 [target.wasm32-unknown-emscripten]
 rustflags = [
-    # raylib's web backend uses emscripten's bundled GLFW3 port.
-    "-C", "link-arg=-sUSE_GLFW=3",
-    # Let the wasm heap grow on demand.
-    "-C", "link-arg=-sALLOW_MEMORY_GROWTH=1",
-    # raylib's audio backend (miniaudio) busy-waits via `emscripten_sleep(1)`
-    # during WebAudio init. The first sound play aborts without ASYNCIFY.
-    # The classic `while !rl.window_should_close()` loop also needs it.
-    "-C", "link-arg=-sASYNCIFY=1",
-    # raylib's image and audio loaders reach `fopen` through macros that
-    # emcc's tree-shaker sometimes misses. Force the FS layer in.
-    "-C", "link-arg=-sFORCE_FILESYSTEM=1",
-    # Match the wasm-EH ABI rustc 1.93+ emits. Without this you hit
-    # `__cxa_find_matching_catch_*` link errors.
-    "-C", "link-arg=-sSUPPORT_LONGJMP=wasm",
-    # Recent emcc tree-shakes these aggressively. Without them, raylib's
-    # GLFW glue and your shell's audio / heap access hit "Module.X is
-    # undefined" at runtime.
-    "-C", "link-arg=-sEXPORTED_RUNTIME_METHODS=['ccall','wasmMemory','HEAPU8','HEAP32','HEAPF32']",
     "-C", "link-arg=--preload-file", "-C", "link-arg=assets@/assets",
-    "-C", "link-arg=--js-library=js/ws.js",
+    "-C", "link-arg=--js-library=js/net.js"
 ]

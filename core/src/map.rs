@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-pub fn load_map(path: &str) -> Result<MapJson, Box<dyn std::error::Error>> {
+pub fn load_map(path: &str) -> anyhow::Result<MapJson> {
     let json = std::fs::read_to_string(path)?;
     Ok(serde_json::from_str(&json)?)
 }
@@ -65,10 +65,18 @@ pub enum ObjectKindJson {
     Wall,
     #[serde(rename = "water")]
     Water,
-    #[serde(rename = "water_coll")]
-    WaterColl,
-    #[serde(rename = "bridge")]
-    Bridge,
+    #[serde(rename = "spawn")]
+    Spawn,
+    #[serde(rename = "grass")]
+    Grass { polygon: Vec<Polygon> },
+    #[serde(rename = "road")]
+    Road { polygon: Vec<Polygon> },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Polygon {
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Debug, Deserialize)]

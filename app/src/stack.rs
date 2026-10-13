@@ -70,7 +70,7 @@ impl Stack {
     }
     pub fn draw(
         &self,
-        tm: &mut RaylibTextureMode<'_, RaylibHandle>,
+        tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         pos: Vector2,
         a: f32,
         camera: &Camera,
@@ -97,7 +97,7 @@ impl Stack {
     }
     pub fn draw_shadow(
         &self,
-        tm: &mut RaylibTextureMode<'_, RaylibHandle>,
+        tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         pos: Vector2,
         a: f32,
         camera: &Camera,

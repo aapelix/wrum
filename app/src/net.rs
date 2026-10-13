@@ -1,112 +1,57 @@
-use std::{
-    collections::VecDeque,
-    io,
-    time::{Duration, Instant},
+use raylib::trace_log;
+use wrum_net::{
+    Channel, ConnState, PlatformTransport, Transport, connect,
+    proto::{ClientMsg, ServerMsg, decode_server, encode_client},
 };
 
-use shared::net::{
-    Channel, ClientMessage, Config, ConnId, DisconnectReason, Endpoint, Event, SendError,
-    ServerMessage,
-};
-
-#[cfg(not(target_os = "emscripten"))]
-use shared::net::native::UdpTransport as Link;
-#[cfg(target_os = "emscripten")]
-use shared::net::web::WsClient as Link;
-
-#[cfg(target_os = "emscripten")]
-pub fn server_url() -> String {
-    std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "ws://localhost:7778".into())
-}
-#[cfg(not(target_os = "emscripten"))]
-pub fn server_url() -> String {
-    std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:7777".into())
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Status {
-    Connecting,
+pub enum NetEvent {
     Connected,
-    Disconnected(DisconnectReason),
+    Message(ServerMsg),
+    Disconnected(Option<String>),
 }
 
 pub struct Net {
-    client: Endpoint<Link, ClientMessage, ServerMessage>,
-    conn: ConnId,
-    status: Status,
-    inbox: VecDeque<ServerMessage>,
-    pub next_seq: u32,
+    url: String,
+    t: PlatformTransport,
+    phase: ConnState,
 }
 
 impl Net {
-    pub fn new(server: &str) -> io::Result<Self> {
-        #[cfg(not(target_os = "emscripten"))]
-        let (link, addr) = (
-            Link::bind("0.0.0.0:0")?,
-            server
-                .parse::<std::net::SocketAddr>()
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?,
-        );
-
-        #[cfg(target_os = "emscripten")]
-        let (link, addr) = (Link::connect(server)?, ());
-
-        let mut client = Endpoint::<Link, ClientMessage, ServerMessage>::new(
-            link,
-            Config {
-                accept: false,
-                ..Config::default()
-            },
-        );
-        let conn = client.connect(addr, Instant::now());
-        Ok(Self {
-            client,
-            conn,
-            status: Status::Connecting,
-            inbox: VecDeque::new(),
-            next_seq: 0,
+    pub fn connect(url: &str) -> anyhow::Result<Net> {
+        let t = connect(url)?;
+        Ok(Net {
+            url: url.into(),
+            t,
+            phase: ConnState::Connecting,
         })
     }
-
-    pub fn poll(&mut self) {
-        let Self {
-            client,
-            status,
-            inbox,
-            ..
-        } = self;
-        for ev in client.poll(Instant::now()) {
-            match ev {
-                Event::Connected(_) => *status = Status::Connected,
-                Event::Message(_, msg) => inbox.push_back(msg),
-                Event::Disconnected(_, why) => *status = Status::Disconnected(why),
-            }
+    pub fn reconnect(&mut self) -> anyhow::Result<()> {
+        self.t = connect(&self.url)?;
+        self.phase = ConnState::Connecting;
+        Ok(())
+    }
+    pub fn state(&self) -> ConnState {
+        self.t.state()
+    }
+    pub fn send(&mut self, ch: Channel, msg: &ClientMsg) -> anyhow::Result<()> {
+        println!("sending");
+        self.t.send(ch, &encode_client(msg)?)
+    }
+    pub fn pump(&mut self, out: &mut Vec<NetEvent>) -> anyhow::Result<()> {
+        let s = self.t.state();
+        if s == ConnState::Open && self.phase == ConnState::Connecting {
+            self.phase = ConnState::Open;
+            out.push(NetEvent::Connected);
         }
-    }
-
-    pub fn status(&self) -> Status {
-        self.status
-    }
-
-    pub fn next_message(&mut self) -> Option<ServerMessage> {
-        self.inbox.pop_front()
-    }
-
-    pub fn send(&mut self, ch: Channel, msg: &ClientMessage) -> Result<(), SendError> {
-        self.client.send(self.conn, ch, msg)
-    }
-
-    pub fn rtt(&self) -> Option<Duration> {
-        self.client.rtt(self.conn)
-    }
-}
-
-impl Drop for Net {
-    fn drop(&mut self) {
-        self.client.disconnect(self.conn);
+        while let Ok(Some((_, b))) = self.t.poll() {
+            let msg = decode_server(&b)?;
+            trace_log(raylib::ffi::TraceLogLevel::LOG_INFO, "recv message");
+            out.push(NetEvent::Message(msg));
+        }
+        if s == ConnState::Closed && self.phase != ConnState::Closed {
+            self.phase = ConnState::Closed;
+            out.push(NetEvent::Disconnected(self.t.error()));
+        }
+        Ok(())
     }
 }
