@@ -128,4 +128,11 @@ impl Level {
             checkpoint_count,
         })
     }
+    pub fn dist_to_gate(&self, index: u32, p: Vec2) -> f32 {
+        self.checkpoints
+            .iter()
+            .filter(|c| c.index == index)
+            .map(|c| c.pos.distance(p))
+            .fold(f32::MAX, f32::min)
+    }
 }

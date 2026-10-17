@@ -43,6 +43,10 @@ pub enum ServerMsg {
         finished: bool,
         lap_time: Option<f32>,
     },
+    Positions {
+        tick: u32,
+        order: Vec<PlayerId>,
+    },
     Reject(RejectReason),
 }
 

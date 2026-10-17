@@ -15,6 +15,7 @@ use wrum_core::{
     PlayerId, TICK_DT,
     level::Level,
     physics::{CarState, Input, PhysicsWorld, Vec2},
+    race::TOTAL_LAPS,
 };
 use wrum_net::{
     Channel,
@@ -51,6 +52,10 @@ pub struct GameScene {
     render_time: f32,
     latest_server_time: f32,
     have_clock: bool,
+
+    order: Vec<PlayerId>,
+    last_order_tick: u32,
+    lap: u32,
 }
 
 impl GameScene {
@@ -89,6 +94,9 @@ impl GameScene {
             render_time: 0.0,
             latest_server_time: 0.0,
             have_clock: false,
+            order: Vec::new(),
+            last_order_tick: 0,
+            lap: 0,
         };
         s.ensure_car(ctx, my_id, spawn);
         for (id, st) in existing {
@@ -221,6 +229,11 @@ impl GameScene {
         }
         self.curr = new;
     }
+
+    fn my_place(&self) -> Option<(usize, usize)> {
+        let i = self.order.iter().position(|&id| id == self.my_id)?;
+        Some((i + 1, self.order.len()))
+    }
 }
 
 impl Scene for GameScene {
@@ -322,6 +335,21 @@ impl Scene for GameScene {
 
         #[cfg(feature = "debug-renderer")]
         render(&mut tm, &self.camera, &self.physics.debug_backend.lines);
+
+        if let Some((place, _total)) = self.my_place() {
+            let suffix = match place {
+                1 => "st",
+                2 => "nd",
+                3 => "rd",
+                _ => "th",
+            };
+            let rank = format!("{place}{suffix}");
+            let lap = format!("Lap {}/{}", self.lap, TOTAL_LAPS);
+            tm.draw_text(&rank, 282, 12, 20, Color::BLACK);
+            tm.draw_text(&rank, 280, 10, 20, Color::WHITE);
+            tm.draw_text(&lap, 266, 31, 10, Color::BLACK);
+            tm.draw_text(&lap, 265, 30, 10, Color::WHITE);
+        }
     }
 
     fn on_message(
@@ -348,7 +376,16 @@ impl Scene for GameScene {
             } => {
                 println!(
                     "id: {id}   lap: {lap}   next: {next}   finished: {finished}   lap_time: {lap_time:?}"
-                )
+                );
+                if *id == self.my_id {
+                    self.lap = *lap;
+                }
+            }
+            ServerMsg::Positions { tick, order } => {
+                if *tick > self.last_order_tick {
+                    self.last_order_tick = *tick;
+                    self.order = order.clone();
+                }
             }
             _ => {}
         }

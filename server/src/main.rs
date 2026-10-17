@@ -1,8 +1,9 @@
 use std::{
+    cmp::Ordering,
     collections::{HashMap, VecDeque},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize},
     },
     time::Duration,
 };
@@ -172,7 +173,7 @@ async fn handle_session(incoming: IncomingSession, lobbies: Lobbies) -> anyhow::
         });
     }
 
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let me = PlayerHandle {
         conn: conn.clone(),
         reliable_tx,
@@ -275,7 +276,10 @@ fn find_public_lobby(l: &Lobbies) -> Option<(String, UnboundedSender<LobbyCmd>)>
     map.retain(|_, handle| !handle.tx.is_closed());
 
     map.iter()
-        .find(|(_, handle)| !handle.private && handle.players.load(Ordering::Relaxed) < MAX_PLAYERS)
+        .find(|(_, handle)| {
+            !handle.private
+                && handle.players.load(std::sync::atomic::Ordering::Relaxed) < MAX_PLAYERS
+        })
         .map(|(id, handle)| (id.clone(), handle.tx.clone()))
 }
 
@@ -354,7 +358,7 @@ async fn run_lobby(
                     }
 
                     players.insert(id, handle);
-                    player_count.store(players.len(), Ordering::Relaxed);
+                    player_count.store(players.len(), std::sync::atomic::Ordering::Relaxed);
                     if let Ok(bytes) = encode_server(&ServerMsg::Welcome { your_id: id, spawn, existing }) {
                         let _ = players[&id].reliable_tx.unbounded_send(bytes);
                     }
@@ -413,9 +417,45 @@ async fn run_lobby(
                         let _ = player.conn.send_datagram(bytes.clone());
                     }
                 }
+
+                if tick_no % 6 == 0 {
+                    let order = ranking(&progress, &physics, &level, n_cp);
+                    if let Ok(bytes) = encode_server(&ServerMsg::Positions { tick: tick_no, order }) {
+                        for player in players.values() {
+                            let _ = player.conn.send_datagram(bytes.clone());
+                        }
+                    }
+                }
             }
         }
     }
+}
+fn ranking(
+    progress: &HashMap<PlayerId, RaceProgress>,
+    physics: &PhysicsWorld,
+    level: &Level,
+    n: u32,
+) -> Vec<PlayerId> {
+    let mut v: Vec<_> = progress
+        .iter()
+        .map(|(&id, p)| {
+            let dist = physics
+                .state(id)
+                .map_or(f32::MAX, |s| level.dist_to_gate(p.next, s.pos));
+            (id, p.finish_tick, p.score(n), dist)
+        })
+        .collect();
+    v.sort_by(|a, b| match (a.1, b.1) {
+        (Some(x), Some(y)) => x.cmp(&y).then(a.0.cmp(&b.0)),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => {
+            b.2.cmp(&a.2)
+                .then(a.3.partial_cmp(&b.3).unwrap_or(Ordering::Equal))
+                .then(a.0.cmp(&b.0))
+        }
+    });
+    v.into_iter().map(|t| t.0).collect()
 }
 
 fn send_reject(handle: &PlayerHandle, reason: RejectReason) {

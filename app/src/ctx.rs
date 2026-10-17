@@ -19,7 +19,7 @@ pub struct Context<'a> {
 
 impl State {
     pub fn new(rl: &mut RaylibHandle, thread: &RaylibThread) -> anyhow::Result<Self> {
-        let canvas = rl.load_render_texture(&thread, 360, 180).unwrap();
+        let canvas = rl.load_render_texture(&thread, 320, 180).unwrap();
         canvas.set_texture_filter(&thread, raylib::ffi::TextureFilter::TEXTURE_FILTER_POINT);
         Ok(Self {
             net: Net::connect("https://localhost:7778")?,
