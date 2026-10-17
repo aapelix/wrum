@@ -96,7 +96,7 @@ impl GameScene {
             have_clock: false,
             order: Vec::new(),
             last_order_tick: 0,
-            lap: 0,
+            lap: 1,
         };
         s.ensure_car(ctx, my_id, spawn);
         for (id, st) in existing {
