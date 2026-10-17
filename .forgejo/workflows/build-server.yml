@@ -7,7 +7,7 @@ on:
 
 jobs:
   image:
-    runs-on: docker
+    runs-on: wrum
     steps:
       - uses: actions/checkout@v7
       - name: Build and push
