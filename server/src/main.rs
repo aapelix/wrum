@@ -313,7 +313,7 @@ async fn run_lobby(
         eprintln!("failed to load level: {e:#?}");
         Level::default()
     });
-    let n_cp = level.checkpoints.len() as u32;
+    let n_cp = level.checkpoint_count;
 
     let mut players: HashMap<PlayerId, PlayerHandle> = HashMap::new();
     let mut physics = PhysicsWorld::default();

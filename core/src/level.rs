@@ -29,6 +29,7 @@ pub struct Level {
     pub spawns: Vec<(Vec2, f32)>,
     pub zones: Vec<Zone>,
     pub checkpoints: Vec<Checkpoint>,
+    pub checkpoint_count: u32,
 }
 
 impl Level {
@@ -106,11 +107,25 @@ impl Level {
             }
         }
 
+        let checkpoint_count = checkpoints
+            .iter()
+            .map(|c| c.index)
+            .max()
+            .map_or(0, |m| m + 1);
+        anyhow::ensure!(checkpoint_count >= 2, "need at least 2 checkpoint indices");
+        for i in 0..checkpoint_count {
+            anyhow::ensure!(
+                checkpoints.iter().any(|c| c.index == i),
+                "no checkpoint with index {i}"
+            );
+        }
+
         Ok(Self {
             obstacles,
             spawns,
             zones,
             checkpoints,
+            checkpoint_count,
         })
     }
 }

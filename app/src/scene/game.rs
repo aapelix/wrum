@@ -339,6 +339,17 @@ impl Scene for GameScene {
                 self.remotes.remove(id);
                 self.cars.remove(id);
             }
+            ServerMsg::Race {
+                id,
+                lap,
+                next,
+                finished,
+                lap_time,
+            } => {
+                println!(
+                    "id: {id}   lap: {lap}   next: {next}   finished: {finished}   lap_time: {lap_time:?}"
+                )
+            }
             _ => {}
         }
         super::Transition::None
