@@ -339,6 +339,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
+name = "earcut"
+version = "0.4.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f03dd5350900133e14471c90d513eb5ba264004cd833adecab7dfa5fb5a2974"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "either"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2044,6 +2053,7 @@ name = "wrum_core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "earcut",
  "glam 0.34.1",
  "rapier2d",
  "rkyv",

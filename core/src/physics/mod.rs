@@ -81,7 +81,7 @@ const HALF_LENGTH: f32 = 7.5;
 
 const CAR_MASS: f32 = 1.0;
 const MAX_SPEED: f32 = 180.0;
-const MAX_REVERSE: f32 = 80.0;
+const MAX_REVERSE: f32 = 120.0;
 const ACCEL: f32 = 220.0;
 const BRAKE: f32 = 450.0;
 const COAST_DECEL: f32 = 120.0;
@@ -159,6 +159,8 @@ impl Default for PhysicsWorld {
 
 impl PhysicsWorld {
     pub fn load_level(&mut self, level: &Level) {
+        let mut cut = earcut::Earcut::new();
+
         for o in &level.obstacles {
             let v = |p: &Vec2| Vector::new(p.x, p.y);
             let builder = match &o.shape {
@@ -183,17 +185,29 @@ impl PhysicsWorld {
             self.colliders.insert(collider);
         }
         for z in &level.zones {
-            let pts: Vec<Vector> = z.points.iter().map(|p| Vector::new(p.x, p.y)).collect();
-            let Some(b) = ColliderBuilder::convex_hull(&pts) else {
-                continue;
-            };
-            let c = b
-                .translation(Vector::new(z.pos.x, z.pos.y))
-                .rotation(z.rot)
-                .sensor(true)
-                .user_data(z.surface as u128)
-                .build();
-            self.colliders.insert(c);
+            let vertices: Vec<[f64; 2]> =
+                z.points.iter().map(|p| [p.x as f64, p.y as f64]).collect();
+            let mut indices = Vec::<usize>::new();
+            cut.earcut(vertices.iter().copied(), &[] as &[usize], &mut indices);
+
+            for tri in indices.chunks_exact(3) {
+                let points = [z.points[tri[0]], z.points[tri[1]], z.points[tri[2]]];
+
+                let Some(builder) =
+                    ColliderBuilder::convex_hull(&points.map(|p| Vector::new(p.x, p.y)))
+                else {
+                    continue;
+                };
+
+                self.colliders.insert(
+                    builder
+                        .translation(Vector::new(z.pos.x, z.pos.y))
+                        .rotation(z.rot)
+                        .sensor(true)
+                        .user_data(z.surface as u128)
+                        .build(),
+                );
+            }
         }
     }
 

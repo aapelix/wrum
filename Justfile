@@ -16,6 +16,6 @@ web-release:
     BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$EMSDK/upstream/emscripten/cache/sysroot" cargo build --release --target wasm32-unknown-emscripten --bin wrum_app
 
 serve:
-    cp target/wasm32-unknown-emscripten/debug/wrum_app.{wasm,js} web/
-    cp target/wasm32-unknown-emscripten/debug/deps/wrum_app.data web/
+    cp target/wasm32-unknown-emscripten/release/wrum_app.{wasm,js} web/
+    cp target/wasm32-unknown-emscripten/release/deps/wrum_app.data web/
     python3 -m http.server 8000 -d web

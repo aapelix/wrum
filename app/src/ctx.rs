@@ -22,7 +22,7 @@ impl State {
         let canvas = rl.load_render_texture(&thread, 360, 180).unwrap();
         canvas.set_texture_filter(&thread, raylib::ffi::TextureFilter::TEXTURE_FILTER_POINT);
         Ok(Self {
-            net: Net::connect("https://127.0.0.1:7778")?,
+            net: Net::connect("https://localhost:7778")?,
             canvas,
         })
     }

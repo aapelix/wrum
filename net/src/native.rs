@@ -86,11 +86,6 @@ async fn run(
     let mut send = conn.open_uni().await?.await?;
     let _ = shared.conn.set(conn.clone());
 
-    // Spawn the same four tasks as before: reliable writer, datagram receiver,
-    // accept_uni loop, closed watcher. Replace every `connected.store(false, ..)`
-    // with `shared.close(None)`, and in the closed watcher use
-    // `shared.close(Some(conn.closed().await.to_string()))`.
-
     // reliable send
     {
         let shared = shared.clone();
