@@ -36,6 +36,13 @@ pub enum ServerMsg {
         tick: u32,
         cars: Vec<(PlayerId, CarState)>,
     },
+    Race {
+        id: PlayerId,
+        lap: u32,
+        next: u32,
+        finished: bool,
+        lap_time: Option<f32>,
+    },
     Reject(RejectReason),
 }
 

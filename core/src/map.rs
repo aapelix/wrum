@@ -71,6 +71,14 @@ pub enum ObjectKindJson {
     Grass { polygon: Vec<Polygon> },
     #[serde(rename = "road")]
     Road { polygon: Vec<Polygon> },
+    #[serde(rename = "check")]
+    Check { properties: Vec<PropJson> },
+}
+
+#[derive(Deserialize, Debug)]
+pub struct PropJson {
+    pub name: String,
+    pub value: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]

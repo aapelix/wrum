@@ -2477,9 +2477,38 @@
          "visible":false,
          "x":0,
          "y":0
+        }, 
+        {
+         "draworder":"topdown",
+         "id":7,
+         "name":"Object",
+         "objects":[
+                {
+                 "height":128,
+                 "id":95,
+                 "name":"",
+                 "opacity":1,
+                 "properties":[
+                        {
+                         "name":"index",
+                         "type":"int",
+                         "value":0
+                        }],
+                 "rotation":0,
+                 "type":"check",
+                 "visible":true,
+                 "width":16,
+                 "x":1216,
+                 "y":160
+                }],
+         "opacity":1,
+         "type":"objectgroup",
+         "visible":true,
+         "x":0,
+         "y":0
         }],
- "nextlayerid":7,
- "nextobjectid":93,
+ "nextlayerid":8,
+ "nextobjectid":96,
  "orientation":"orthogonal",
  "renderorder":"right-down",
  "tiledversion":"1.12.1",

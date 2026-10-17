@@ -17,6 +17,7 @@ use wrum_core::{
     PlayerId, TICK_DT,
     level::Level,
     physics::{Input, PhysicsWorld},
+    race::{RaceEvent, RaceProgress},
 };
 use wrum_net::{
     MAX_PACKET_SIZE,
@@ -310,17 +311,15 @@ async fn run_lobby(
 ) {
     let level = Level::load("assets/maps/untitled.json").unwrap_or_else(|e| {
         eprintln!("failed to load level: {e:#?}");
-        Level {
-            obstacles: Vec::new(),
-            spawns: Vec::new(),
-            zones: Vec::new(),
-        }
+        Level::default()
     });
+    let n_cp = level.checkpoints.len() as u32;
 
     let mut players: HashMap<PlayerId, PlayerHandle> = HashMap::new();
     let mut physics = PhysicsWorld::default();
     physics.load_level(&level);
     let mut buffers: HashMap<PlayerId, InputBuffer> = HashMap::new();
+    let mut progress: HashMap<PlayerId, RaceProgress> = HashMap::new();
 
     let mut tick = tokio::time::interval(Duration::from_secs_f64(TICK_DT as f64));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -344,6 +343,7 @@ async fn run_lobby(
                     let (spawn_p, spawn_a) = level.spawns[players.len() % level.spawns.len()];
                     physics.spawn_car(id, spawn_p, spawn_a);
                     buffers.insert(id, InputBuffer::default());
+                    progress.insert(id, RaceProgress::new(tick_no));
 
                     let spawn = physics.state(id).unwrap_or_default();
                     let msg = ServerMsg::PlayerJoined { id, name: "test".into(), spawn};
@@ -365,6 +365,7 @@ async fn run_lobby(
                 Some(LobbyCmd::Leave { id }) => {
                     players.remove(&id);
                     buffers.remove(&id);
+                    progress.remove(&id);
                     physics.remove_car(id);
                     let msg = ServerMsg::PlayerLeft { id };
                     if let Ok(bytes) = encode_server(&msg) {
@@ -390,6 +391,20 @@ async fn run_lobby(
                     physics.set_input(*id, buf.next());
                 }
                 physics.step();
+                for (&id, p) in progress.iter_mut() {
+                    let touching = physics.checkpoints_touching(id);
+                    let Some(ev) = p.update(&touching, n_cp, tick_no) else { continue };
+                    let lap_time = match ev {
+                        RaceEvent::Lap { lap_time } | RaceEvent::Finished { lap_time } => Some(lap_time),
+                        RaceEvent::Checkpoint => None,
+                    };
+                    let msg = ServerMsg::Race { id, lap: p.lap, next: p.next, finished: p.finished, lap_time };
+                    if let Ok(bytes) = encode_server(&msg) {
+                        for player in players.values() {
+                            let _ = player.reliable_tx.unbounded_send(bytes.clone());
+                        }
+                    }
+                }
 
                 let cars = physics.states().collect();
                 let msg = ServerMsg::Snapshot { tick: tick_no, cars };

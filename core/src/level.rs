@@ -5,6 +5,13 @@ use crate::{
     physics::{Shape, Surface},
 };
 
+pub struct Checkpoint {
+    pub index: u32,
+    pub pos: Vec2,
+    pub rot: f32,
+    pub hw: f32,
+    pub hh: f32,
+}
 pub struct Obstacle {
     pub pos: Vec2,
     pub rot: f32,
@@ -16,10 +23,12 @@ pub struct Zone {
     pub points: Vec<Vec2>, // relative to pos
     pub surface: Surface,
 }
+#[derive(Default)]
 pub struct Level {
     pub obstacles: Vec<Obstacle>,
     pub spawns: Vec<(Vec2, f32)>,
     pub zones: Vec<Zone>,
+    pub checkpoints: Vec<Checkpoint>,
 }
 
 impl Level {
@@ -29,6 +38,7 @@ impl Level {
         let mut obstacles = Vec::new();
         let mut spawns = Vec::new();
         let mut zones = Vec::new();
+        let mut checkpoints = Vec::new();
 
         for layer in &map.layers {
             match layer {
@@ -68,6 +78,26 @@ impl Level {
                                     surface: Surface::Road,
                                 });
                             }
+                            ObjectKindJson::Check { properties } => {
+                                let index = properties
+                                    .iter()
+                                    .find(|p| p.name == "index")
+                                    .and_then(|p| p.value.as_u64())
+                                    .ok_or_else(|| anyhow::anyhow!("checkpoint without index"))?
+                                    as u32;
+                                let (hw, hh) = (obj.width * 0.5, obj.height * 0.5);
+                                let rot = obj.rotation.to_radians();
+                                let (s, c) = rot.sin_cos();
+                                let center =
+                                    Vec2::new(obj.x + hw * c - hh * s, obj.y + hw * s + hh * c);
+                                checkpoints.push(Checkpoint {
+                                    index,
+                                    pos: center,
+                                    rot,
+                                    hw,
+                                    hh,
+                                });
+                            }
                             _ => {}
                         }
                     }
@@ -80,6 +110,7 @@ impl Level {
             obstacles,
             spawns,
             zones,
+            checkpoints,
         })
     }
 }

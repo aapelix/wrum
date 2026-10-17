@@ -92,6 +92,8 @@ const DRIFT_TURN: f32 = TURN_RATE * 1.3;
 const TURN_SMOOTH: f32 = 14.0;
 const MIN_TURN_SPEED: f32 = 25.0;
 
+const CHECKPOINT_TAG: u128 = 1 << 64;
+
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Default)]
 pub struct CarState {
     pub pos: Vec2,
@@ -208,6 +210,15 @@ impl PhysicsWorld {
                         .build(),
                 );
             }
+        }
+        for cp in &level.checkpoints {
+            let c = ColliderBuilder::cuboid(cp.hw, cp.hh)
+                .translation(Vector::new(cp.pos.x, cp.pos.y))
+                .rotation(cp.rot)
+                .sensor(true)
+                .user_data(CHECKPOINT_TAG | cp.index as u128)
+                .build();
+            self.colliders.insert(c);
         }
     }
 
@@ -400,6 +411,20 @@ impl PhysicsWorld {
             }
         }
         worst
+    }
+    pub fn checkpoints_touching(&self, id: PlayerId) -> Vec<u32> {
+        let Some(&ch) = self.car_colliders.get(&id) else {
+            return vec![];
+        };
+        self.narrow_phase
+            .intersection_pairs_with(ch)
+            .filter(|(_, _, hit)| *hit)
+            .filter_map(|(a, b, _)| {
+                let other = if a == ch { b } else { a };
+                let ud = self.colliders[other].user_data;
+                (ud & CHECKPOINT_TAG != 0).then(|| (ud & 0xFFFF) as u32)
+            })
+            .collect()
     }
 
     pub fn state(&self, id: PlayerId) -> Option<CarState> {
