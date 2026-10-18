@@ -61,12 +61,22 @@ pub struct ObjectJson {
 pub enum ObjectKindJson {
     #[serde(rename = "fence")]
     Fence { point: bool },
+    #[serde(rename = "pole")]
+    Pole {
+        point: bool,
+        properties: Vec<PropJson>,
+    },
+    #[serde(rename = "finish_flag")]
+    FinishFlag {
+        point: bool,
+        properties: Vec<PropJson>,
+    },
     #[serde(rename = "wall")]
     Wall,
     #[serde(rename = "water")]
     Water,
     #[serde(rename = "spawn")]
-    Spawn,
+    Spawn { properties: Vec<PropJson> },
     #[serde(rename = "grass")]
     Grass { polygon: Vec<Polygon> },
     #[serde(rename = "road")]

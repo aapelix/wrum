@@ -28,6 +28,7 @@ pub struct Prop {
     stack: Stack,
     pub pos: Vector2,
     pub a: f32,
+    pub z: f32,
 }
 
 pub struct Map {
@@ -95,7 +96,8 @@ impl Map {
                                 props.push(Prop {
                                     stack,
                                     pos: Vector2::new(object.x, object.y),
-                                    a: 0.0,
+                                    a: 0.,
+                                    z: 0.,
                                 });
                             }
                             ObjectKindJson::Water => {
@@ -104,6 +106,40 @@ impl Map {
                                     y: object.y,
                                     width: object.width,
                                     height: object.height,
+                                });
+                            }
+                            ObjectKindJson::Pole { properties, .. } => {
+                                let rotation = properties
+                                    .iter()
+                                    .find(|p| p.name == "rotation")
+                                    .and_then(|p| p.value.as_f64())
+                                    .unwrap() as f32;
+                                let stack = Stack::new(ctx, "assets/pole.png", 5.);
+
+                                props.push(Prop {
+                                    stack,
+                                    pos: Vector2::new(object.x, object.y),
+                                    a: rotation,
+                                    z: 0.,
+                                });
+                            }
+                            ObjectKindJson::FinishFlag { properties, .. } => {
+                                let rotation = properties
+                                    .iter()
+                                    .find(|p| p.name == "rotation")
+                                    .and_then(|p| p.value.as_f64())
+                                    .unwrap() as f32;
+                                let z = properties
+                                    .iter()
+                                    .find(|p| p.name == "z")
+                                    .and_then(|p| p.value.as_f64())
+                                    .unwrap() as f32;
+                                let stack = Stack::new(ctx, "assets/finish_flag_wide.png", 55.);
+                                props.push(Prop {
+                                    stack,
+                                    pos: Vector2::new(object.x, object.y),
+                                    a: rotation,
+                                    z,
                                 });
                             }
                             _ => {}
@@ -214,6 +250,15 @@ impl Map {
         camera: &Camera,
     ) {
         let prop = &self.props[i];
-        prop.stack.draw(tm, prop.pos, prop.a, camera, 0.);
+        prop.stack.draw(
+            tm,
+            Vector2 {
+                x: prop.pos.x,
+                y: prop.pos.y,
+            },
+            prop.a,
+            camera,
+            prop.z,
+        );
     }
 }

@@ -59,9 +59,13 @@ impl Level {
                                     shape: Shape::Box { hw, hh },
                                 });
                             }
-                            ObjectKindJson::Spawn => {
-                                spawns
-                                    .push((Vec2 { x: obj.x, y: obj.y }, obj.rotation.to_radians()));
+                            ObjectKindJson::Spawn { properties } => {
+                                let rotation = properties
+                                    .iter()
+                                    .find(|p| p.name == "rotation")
+                                    .and_then(|p| p.value.as_f64())
+                                    .unwrap() as f32;
+                                spawns.push((Vec2 { x: obj.x, y: obj.y }, rotation.to_radians()));
                             }
                             ObjectKindJson::Grass { polygon } => {
                                 zones.push(Zone {
