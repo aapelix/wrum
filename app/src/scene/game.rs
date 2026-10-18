@@ -56,6 +56,9 @@ pub struct GameScene {
     order: Vec<PlayerId>,
     last_order_tick: u32,
     lap: u32,
+
+    code: String,
+    private: bool,
 }
 
 impl GameScene {
@@ -64,6 +67,8 @@ impl GameScene {
         my_id: PlayerId,
         spawn: &CarState,
         existing: &Vec<(PlayerId, CarState)>,
+        code: &str,
+        private: bool,
     ) -> Self {
         let level = Level::load("assets/maps/untitled.json").unwrap();
         let map = Map::load(ctx, "assets/maps/untitled.json");
@@ -97,6 +102,8 @@ impl GameScene {
             order: Vec::new(),
             last_order_tick: 0,
             lap: 1,
+            code: code.into(),
+            private,
         };
         s.ensure_car(ctx, my_id, spawn);
         for (id, st) in existing {
@@ -345,11 +352,17 @@ impl Scene for GameScene {
             };
             let rank = format!("{place}{suffix}");
             let lap = format!("Lap {}/{}", self.lap, TOTAL_LAPS);
-            tm.draw_text(&rank, 282, 12, 20, Color::BLACK);
-            tm.draw_text(&rank, 280, 10, 20, Color::WHITE);
-            tm.draw_text(&lap, 266, 31, 10, Color::BLACK);
-            tm.draw_text(&lap, 265, 30, 10, Color::WHITE);
+            let w_rank = tm.measure_text(&rank, 20);
+            let w_lap = tm.measure_text(&lap, 10);
+            tm.draw_text(&rank, 310 - w_rank, 12, 20, Color::BLACK);
+            tm.draw_text(&rank, 308 - w_rank, 10, 20, Color::WHITE);
+            tm.draw_text(&lap, 309 - w_lap, 31, 10, Color::BLACK);
+            tm.draw_text(&lap, 308 - w_lap, 30, 10, Color::WHITE);
         }
+
+        // if not started
+        tm.draw_text(&self.code, 12, 12, 20, Color::BLACK);
+        tm.draw_text(&self.code, 10, 10, 20, Color::WHITE);
     }
 
     fn on_message(

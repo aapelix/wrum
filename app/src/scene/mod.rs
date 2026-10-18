@@ -4,6 +4,7 @@ use crate::ctx::Context;
 
 pub mod basic;
 pub mod game;
+pub mod menu;
 
 pub enum Transition {
     None,

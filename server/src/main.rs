@@ -198,7 +198,7 @@ async fn handle_session(incoming: IncomingSession, lobbies: Lobbies) -> anyhow::
                 match msg {
                     ClientMsg::CreateLobby => {
                         leave_current(&mut current, id);
-                        let (lid, tx) = create_lobby(&lobbies, id);
+                        let (lid, tx) = create_lobby(&lobbies, id, true);
                         join(&mut current, lid, tx, id, &me).await;
                     }
                     ClientMsg::JoinLobby { code } => {
@@ -216,7 +216,7 @@ async fn handle_session(incoming: IncomingSession, lobbies: Lobbies) -> anyhow::
                                 join(&mut current, lid, tx, id, &me).await;
                             }
                             None => {
-                                let (lid, tx) = create_lobby(&lobbies, id);
+                                let (lid, tx) = create_lobby(&lobbies, id, false);
                                 join(&mut current, lid, tx, id, &me).await;
                             }
                         }
@@ -243,18 +243,18 @@ fn leave_current(current: &mut Option<(String, UnboundedSender<LobbyCmd>)>, id: 
         let _ = tx.unbounded_send(LobbyCmd::Leave { id });
     }
 }
-fn create_lobby(l: &Lobbies, host: PlayerId) -> (String, UnboundedSender<LobbyCmd>) {
+fn create_lobby(l: &Lobbies, host: PlayerId, private: bool) -> (String, UnboundedSender<LobbyCmd>) {
     let lid = code();
     let (tx, rx) = unbounded();
     let players = Arc::new(AtomicUsize::new(0));
 
-    tokio::spawn(run_lobby(rx, host, players.clone()));
+    tokio::spawn(run_lobby(rx, host, players.clone(), lid.clone(), private));
     l.lock().unwrap().insert(
         lid.clone(),
         LobbyHandle {
             tx: tx.clone(),
             players,
-            private: false,
+            private,
         },
     );
     (lid, tx)
@@ -312,6 +312,8 @@ async fn run_lobby(
     mut rx: UnboundedReceiver<LobbyCmd>,
     _host: u64,
     player_count: Arc<AtomicUsize>,
+    code: String,
+    private: bool,
 ) {
     let level = Level::load("assets/maps/untitled.json").unwrap_or_else(|e| {
         eprintln!("failed to load level: {e:#?}");
@@ -333,7 +335,7 @@ async fn run_lobby(
         tokio::select! {
             cmd = rx.next() => match cmd {
                 None => break,
-                Some(LobbyCmd::Join { id, handle, reply}) => {
+                Some(LobbyCmd::Join { id, handle, reply }) => {
                     if players.contains_key(&id) {
                         let _ = reply.send(Ok(()));
                         continue;
@@ -359,7 +361,7 @@ async fn run_lobby(
 
                     players.insert(id, handle);
                     player_count.store(players.len(), std::sync::atomic::Ordering::Relaxed);
-                    if let Ok(bytes) = encode_server(&ServerMsg::Welcome { your_id: id, spawn, existing }) {
+                    if let Ok(bytes) = encode_server(&ServerMsg::Welcome { your_id: id, spawn, existing, code: code.clone(), private }) {
                         let _ = players[&id].reliable_tx.unbounded_send(bytes);
                     }
 

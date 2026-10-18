@@ -31,6 +31,8 @@ pub enum ServerMsg {
         your_id: PlayerId,
         spawn: CarState,
         existing: Vec<(PlayerId, CarState)>,
+        code: String,
+        private: bool,
     },
     Snapshot {
         tick: u32,
