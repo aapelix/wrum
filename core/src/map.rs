@@ -85,8 +85,13 @@ pub enum ObjectKindJson {
     Road { polygon: Vec<Polygon> },
     #[serde(rename = "check")]
     Check { properties: Vec<PropJson> },
+    #[serde(rename = "jump_pad_coll")]
+    JumpPadColl,
     #[serde(rename = "jump_pad")]
-    JumpPad,
+    JumpPad {
+        point: bool,
+        properties: Vec<PropJson>,
+    },
 }
 
 #[derive(Deserialize, Debug)]

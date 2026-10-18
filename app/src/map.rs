@@ -144,15 +144,17 @@ impl Map {
                                     z,
                                 });
                             }
-                            ObjectKindJson::JumpPad => {
+                            ObjectKindJson::JumpPad { properties, .. } => {
                                 let stack = Stack::new(ctx, "assets/jump_pad.png", 60.);
+                                let rotation = properties
+                                    .iter()
+                                    .find(|p| p.name == "rotation")
+                                    .and_then(|p| p.value.as_f64())
+                                    .unwrap() as f32;
                                 props.push(Prop {
                                     stack,
-                                    pos: Vector2::new(
-                                        object.x - object.height / 2.,
-                                        object.y + object.width / 2.,
-                                    ),
-                                    a: object.rotation,
+                                    pos: Vector2::new(object.x, object.y),
+                                    a: rotation,
                                     z: 0.,
                                 });
                             }

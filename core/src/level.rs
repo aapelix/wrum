@@ -111,7 +111,7 @@ impl Level {
                                     hh,
                                 });
                             }
-                            ObjectKindJson::JumpPad => {
+                            ObjectKindJson::JumpPadColl => {
                                 zones.push(Zone {
                                     pos: Vec2 { x: obj.x, y: obj.y },
                                     rot: obj.rotation.to_radians(),
