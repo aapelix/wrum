@@ -1,6 +1,11 @@
 use raylib::{RaylibHandle, drawing::RaylibTextureMode, math::Vector2};
+use wrum_core::physics::Status;
 
-use crate::{camera::Camera, ctx::Context, stack::Stack};
+use crate::{
+    camera::Camera,
+    ctx::Context,
+    stack::{Part, Stack},
+};
 
 pub const SHADOW_OFFSET: Vector2 = Vector2 { x: 1., y: 0.5 };
 pub const TIRE_COUNT: usize = 4;
@@ -16,6 +21,9 @@ pub struct Car {
     pub z: f32,
     pub a: f32,
     pub t: f32,
+    pub status: Status,
+    pub invuln: u8,
+    pub sunk_at: f32,
     tire: Stack,
     body: Stack,
 }
@@ -27,52 +35,76 @@ impl Car {
             z,
             a,
             t,
+            status: Status::Normal,
+            invuln: 0,
+            sunk_at: 0.,
             tire: Stack::new(ctx, "assets/tire.png", 1.),
             body: Stack::new(ctx, "assets/body.png", 10.),
         }
     }
-    pub fn draw(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
-        let rad = self.a.to_radians();
-        let s = rad.sin();
-        let c = rad.cos();
-
-        for i in 0..TIRE_COUNT - 1 {
-            let base = TIRE_POSITIONS[i];
-            let world = Vector2 {
-                x: self.p.x + base.x * c - base.y * s,
-                y: self.p.y + base.x * s + base.y * c,
-            };
-            let mut draw_a = self.a;
-            if i < 2 {
-                draw_a += self.t;
-            }
-
-            self.tire.draw(tm, world, draw_a, camera, self.z);
+    pub fn draw(
+        &self,
+        tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+        camera: &Camera,
+        now: f32,
+        overlay: impl FnOnce(&mut RaylibTextureMode<'_, '_, RaylibHandle>, Vector2, f32),
+    ) {
+        let mut a = self.a;
+        if self.status == Status::Drowning {
+            let t = now - self.sunk_at;
+            a += (t * 7.0).sin() * 6.0 * (-t * 2.0).exp();
         }
+        let alpha = if self.invuln > 0 && (now * 4.0) as i32 % 2 == 0 {
+            160
+        } else {
+            255
+        };
+        let parts = self.parts(a);
 
-        self.body.draw(tm, self.p, self.a, camera, self.z);
+        if self.z >= 0.0 {
+            for (st, p, ang) in &parts {
+                st.draw_part(tm, *p, *ang, camera, self.z, Part::All, alpha);
+            }
+            return;
+        }
+        for (st, p, ang) in &parts {
+            st.draw_part(tm, *p, *ang, camera, self.z, Part::Submerged, 255);
+        }
+        overlay(tm, self.p, -self.z);
+        for (st, p, ang) in &parts {
+            st.draw_part(tm, *p, *ang, camera, self.z, Part::Dry, alpha);
+        }
     }
     pub fn draw_shadow(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
-        let rad = self.a.to_radians();
-        let s = rad.sin();
-        let c = rad.cos();
-
-        for i in 0..TIRE_COUNT - 1 {
-            let base = TIRE_POSITIONS[i];
-            let world = Vector2 {
-                x: self.p.x + base.x * c - base.y * s,
-                y: self.p.y + base.x * s + base.y * c,
-            };
-            let mut draw_a = self.a;
-            if i < 2 {
-                draw_a += self.t;
-            }
-
-            self.tire
-                .draw_shadow(tm, world, draw_a, camera, SHADOW_OFFSET);
+        let lift = (self.z / 30.0).clamp(0.0, 1.0);
+        let fade = (1.0 + self.z / 6.0).clamp(0.0, 1.0);
+        let alpha = (255.0 * (1.0 - 0.55 * lift) * fade) as u8;
+        if alpha == 0 {
+            return;
         }
+        let off = SHADOW_OFFSET * (1.0 + self.z.max(0.0) * 0.05);
+        for (st, p, ang) in self.parts(self.a) {
+            st.draw_shadow(tm, p, ang, camera, off, alpha);
+        }
+    }
 
-        self.body
-            .draw_shadow(tm, self.p, self.a, camera, SHADOW_OFFSET);
+    fn parts(&self, a_deg: f32) -> [(&Stack, Vector2, f32); TIRE_COUNT + 1] {
+        let rad = a_deg.to_radians();
+        let (s, c) = rad.sin_cos();
+        let tire = |i: usize| {
+            let b = TIRE_POSITIONS[i];
+            let w = Vector2 {
+                x: self.p.x + b.x * c - b.y * s,
+                y: self.p.y + b.x * s + b.y * c,
+            };
+            (&self.tire, w, a_deg + if i < 2 { self.t } else { 0.0 })
+        };
+        [
+            tire(0),
+            tire(1),
+            tire(2),
+            tire(3),
+            (&self.body, self.p, a_deg),
+        ]
     }
 }

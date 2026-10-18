@@ -2,7 +2,7 @@ use raylib::{
     RaylibHandle,
     color::Color,
     drawing::{RaylibDraw, RaylibShaderModeExt, RaylibTextureMode},
-    ffi::{rlDisableBackfaceCulling, rlEnableBackfaceCulling},
+    ffi::{Vector3, rlDisableBackfaceCulling, rlEnableBackfaceCulling},
     math::{Rectangle, Vector2},
     shaders::{RaylibShader, Shader},
     texture::Texture2D,
@@ -41,6 +41,8 @@ pub struct Map {
     loc_time: i32,
     loc_origin: i32,
     loc_inv: i32,
+    loc_clip: i32,
+    loc_alpha: i32,
 }
 
 impl Map {
@@ -142,6 +144,18 @@ impl Map {
                                     z,
                                 });
                             }
+                            ObjectKindJson::JumpPad => {
+                                let stack = Stack::new(ctx, "assets/jump_pad.png", 60.);
+                                props.push(Prop {
+                                    stack,
+                                    pos: Vector2::new(
+                                        object.x - object.height / 2.,
+                                        object.y + object.width / 2.,
+                                    ),
+                                    a: object.rotation,
+                                    z: 0.,
+                                });
+                            }
                             _ => {}
                         }
                     }
@@ -164,6 +178,8 @@ impl Map {
         let loc_time = water_shader.get_shader_location("uTime");
         let loc_origin = water_shader.get_shader_location("uOrigin");
         let loc_inv = water_shader.get_shader_location("uInv");
+        let loc_clip = water_shader.get_shader_location("uClip");
+        let loc_alpha = water_shader.get_shader_location("uAlpha");
 
         Self {
             layers,
@@ -174,6 +190,8 @@ impl Map {
             loc_time,
             loc_origin,
             loc_inv,
+            loc_alpha,
+            loc_clip,
         }
     }
 
@@ -203,35 +221,51 @@ impl Map {
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         camera: &Camera,
     ) {
-        if self.water.len() == 0 {
+        if self.water.is_empty() {
+            return;
+        }
+        self.upload_view(tm, camera);
+        self.water_shader
+            .set_shader_value(self.loc_clip, Vector3::new(0., 0., 0.));
+        self.water_shader.set_shader_value(self.loc_alpha, 1.0f32);
+        let rects = self.water.clone();
+        self.draw_rects(tm, camera, &rects);
+    }
+    pub fn draw_water_overlay(
+        &mut self,
+        tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+        camera: &Camera,
+        world: Vector2,
+        depth: f32,
+    ) {
+        let r = 16.0 + depth * 0.5;
+        let m = r + depth;
+        let near: Vec<Rectangle> = self
+            .water
+            .iter()
+            .filter(|w| {
+                world.x >= w.x - m
+                    && world.x <= w.x + w.width + m
+                    && world.y >= w.y - m
+                    && world.y <= w.y + w.height + m
+            })
+            .cloned()
+            .collect();
+        if near.is_empty() {
             return;
         }
 
-        let (o, _) = camera.apply(Vector2::zero(), 0.);
-        let ex = camera.apply(Vector2::new(1., 0.), 0.).0 - o;
-        let ey = camera.apply(Vector2::new(0., 1.), 0.).0 - o;
-        let det = ex.x * ey.y - ex.y * ey.x;
-        let inv = [ey.y / det, -ey.x / det, -ex.y / det, ex.x / det];
-        let t = tm.get_time() as f32;
+        self.upload_view(tm, camera);
+        let (c, _) = camera.apply(world, 0.0);
+        let alpha = (0.55 + 0.4 * depth / 24.0).clamp(0.55, 0.95);
+        self.water_shader
+            .set_shader_value(self.loc_clip, Vector3::new(c.x, c.y + depth * 0.5, r));
+        self.water_shader.set_shader_value(self.loc_alpha, alpha);
+        self.draw_rects(tm, camera, &near);
 
-        self.water_shader.set_shader_value(self.loc_time, t);
-        self.water_shader.set_shader_value(self.loc_origin, o);
-        self.water_shader.set_shader_value(self.loc_inv, inv);
-
-        unsafe { rlDisableBackfaceCulling() }
-        {
-            let mut sm = tm.begin_shader_mode(&mut self.water_shader);
-            for rect in &self.water {
-                let (a, _) = camera.apply(Vector2::new(rect.x, rect.y), 0.);
-                let (b, _) = camera.apply(Vector2::new(rect.x, rect.y + rect.height), 0.);
-                let (c, _) =
-                    camera.apply(Vector2::new(rect.x + rect.width, rect.y + rect.height), 0.);
-                let (d, _) = camera.apply(Vector2::new(rect.x + rect.width, rect.y), 0.);
-                sm.draw_triangle(a, b, c, Color::WHITE);
-                sm.draw_triangle(a, c, d, Color::WHITE);
-            }
-        }
-        unsafe { rlEnableBackfaceCulling() }
+        self.water_shader
+            .set_shader_value(self.loc_clip, Vector3::new(0., 0., 0.));
+        self.water_shader.set_shader_value(self.loc_alpha, 1.0f32);
     }
     pub fn draw_shadows(
         &mut self,
@@ -240,7 +274,7 @@ impl Map {
     ) {
         for prop in &self.props {
             prop.stack
-                .draw_shadow(tm, prop.pos, prop.a, camera, SHADOW_OFFSET);
+                .draw_shadow(tm, prop.pos, prop.a, camera, SHADOW_OFFSET, 255);
         }
     }
     pub fn draw_prop(
@@ -260,5 +294,38 @@ impl Map {
             camera,
             prop.z,
         );
+    }
+
+    fn upload_view(&mut self, tm: &RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
+        let (o, _) = camera.apply(Vector2::zero(), 0.);
+        let ex = camera.apply(Vector2::new(1., 0.), 0.).0 - o;
+        let ey = camera.apply(Vector2::new(0., 1.), 0.).0 - o;
+        let det = ex.x * ey.y - ex.y * ey.x;
+        let inv = [ey.y / det, -ey.x / det, -ex.y / det, ex.x / det];
+        self.water_shader
+            .set_shader_value(self.loc_time, tm.get_time() as f32);
+        self.water_shader.set_shader_value(self.loc_origin, o);
+        self.water_shader.set_shader_value(self.loc_inv, inv);
+    }
+    fn draw_rects(
+        &mut self,
+        tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+        camera: &Camera,
+        rects: &[Rectangle],
+    ) {
+        unsafe { rlDisableBackfaceCulling() }
+        {
+            let mut sm = tm.begin_shader_mode(&mut self.water_shader);
+            for rect in rects {
+                let (a, _) = camera.apply(Vector2::new(rect.x, rect.y), 0.);
+                let (b, _) = camera.apply(Vector2::new(rect.x, rect.y + rect.height), 0.);
+                let (c, _) =
+                    camera.apply(Vector2::new(rect.x + rect.width, rect.y + rect.height), 0.);
+                let (d, _) = camera.apply(Vector2::new(rect.x + rect.width, rect.y), 0.);
+                sm.draw_triangle(a, b, c, Color::WHITE);
+                sm.draw_triangle(a, c, d, Color::WHITE);
+            }
+        }
+        unsafe { rlEnableBackfaceCulling() }
     }
 }

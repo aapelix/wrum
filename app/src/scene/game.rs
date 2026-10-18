@@ -14,7 +14,7 @@ use wrum_core::physics::{DebugColor, Vector};
 use wrum_core::{
     PlayerId, TICK_DT,
     level::Level,
-    physics::{CarState, Input, PhysicsWorld, Vec2},
+    physics::{CarState, Input, PhysicsWorld, Status, Vec2},
     race::TOTAL_LAPS,
 };
 use wrum_net::{
@@ -30,6 +30,17 @@ const ERR_DECAY: f32 = 12.0;
 const SNAP_DIST: f32 = 40.0;
 const REDUNDANCY: usize = 3;
 const GHOST_LEAD: f32 = INTERP_DELAY;
+
+#[allow(unused)]
+struct Pose {
+    pos: Vec2,
+    rot: f32,
+    z: f32,
+    vz: f32,
+    speed: f32,
+    status: Status,
+    invuln: u8,
+}
 
 pub struct GameScene {
     camera: Camera,
@@ -59,6 +70,8 @@ pub struct GameScene {
 
     code: String,
     private: bool,
+
+    clock: f32,
 }
 
 impl GameScene {
@@ -74,6 +87,7 @@ impl GameScene {
         let map = Map::load(ctx, "assets/maps/untitled.json");
 
         let mut physics = PhysicsWorld::default();
+        physics.authoritative = false;
         physics.load_level(&level);
         physics.spawn_car(my_id, spawn.pos, spawn.rot);
         physics.set_state(my_id, spawn);
@@ -104,6 +118,7 @@ impl GameScene {
             lap: 1,
             code: code.into(),
             private,
+            clock: 0.,
         };
         s.ensure_car(ctx, my_id, spawn);
         for (id, st) in existing {
@@ -149,8 +164,8 @@ impl GameScene {
         if self.have_clock {
             let t = self.render_time + GHOST_LEAD;
             for (id, q) in &self.remotes {
-                if let Some((p, r)) = sample(q, t) {
-                    self.physics.set_remote(*id, p, r);
+                if let Some(p) = sample(q, t) {
+                    self.physics.set_remote(*id, p.pos, p.rot);
                 }
             }
         }
@@ -249,15 +264,27 @@ impl Scene for GameScene {
         super::Transition::None
     }
     fn update(&mut self, _ctx: &mut ctx::Context, dt: f32, alpha: f32) -> super::Transition {
+        self.clock += dt;
+        let now = self.clock;
+
         let k = (-ERR_DECAY * dt).exp();
         self.err_pos *= k;
         self.err_rot *= k;
 
         let pos = self.prev.pos.lerp(self.curr.pos, alpha) + self.err_pos;
         let rot = self.prev.rot + wrap_angle(self.curr.rot - self.prev.rot) * alpha + self.err_rot;
+        let z = self.prev.z + (self.curr.z - self.prev.z) * alpha;
+        let me = Pose {
+            pos,
+            rot,
+            z,
+            vz: self.curr.vz,
+            speed: self.curr.vel.length(),
+            status: self.curr.status,
+            invuln: self.curr.invuln,
+        };
         if let Some(car) = self.cars.get_mut(&self.my_id) {
-            car.p = Vector2 { x: pos.x, y: pos.y };
-            car.a = rot.to_degrees();
+            apply_pose(car, now, &me);
         }
 
         if self.have_clock {
@@ -274,11 +301,8 @@ impl Scene for GameScene {
                 while q.len() > 2 && q[1].0 <= self.render_time {
                     q.pop_front();
                 }
-                if let (Some((p, r)), Some(car)) =
-                    (sample(q, self.render_time), self.cars.get_mut(id))
-                {
-                    car.p = Vector2 { x: p.x, y: p.y };
-                    car.a = r.to_degrees();
+                if let (Some(p), Some(car)) = (sample(q, self.render_time), self.cars.get_mut(id)) {
+                    apply_pose(car, now, &p);
                 }
             }
         }
@@ -332,7 +356,10 @@ impl Scene for GameScene {
             match d {
                 Drawable::Car(id) => {
                     let car = self.cars.get(&id).unwrap();
-                    car.draw(&mut tm, &self.camera);
+                    let (map, cam) = (&mut self.map, &self.camera);
+                    car.draw(&mut tm, &self.camera, self.clock, |tm, pos, depth| {
+                        map.draw_water_overlay(tm, cam, pos, depth);
+                    });
                 }
                 Drawable::Prop => {
                     self.map.draw_prop(&mut tm, i, &self.camera);
@@ -431,25 +458,46 @@ fn wrap_angle(a: f32) -> f32 {
     use std::f32::consts::{PI, TAU};
     (a + PI).rem_euclid(TAU) - PI
 }
-fn sample(q: &VecDeque<(f32, CarState)>, t: f32) -> Option<(Vec2, f32)> {
+fn sample(q: &VecDeque<(f32, CarState)>, t: f32) -> Option<Pose> {
+    let pose = |s: &CarState, pos, rot, z| Pose {
+        pos,
+        rot,
+        z,
+        vz: s.vz,
+        speed: s.vel.length(),
+        status: s.status,
+        invuln: s.invuln,
+    };
     let (t_first, first) = q.front()?;
     if t <= *t_first {
-        return Some((first.pos, first.rot));
+        return Some(pose(first, first.pos, first.rot, first.z));
     }
-
-    for (a, b) in q.iter().zip(q.iter().skip(1)) {
-        let (t0, s0) = a;
-        let (t1, s1) = b;
+    for ((t0, s0), (t1, s1)) in q.iter().zip(q.iter().skip(1)) {
         if t >= *t0 && t <= *t1 {
             let f = (t - t0) / (t1 - t0);
-            return Some((
+            return Some(pose(
+                s0,
                 s0.pos.lerp(s1.pos, f),
                 s0.rot + wrap_angle(s1.rot - s0.rot) * f,
+                s0.z + (s1.z - s0.z) * f,
             ));
         }
     }
-    let (_, last) = q.back()?;
-    Some((last.pos, last.rot))
+    let (_, l) = q.back()?;
+    Some(pose(l, l.pos, l.rot, l.z))
+}
+fn apply_pose(car: &mut Car, now: f32, p: &Pose) {
+    car.p = Vector2 {
+        x: p.pos.x,
+        y: p.pos.y,
+    };
+    car.a = p.rot.to_degrees();
+    car.z = p.z;
+    car.invuln = p.invuln;
+    if p.status == Status::Drowning && car.status != Status::Drowning {
+        car.sunk_at = now;
+    }
+    car.status = p.status;
 }
 
 #[cfg(feature = "debug-renderer")]

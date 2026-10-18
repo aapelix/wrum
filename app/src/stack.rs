@@ -9,6 +9,14 @@ use raylib::{
 
 use crate::{camera::Camera, ctx::Context};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    All,
+    Submerged,
+    Dry,
+}
+const WATER_FADE: f32 = 12.0;
+
 pub struct Stack {
     tex: Texture2D,
     shadow: RenderTexture2D,
@@ -64,10 +72,10 @@ impl Stack {
             spacing: 1.,
         }
     }
-    pub fn with_spacing(mut self, spacing: f32) -> Self {
-        self.spacing = spacing;
-        self
-    }
+    // pub fn with_spacing(mut self, spacing: f32) -> Self {
+    //     self.spacing = spacing;
+    //     self
+    // }
     pub fn draw(
         &self,
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
@@ -76,10 +84,38 @@ impl Stack {
         camera: &Camera,
         offset_y: f32,
     ) {
-        let (mut pos, a) = camera.apply(pos, a);
-        pos.y -= offset_y;
+        self.draw_part(tm, pos, a, camera, offset_y, Part::All, 255);
+    }
+    pub fn draw_part(
+        &self,
+        tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+        pos: Vector2,
+        a: f32,
+        camera: &Camera,
+        z: f32,
+        part: Part,
+        alpha: u8,
+    ) {
+        let (pos, a) = camera.apply(pos, a);
+        let zr = z.round();
         for i in 0..self.c {
             let lift = (i as f32 * self.spacing).round();
+            let h = z + lift;
+            let sub = h < 0.0;
+            match part {
+                Part::Submerged if !sub => continue,
+                Part::Dry if sub => continue,
+                _ => {}
+            }
+            let tint = if sub {
+                let k = (1.0 + h / WATER_FADE).clamp(0.0, 1.0);
+                if k <= 0.0 {
+                    continue;
+                }
+                Color::new(70, 130, 190, (k * 255.0) as u8)
+            } else {
+                Color::new(255, 255, 255, alpha)
+            };
             let src = Rectangle {
                 x: i as f32 * self.sw,
                 y: 0.,
@@ -88,11 +124,11 @@ impl Stack {
             };
             let dst = Rectangle {
                 x: pos.x,
-                y: pos.y - lift,
+                y: pos.y - zr - lift,
                 width: self.sw,
                 height: self.h,
             };
-            tm.draw_texture_pro(&self.tex, src, dst, self.center, a, Color::WHITE);
+            tm.draw_texture_pro(&self.tex, src, dst, self.center, a, tint);
         }
     }
     pub fn draw_shadow(
@@ -102,6 +138,7 @@ impl Stack {
         a: f32,
         camera: &Camera,
         offset: Vector2,
+        alpha: u8,
     ) {
         let (pos, a) = camera.apply(pos + offset, a);
         tm.draw_texture_pro(
@@ -120,7 +157,7 @@ impl Stack {
             },
             self.center,
             a,
-            Color::WHITE,
+            Color::new(255, 255, 255, alpha),
         );
     }
 }

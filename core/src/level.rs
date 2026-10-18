@@ -75,6 +75,14 @@ impl Level {
                                     surface: Surface::Grass,
                                 });
                             }
+                            ObjectKindJson::WaterColl { polygon } => {
+                                zones.push(Zone {
+                                    pos: Vec2 { x: obj.x, y: obj.y },
+                                    rot: obj.rotation.to_radians(),
+                                    points: polygon.iter().map(|p| Vec2::new(p.x, p.y)).collect(),
+                                    surface: Surface::Water,
+                                });
+                            }
                             ObjectKindJson::Road { polygon } => {
                                 zones.push(Zone {
                                     pos: Vec2 { x: obj.x, y: obj.y },
@@ -101,6 +109,19 @@ impl Level {
                                     rot,
                                     hw,
                                     hh,
+                                });
+                            }
+                            ObjectKindJson::JumpPad => {
+                                zones.push(Zone {
+                                    pos: Vec2 { x: obj.x, y: obj.y },
+                                    rot: obj.rotation.to_radians(),
+                                    points: vec![
+                                        Vec2::new(0., 0.),
+                                        Vec2::new(obj.width, 0.),
+                                        Vec2::new(obj.width, obj.height),
+                                        Vec2::new(0., obj.height),
+                                    ],
+                                    surface: Surface::Pad,
                                 });
                             }
                             _ => {}

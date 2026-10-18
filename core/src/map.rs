@@ -75,6 +75,8 @@ pub enum ObjectKindJson {
     Wall,
     #[serde(rename = "water")]
     Water,
+    #[serde(rename = "water_coll")]
+    WaterColl { polygon: Vec<Polygon> },
     #[serde(rename = "spawn")]
     Spawn { properties: Vec<PropJson> },
     #[serde(rename = "grass")]
@@ -83,6 +85,8 @@ pub enum ObjectKindJson {
     Road { polygon: Vec<Polygon> },
     #[serde(rename = "check")]
     Check { properties: Vec<PropJson> },
+    #[serde(rename = "jump_pad")]
+    JumpPad,
 }
 
 #[derive(Deserialize, Debug)]

@@ -5,6 +5,8 @@ out vec4 finalColor;
 uniform float uTime;
 uniform vec2  uOrigin;
 uniform vec4  uInv;
+uniform vec3  uClip;
+uniform float uAlpha;
 
 const vec3 C_FOAM  = vec3(0.93, 0.97, 1.00);
 const vec3 C_LIGHT = vec3(0.35, 0.65, 0.90);
@@ -37,6 +39,15 @@ float foam(vec2 w) {
     return step(0.83, fract(n * 2.0 - uTime * 0.25));
 }
 
+bool foamRing(vec2 s) {
+    float d = length(s - uClip.xy);
+    float r = uClip.z - 4.0 + sin(uTime * 6.0);
+    float dd = abs(d - r);
+    if (dd < 1.0) return true;
+    vec2 w = toWorld(s);
+    return dd < 2.5 && (foam(w) > 0.5 || vnoise(w * 0.4 + uTime) > 0.55);
+}
+
 void main() {
     vec2 w = toWorld(floor(screenPos) + 0.5);
 
@@ -49,5 +60,20 @@ void main() {
     if (f > 0.5)        col = C_FOAM;
     else if (fs > 0.5)  col = C_DARK;
 
-    finalColor = vec4(col, 1.0);
+    float a = uAlpha;
+    if (uClip.z > 0.0) {
+        float d = length(screenPos - uClip.xy);
+        if (d > uClip.z) discard;
+        a *= 1.0 - smoothstep(uClip.z - 5.0, uClip.z, d);
+
+        vec2 s = floor(screenPos) + 0.5;
+        if (foamRing(s)) {
+            col = C_FOAM;
+            a = 0.95;
+        } else if (foamRing(s - vec2(0.0, 2.0))) {
+            col = C_DARK;
+            a = max(a, 0.85);
+        }
+    }
+    finalColor = vec4(col, a);
 }
