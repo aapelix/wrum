@@ -1,10 +1,10 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[cfg(feature = "debug-renderer")]
 use raylib::drawing::RaylibTextureMode;
 use raylib::{
     RaylibHandle,
-    drawing::{RaylibDraw, RaylibTextureModeExt},
+    drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
     ffi::{Color, KeyboardKey, Vector2},
     math::Rectangle,
     texture::{RaylibRenderTexture2D, RenderTexture2D},
@@ -30,6 +30,13 @@ const ERR_DECAY: f32 = 12.0;
 const SNAP_DIST: f32 = 40.0;
 const REDUNDANCY: usize = 3;
 const GHOST_LEAD: f32 = INTERP_DELAY;
+
+#[derive(Clone, Copy)]
+enum StartPhase {
+    Waiting,
+    Countdown { go_time: f32 },
+    Racing,
+}
 
 #[allow(unused)]
 struct Pose {
@@ -72,6 +79,12 @@ pub struct GameScene {
     private: bool,
 
     clock: f32,
+
+    phase: StartPhase,
+    host: PlayerId,
+    ready: HashSet<PlayerId>,
+    go_at: f32,
+    snap_clock_at: f32,
 }
 
 impl GameScene {
@@ -119,6 +132,11 @@ impl GameScene {
             code: code.into(),
             private,
             clock: 0.,
+            phase: StartPhase::Waiting,
+            host: 0,
+            ready: HashSet::new(),
+            go_at: 0.,
+            snap_clock_at: 0.,
         };
         s.ensure_car(ctx, my_id, spawn);
         for (id, st) in existing {
@@ -145,6 +163,11 @@ impl GameScene {
         // input ---------------------------------------------------
         self.next_seq = self.next_seq.wrapping_add(1);
         let mut input = sample_input(ctx.rl);
+        if !matches!(self.phase, StartPhase::Racing) {
+            input.throttle = 0;
+            input.steer = 0;
+            input.drift = false;
+        }
         input.seq = self.next_seq;
 
         self.recent.push_back(input);
@@ -191,6 +214,7 @@ impl GameScene {
         if tick <= self.last_snap_tick {
             return;
         }
+        self.snap_clock_at = self.clock;
         self.last_snap_tick = tick;
 
         let t = tick as f32 * TICK_DT;
@@ -256,6 +280,10 @@ impl GameScene {
         let i = self.order.iter().position(|&id| id == self.my_id)?;
         Some((i + 1, self.order.len()))
     }
+
+    fn server_now(&self) -> f32 {
+        self.latest_server_time + (self.clock - self.snap_clock_at)
+    }
 }
 
 impl Scene for GameScene {
@@ -263,7 +291,27 @@ impl Scene for GameScene {
         self.sim_tick(ctx);
         super::Transition::None
     }
-    fn update(&mut self, _ctx: &mut ctx::Context, dt: f32, alpha: f32) -> super::Transition {
+    fn update(&mut self, ctx: &mut ctx::Context, dt: f32, alpha: f32) -> super::Transition {
+        if let StartPhase::Countdown { go_time } = self.phase {
+            if self.server_now() >= go_time {
+                self.phase = StartPhase::Racing;
+                self.go_at = self.clock;
+            }
+        }
+
+        if matches!(self.phase, StartPhase::Waiting)
+            && ctx.rl.is_key_pressed(KeyboardKey::KEY_ENTER)
+        {
+            let msg = if self.private {
+                (self.host == self.my_id).then_some(ClientMsg::StartRace)
+            } else {
+                Some(ClientMsg::Ready(!self.ready.contains(&self.my_id)))
+            };
+            if let Some(m) = msg {
+                let _ = ctx.net.send(Channel::Reliable, &m);
+            }
+        }
+
         self.clock += dt;
         let now = self.clock;
 
@@ -387,9 +435,41 @@ impl Scene for GameScene {
             tm.draw_text(&lap, 308 - w_lap, 30, 10, Color::WHITE);
         }
 
-        // if not started
-        tm.draw_text(&self.code, 12, 12, 20, Color::BLACK);
-        tm.draw_text(&self.code, 10, 10, 20, Color::WHITE);
+        match self.phase {
+            StartPhase::Waiting => {
+                tm.draw_text(&self.code, 12, 12, 20, Color::BLACK);
+                tm.draw_text(&self.code, 10, 10, 20, Color::WHITE);
+                let hint = if self.private {
+                    if self.host == self.my_id {
+                        "ENTER: start race".to_string()
+                    } else {
+                        "Waiting for host...".to_string()
+                    }
+                } else {
+                    let me = self.ready.contains(&self.my_id);
+                    format!(
+                        "ENTER: {}   ({} ready)",
+                        if me { "unready" } else { "ready" },
+                        self.ready.len()
+                    )
+                };
+                let w = tm.measure_text(&hint, 10);
+                tm.draw_text(&hint, 160 - w / 2, 150, 10, Color::WHITE);
+            }
+            StartPhase::Countdown { go_time } => {
+                let rem = go_time - self.server_now();
+                if rem > 0.0 {
+                    let n = rem.ceil();
+                    let p = 1.0 - (rem - (n - 1.0));
+                    big_text(&mut tm, &format!("{}", n as i32), (48.0 - 20.0 * p) as i32);
+                }
+            }
+            StartPhase::Racing => {
+                if self.clock - self.go_at < 1.0 {
+                    big_text(&mut tm, "GO", 48);
+                }
+            }
+        }
     }
 
     fn on_message(
@@ -410,13 +490,10 @@ impl Scene for GameScene {
             ServerMsg::Race {
                 id,
                 lap,
-                next,
-                finished,
-                lap_time,
+                next: _,
+                finished: _,
+                lap_time: _,
             } => {
-                println!(
-                    "id: {id}   lap: {lap}   next: {next}   finished: {finished}   lap_time: {lap_time:?}"
-                );
                 if *id == self.my_id {
                     self.lap = *lap;
                 }
@@ -426,6 +503,15 @@ impl Scene for GameScene {
                     self.last_order_tick = *tick;
                     self.order = order.clone();
                 }
+            }
+            ServerMsg::Countdown { go_tick } => {
+                self.phase = StartPhase::Countdown {
+                    go_time: *go_tick as f32 * TICK_DT,
+                }
+            }
+            ServerMsg::LobbyState { host, ready } => {
+                self.host = *host;
+                self.ready = ready.iter().copied().collect();
             }
             _ => {}
         }
@@ -443,6 +529,13 @@ impl Scene for GameScene {
 pub enum Drawable {
     Car(PlayerId),
     Prop,
+}
+
+fn big_text(tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, s: &str, size: i32) {
+    let w = tm.measure_text(s, size);
+    let (x, y) = (160 - w / 2, 70 - size / 2);
+    tm.draw_text(s, x + 2, y + 2, size, Color::BLACK);
+    tm.draw_text(s, x, y, size, Color::WHITE);
 }
 
 fn sample_input(rl: &RaylibHandle) -> Input {

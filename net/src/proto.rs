@@ -15,6 +15,8 @@ pub enum ClientMsg {
     JoinPublic,
     LeaveLobby,
     Input { inputs: Vec<Input> },
+    Ready(bool),
+    StartRace,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
@@ -50,6 +52,13 @@ pub enum ServerMsg {
         order: Vec<PlayerId>,
     },
     Reject(RejectReason),
+    LobbyState {
+        host: PlayerId,
+        ready: Vec<PlayerId>,
+    },
+    Countdown {
+        go_tick: u32,
+    },
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
@@ -58,6 +67,7 @@ pub enum RejectReason {
     LobbyGone,
     LobbyNotFound,
     VersionMismatch,
+    RaceStarted,
 }
 
 pub fn decode_client(bytes: &[u8]) -> anyhow::Result<ClientMsg> {

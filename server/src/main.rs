@@ -1,9 +1,9 @@
 use std::{
     cmp::Ordering,
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, AtomicUsize},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize},
     },
     time::Duration,
 };
@@ -33,6 +33,16 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 const MAX_PLAYERS: usize = 8;
 const TARGET_DEPTH: usize = 2;
 const MAX_DEPTH: usize = 6;
+
+const COUNTDOWN_SECS: f32 = 3.0;
+const MIN_PLAYERS_PUBLIC: usize = 1;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Phase {
+    Waiting,
+    Countdown { go_tick: u32 },
+    Racing,
+}
 
 #[derive(Default)]
 struct InputBuffer {
@@ -88,10 +98,12 @@ struct LobbyHandle {
     tx: UnboundedSender<LobbyCmd>,
     players: Arc<AtomicUsize>,
     private: bool,
+    open: Arc<AtomicBool>,
 }
 
 enum JoinError {
     Full,
+    Started,
     Gone,
 }
 enum LobbyCmd {
@@ -247,14 +259,23 @@ fn create_lobby(l: &Lobbies, host: PlayerId, private: bool) -> (String, Unbounde
     let lid = code();
     let (tx, rx) = unbounded();
     let players = Arc::new(AtomicUsize::new(0));
+    let open = Arc::new(AtomicBool::new(true));
 
-    tokio::spawn(run_lobby(rx, host, players.clone(), lid.clone(), private));
+    tokio::spawn(run_lobby(
+        rx,
+        host,
+        players.clone(),
+        lid.clone(),
+        private,
+        open.clone(),
+    ));
     l.lock().unwrap().insert(
         lid.clone(),
         LobbyHandle {
             tx: tx.clone(),
             players,
             private,
+            open,
         },
     );
     (lid, tx)
@@ -279,6 +300,7 @@ fn find_public_lobby(l: &Lobbies) -> Option<(String, UnboundedSender<LobbyCmd>)>
         .find(|(_, handle)| {
             !handle.private
                 && handle.players.load(std::sync::atomic::Ordering::Relaxed) < MAX_PLAYERS
+                && handle.open.load(std::sync::atomic::Ordering::Relaxed)
         })
         .map(|(id, handle)| (id.clone(), handle.tx.clone()))
 }
@@ -304,16 +326,18 @@ async fn join(
     match rx.await {
         Ok(Ok(())) => *current = Some((lobby_id, tx)),
         Ok(Err(JoinError::Full)) => send_reject(me, RejectReason::LobbyFull),
+        Ok(Err(JoinError::Started)) => send_reject(me, RejectReason::RaceStarted),
         _ => send_reject(me, RejectReason::LobbyGone),
     }
 }
 
 async fn run_lobby(
     mut rx: UnboundedReceiver<LobbyCmd>,
-    _host: u64,
+    mut host: u64,
     player_count: Arc<AtomicUsize>,
     code: String,
     private: bool,
+    open: Arc<AtomicBool>,
 ) {
     let level = Level::load("assets/maps/untitled.json").unwrap_or_else(|e| {
         eprintln!("failed to load level: {e:#?}");
@@ -331,11 +355,18 @@ async fn run_lobby(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut tick_no: u32 = 0;
 
+    let mut phase = Phase::Waiting;
+    let mut ready: HashSet<PlayerId> = HashSet::new();
+
     loop {
         tokio::select! {
             cmd = rx.next() => match cmd {
                 None => break,
                 Some(LobbyCmd::Join { id, handle, reply }) => {
+                    if phase != Phase::Waiting {
+                        let _ = reply.send(Err(JoinError::Started));
+                        continue;
+                    }
                     if players.contains_key(&id) {
                         let _ = reply.send(Ok(()));
                         continue;
@@ -367,12 +398,19 @@ async fn run_lobby(
 
 
                     let _ = reply.send(Ok(()));
+                    broadcast_reliable(&players, &lobby_state(host, &ready));
                 }
                 Some(LobbyCmd::Leave { id }) => {
                     players.remove(&id);
                     buffers.remove(&id);
                     progress.remove(&id);
                     physics.remove_car(id);
+                    ready.remove(&id);
+                    if host == id { if let Some(&n) = players.keys().next() { host = n; } }
+                    broadcast_reliable(&players, &lobby_state(host, &ready));
+                    if phase == Phase::Waiting && all_ready(&ready, &players, private) {
+                        begin_countdown(&mut phase, tick_no, &players, &open);
+                    }
                     let msg = ServerMsg::PlayerLeft { id };
                     if let Ok(bytes) = encode_server(&msg) {
                         for player in players.values() {
@@ -387,28 +425,49 @@ async fn run_lobby(
                                 buf.push(&inputs[..inputs.len().min(8)]);
                             }
                         }
+                        ClientMsg::Ready(r) if phase == Phase::Waiting && !private => {
+                            if r { ready.insert(id); } else { ready.remove(&id); }
+                            broadcast_reliable(&players, &lobby_state(host, &ready));
+                            if all_ready(&ready, &players, private) {
+                                begin_countdown(&mut phase, tick_no, &players, &open);
+                            }
+                        }
+                        ClientMsg::StartRace if phase == Phase::Waiting && private && id == host => {
+                            begin_countdown(&mut phase, tick_no, &players, &open);
+                        }
                         _ => {}
                     }
                 }
             },
             _ = tick.tick() => {
                 tick_no = tick_no.wrapping_add(1);
+
+                if let Phase::Countdown { go_tick } = phase {
+                    if (tick_no.wrapping_sub(go_tick) as i32) >= 0 {
+                        phase = Phase::Racing;
+                        for p in progress.values_mut() { *p = RaceProgress::new(tick_no); }
+                    }
+                }
+
                 for (id, buf) in buffers.iter_mut() {
-                    physics.set_input(*id, buf.next());
+                    let mut input = buf.next();
+                    if phase != Phase::Racing {
+                        input.throttle = 0; input.steer = 0; input.drift = false;
+                    }
+                    physics.set_input(*id, input);
                 }
                 physics.step();
-                for (&id, p) in progress.iter_mut() {
-                    let touching = physics.checkpoints_touching(id);
-                    let Some(ev) = p.update(&touching, n_cp, tick_no) else { continue };
-                    let lap_time = match ev {
-                        RaceEvent::Lap { lap_time } | RaceEvent::Finished { lap_time } => Some(lap_time),
-                        RaceEvent::Checkpoint => None,
-                    };
-                    let msg = ServerMsg::Race { id, lap: p.lap, next: p.next, finished: p.finished, lap_time };
-                    if let Ok(bytes) = encode_server(&msg) {
-                        for player in players.values() {
-                            let _ = player.reliable_tx.unbounded_send(bytes.clone());
-                        }
+
+                if phase == Phase::Racing {
+                    for (&id, p) in progress.iter_mut() {
+                        let touching = physics.checkpoints_touching(id);
+                        let Some(ev) = p.update(&touching, n_cp, tick_no) else { continue };
+                        let lap_time = match ev {
+                            RaceEvent::Lap { lap_time } | RaceEvent::Finished { lap_time } => Some(lap_time),
+                            RaceEvent::Checkpoint => None,
+                        };
+                        let msg = ServerMsg::Race { id, lap: p.lap, next: p.next, finished: p.finished, lap_time };
+                        broadcast_reliable(&players, &msg);
                     }
                 }
 
@@ -468,6 +527,39 @@ fn send_reject(handle: &PlayerHandle, reason: RejectReason) {
 
 fn code() -> String {
     format!("{:06}", rand::rng().random_range(0..1_000_000))
+}
+
+fn lobby_state(host: PlayerId, ready: &HashSet<PlayerId>) -> ServerMsg {
+    ServerMsg::LobbyState {
+        host,
+        ready: ready.iter().copied().collect(),
+    }
+}
+fn all_ready(
+    ready: &HashSet<PlayerId>,
+    players: &HashMap<PlayerId, PlayerHandle>,
+    private: bool,
+) -> bool {
+    !private && players.len() >= MIN_PLAYERS_PUBLIC && players.keys().all(|id| ready.contains(id))
+}
+fn begin_countdown(
+    phase: &mut Phase,
+    tick_no: u32,
+    players: &HashMap<PlayerId, PlayerHandle>,
+    open: &AtomicBool,
+) {
+    let go_tick = tick_no.wrapping_add((COUNTDOWN_SECS / TICK_DT).round() as u32);
+    *phase = Phase::Countdown { go_tick };
+    open.store(false, std::sync::atomic::Ordering::Relaxed);
+    broadcast_reliable(players, &ServerMsg::Countdown { go_tick });
+}
+
+fn broadcast_reliable(players: &HashMap<PlayerId, PlayerHandle>, msg: &ServerMsg) {
+    if let Ok(bytes) = encode_server(msg) {
+        for p in players.values() {
+            let _ = p.reliable_tx.unbounded_send(bytes.clone());
+        }
+    }
 }
 
 async fn read_reliable_stream(
