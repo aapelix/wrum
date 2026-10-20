@@ -17,6 +17,8 @@ pub enum ClientMsg {
     Input { inputs: Vec<Input> },
     Ready(bool),
     StartRace,
+    PlayAgain,
+    Heartbeat,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
@@ -59,6 +61,19 @@ pub enum ServerMsg {
     Countdown {
         go_tick: u32,
     },
+    Results {
+        order: Vec<PlayerId>,
+        players: Vec<PlayerResult>,
+    },
+    RaceReset,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub struct PlayerResult {
+    pub id: PlayerId,
+    pub lap_times: Vec<f32>,
+    pub total_time: f32,
+    pub finished: bool,
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]

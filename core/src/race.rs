@@ -1,12 +1,13 @@
 use crate::TICK_DT;
 
-pub const TOTAL_LAPS: u32 = 3;
+pub const TOTAL_LAPS: u32 = 1;
 
 pub struct RaceProgress {
     pub next: u32,
     pub lap: u32,
     pub finished: bool,
     pub finish_tick: Option<u32>,
+    pub lap_times: Vec<f32>,
     lap_start_tick: u32,
 }
 
@@ -24,6 +25,7 @@ impl RaceProgress {
             finished: false,
             finish_tick: None,
             lap_start_tick: tick,
+            lap_times: Vec::new(),
         }
     }
     // total checkpoints crossed
@@ -42,6 +44,7 @@ impl RaceProgress {
         }
 
         let lap_time = tick.wrapping_sub(self.lap_start_tick) as f32 * TICK_DT;
+        self.lap_times.push(lap_time);
         self.lap_start_tick = tick;
         if self.lap >= TOTAL_LAPS {
             self.finished = true;

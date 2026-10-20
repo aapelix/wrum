@@ -19,7 +19,7 @@ use wrum_core::{
 };
 use wrum_net::{
     Channel,
-    proto::{ClientMsg, ServerMsg},
+    proto::{ClientMsg, PlayerResult, ServerMsg},
 };
 
 use crate::{camera::Camera, car::Car, ctx, map::Map, scene::Scene};
@@ -51,6 +51,9 @@ struct Pose {
 
 pub struct GameScene {
     camera: Camera,
+    last_camera_pos: (Vector2, f32),
+    following: PlayerId,
+
     cars: HashMap<PlayerId, Car>,
     my_id: PlayerId,
     map: Map,
@@ -85,6 +88,12 @@ pub struct GameScene {
     ready: HashSet<PlayerId>,
     go_at: f32,
     snap_clock_at: f32,
+
+    finished: bool,
+    remote_finished: HashSet<PlayerId>,
+    game_finished: bool,
+
+    results: Option<(Vec<PlayerId>, Vec<PlayerResult>)>,
 }
 
 impl GameScene {
@@ -109,6 +118,8 @@ impl GameScene {
 
         let mut s = Self {
             camera: Camera::default(),
+            last_camera_pos: (Vector2::ZERO, 0.),
+            following: my_id,
             cars: HashMap::new(),
             my_id,
             map,
@@ -137,6 +148,10 @@ impl GameScene {
             ready: HashSet::new(),
             go_at: 0.,
             snap_clock_at: 0.,
+            finished: false,
+            remote_finished: HashSet::new(),
+            game_finished: false,
+            results: None,
         };
         s.ensure_car(ctx, my_id, spawn);
         for (id, st) in existing {
@@ -163,24 +178,27 @@ impl GameScene {
         // input ---------------------------------------------------
         self.next_seq = self.next_seq.wrapping_add(1);
         let mut input = sample_input(ctx.rl);
-        if !matches!(self.phase, StartPhase::Racing) {
-            input.throttle = 0;
-            input.steer = 0;
-            input.drift = false;
-        }
-        input.seq = self.next_seq;
 
-        self.recent.push_back(input);
-        while self.recent.len() > REDUNDANCY {
-            self.recent.pop_front();
-        }
-        let inputs: Vec<Input> = self.recent.iter().copied().collect();
+        if !self.game_finished {
+            if !matches!(self.phase, StartPhase::Racing) {
+                input.throttle = 0;
+                input.steer = 0;
+                input.drift = false;
+            }
+            input.seq = self.next_seq;
 
-        if let Err(e) = ctx
-            .net
-            .send(Channel::Unreliable, &ClientMsg::Input { inputs })
-        {
-            eprintln!("failed to send input: {e:#?}");
+            self.recent.push_back(input);
+            while self.recent.len() > REDUNDANCY {
+                self.recent.pop_front();
+            }
+            let inputs: Vec<Input> = self.recent.iter().copied().collect();
+
+            if let Err(e) = ctx
+                .net
+                .send(Channel::Unreliable, &ClientMsg::Input { inputs })
+            {
+                eprintln!("failed to send input: {e:#?}");
+            }
         }
 
         // prediction ----------------------------------------------
@@ -193,16 +211,18 @@ impl GameScene {
             }
         }
 
-        self.physics.set_input(self.my_id, input);
-        self.physics.step();
-        self.prev = self.curr;
-        if let Some(s) = self.physics.state(self.my_id) {
-            self.curr = s;
-        }
+        if !self.game_finished {
+            self.physics.set_input(self.my_id, input);
+            self.physics.step();
+            self.prev = self.curr;
+            if let Some(s) = self.physics.state(self.my_id) {
+                self.curr = s;
+            }
 
-        self.pending.push_back(input);
-        while self.pending.len() > MAX_PENDING {
-            self.pending.pop_front();
+            self.pending.push_back(input);
+            while self.pending.len() > MAX_PENDING {
+                self.pending.pop_front();
+            }
         }
     }
     fn apply_snapshot(
@@ -284,6 +304,42 @@ impl GameScene {
     fn server_now(&self) -> f32 {
         self.latest_server_time + (self.clock - self.snap_clock_at)
     }
+    fn next_unfinished(&self) -> Option<PlayerId> {
+        self.order
+            .iter()
+            .copied()
+            .find(|id| !self.remote_finished.contains(id) && (*id != self.my_id || !self.finished))
+    }
+
+    fn reset_race(&mut self) {
+        self.following = self.my_id;
+        self.finished = false;
+        self.game_finished = false;
+        self.remote_finished.clear();
+
+        self.order.clear();
+        self.last_order_tick = 0;
+        self.lap = 1;
+
+        self.phase = StartPhase::Waiting;
+        self.go_at = 0.0;
+        self.last_camera_pos = (Vector2::ZERO, 0.0);
+
+        self.pending.clear();
+        self.recent.clear();
+        self.err_pos = Vec2::ZERO;
+        self.err_rot = 0.0;
+
+        self.last_snap_tick = 0;
+        self.render_time = 0.0;
+        self.latest_server_time = 0.0;
+        self.snap_clock_at = self.clock;
+        self.have_clock = false;
+        self.remotes.clear();
+
+        self.prev = self.curr;
+        self.results = None;
+    }
 }
 
 impl Scene for GameScene {
@@ -355,9 +411,15 @@ impl Scene for GameScene {
             }
         }
 
-        if let Some(me) = self.cars.get(&self.my_id) {
-            self.camera.update(me.p, me.a, dt);
+        if self.game_finished {
+            self.camera
+                .update(self.last_camera_pos.0, self.last_camera_pos.1, dt);
+        } else {
+            if let Some(c) = self.cars.get(&self.following) {
+                self.camera.update(c.p, c.a, dt);
+            }
         }
+
         super::Transition::None
     }
     fn draw(&mut self, ctx: &mut ctx::Context) {
@@ -418,56 +480,106 @@ impl Scene for GameScene {
         #[cfg(feature = "debug-renderer")]
         render(&mut tm, &self.camera, &self.physics.debug_backend.lines);
 
-        if let Some((place, _total)) = self.my_place() {
-            let suffix = match place {
-                1 => "st",
-                2 => "nd",
-                3 => "rd",
-                _ => "th",
-            };
-            let rank = format!("{place}{suffix}");
-            let lap = format!("Lap {}/{}", self.lap, TOTAL_LAPS);
-            let w_rank = tm.measure_text(&rank, 20);
-            let w_lap = tm.measure_text(&lap, 10);
-            tm.draw_text(&rank, 310 - w_rank, 12, 20, Color::BLACK);
-            tm.draw_text(&rank, 308 - w_rank, 10, 20, Color::WHITE);
-            tm.draw_text(&lap, 309 - w_lap, 31, 10, Color::BLACK);
-            tm.draw_text(&lap, 308 - w_lap, 30, 10, Color::WHITE);
-        }
-
-        match self.phase {
-            StartPhase::Waiting => {
-                tm.draw_text(&self.code, 12, 12, 20, Color::BLACK);
-                tm.draw_text(&self.code, 10, 10, 20, Color::WHITE);
-                let hint = if self.private {
-                    if self.host == self.my_id {
-                        "ENTER: start race".to_string()
-                    } else {
-                        "Waiting for host...".to_string()
-                    }
-                } else {
-                    let me = self.ready.contains(&self.my_id);
-                    format!(
-                        "ENTER: {}   ({} ready)",
-                        if me { "unready" } else { "ready" },
-                        self.ready.len()
-                    )
+        if !self.game_finished {
+            if let Some((place, _total)) = self.my_place() {
+                let suffix = match place {
+                    1 => "st",
+                    2 => "nd",
+                    3 => "rd",
+                    _ => "th",
                 };
-                let w = tm.measure_text(&hint, 10);
-                tm.draw_text(&hint, 160 - w / 2, 150, 10, Color::WHITE);
+                let rank = format!("{place}{suffix}");
+                let lap = format!("Lap {}/{}", self.lap, TOTAL_LAPS);
+                let w_rank = tm.measure_text(&rank, 20);
+                let w_lap = tm.measure_text(&lap, 10);
+                tm.draw_text(&rank, 310 - w_rank, 12, 20, Color::BLACK);
+                tm.draw_text(&rank, 308 - w_rank, 10, 20, Color::WHITE);
+                tm.draw_text(&lap, 309 - w_lap, 31, 10, Color::BLACK);
+                tm.draw_text(&lap, 308 - w_lap, 30, 10, Color::WHITE);
             }
-            StartPhase::Countdown { go_time } => {
-                let rem = go_time - self.server_now();
-                if rem > 0.0 {
-                    let n = rem.ceil();
-                    let p = 1.0 - (rem - (n - 1.0));
-                    big_text(&mut tm, &format!("{}", n as i32), (48.0 - 20.0 * p) as i32);
+
+            match self.phase {
+                StartPhase::Waiting => {
+                    tm.draw_text(&self.code, 12, 12, 20, Color::BLACK);
+                    tm.draw_text(&self.code, 10, 10, 20, Color::WHITE);
+                    let hint = if self.private {
+                        if self.host == self.my_id {
+                            "ENTER: start race".to_string()
+                        } else {
+                            "Waiting for host...".to_string()
+                        }
+                    } else {
+                        let me = self.ready.contains(&self.my_id);
+                        format!(
+                            "ENTER: {}   ({} ready)",
+                            if me { "unready" } else { "ready" },
+                            self.ready.len()
+                        )
+                    };
+                    let w = tm.measure_text(&hint, 10);
+                    tm.draw_text(&hint, 160 - w / 2, 150, 10, Color::WHITE);
+                }
+                StartPhase::Countdown { go_time } => {
+                    let rem = go_time - self.server_now();
+                    if rem > 0.0 {
+                        let n = rem.ceil();
+                        let p = 1.0 - (rem - (n - 1.0));
+                        big_text(&mut tm, &format!("{}", n as i32), (48.0 - 20.0 * p) as i32);
+                    }
+                }
+                StartPhase::Racing => {
+                    if self.clock - self.go_at < 1.0 {
+                        big_text(&mut tm, "GO", 48);
+                    }
                 }
             }
-            StartPhase::Racing => {
-                if self.clock - self.go_at < 1.0 {
-                    big_text(&mut tm, "GO", 48);
+        } else {
+            if let Some((order, players)) = &self.results {
+                tm.draw_rectangle(0, 0, 320, 180, Color::new(0, 0, 0, 180));
+
+                tm.draw_text("Results", 10, 8, 20, Color::WHITE);
+
+                tm.draw_text("POS", 12, 36, 10, Color::GRAY);
+                tm.draw_text("PLAYER", 42, 36, 10, Color::GRAY);
+                tm.draw_text("LAPS", 150, 36, 10, Color::GRAY);
+                tm.draw_text("TOTAL", 220, 36, 10, Color::GRAY);
+
+                let row_height = 16;
+                let max_rows = 7;
+
+                for (i, id) in order.iter().take(max_rows).enumerate() {
+                    let Some(result) = players.iter().find(|p| p.id == *id) else {
+                        continue;
+                    };
+
+                    let y = 50 + i as i32 * row_height;
+                    let color = if *id == self.my_id {
+                        Color::YELLOW
+                    } else {
+                        Color::WHITE
+                    };
+
+                    let position = format!("{}.", i + 1);
+                    tm.draw_text(&position, 12, y, 10, color);
+
+                    let name = format!("Player {}", id);
+                    tm.draw_text(&name, 42, y, 10, color);
+
+                    let total = format_time(result.total_time);
+                    tm.draw_text(&total, 220, y, 10, color);
+
+                    let laps = result
+                        .lap_times
+                        .iter()
+                        .enumerate()
+                        .map(|(lap, time)| format!("{}:{}", lap + 1, format_time(*time)))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+
+                    tm.draw_text(&laps, 150, y, 8, color);
                 }
+
+                tm.draw_text("Race finished", 10, 166, 8, Color::GRAY);
             }
         }
     }
@@ -491,11 +603,26 @@ impl Scene for GameScene {
                 id,
                 lap,
                 next: _,
-                finished: _,
+                finished,
                 lap_time: _,
             } => {
                 if *id == self.my_id {
                     self.lap = *lap;
+                    if *finished {
+                        self.finished = true;
+                        if self.following == self.my_id {
+                            if let Some(next) = self.next_unfinished() {
+                                self.following = next;
+                            }
+                        }
+                    }
+                } else if *finished {
+                    self.remote_finished.insert(*id);
+                    if self.following == *id {
+                        if let Some(next) = self.next_unfinished() {
+                            self.following = next;
+                        }
+                    }
                 }
             }
             ServerMsg::Positions { tick, order } => {
@@ -512,6 +639,16 @@ impl Scene for GameScene {
             ServerMsg::LobbyState { host, ready } => {
                 self.host = *host;
                 self.ready = ready.iter().copied().collect();
+            }
+            ServerMsg::RaceReset => {
+                self.reset_race();
+            }
+            ServerMsg::Results { order, players } => {
+                if let Some(following) = self.cars.get(&self.following) {
+                    self.last_camera_pos = (following.p, following.a);
+                }
+                self.results = Some((order.clone(), players.clone()));
+                self.game_finished = true;
             }
             _ => {}
         }
@@ -591,6 +728,15 @@ fn apply_pose(car: &mut Car, now: f32, p: &Pose) {
         car.sunk_at = now;
     }
     car.status = p.status;
+}
+
+fn format_time(seconds: f32) -> String {
+    let centiseconds = (seconds.max(0.0) * 100.0).round() as u32;
+    let minutes = centiseconds / 6000;
+    let secs = (centiseconds / 100) % 60;
+    let cs = centiseconds % 100;
+
+    format!("{minutes}:{secs:02}.{cs:02}")
 }
 
 #[cfg(feature = "debug-renderer")]
