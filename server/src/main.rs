@@ -471,11 +471,13 @@ async fn run_lobby(
                     }
                 }
 
-                let cars = physics.states().collect();
-                let msg = ServerMsg::Snapshot { tick: tick_no, cars };
-                if let Ok(bytes) = encode_server(&msg) {
-                    for player in players.values() {
-                        let _ = player.conn.send_datagram(bytes.clone());
+                if tick_no & 2 == 0 {
+                    let cars = physics.states().collect();
+                    let msg = ServerMsg::Snapshot { tick: tick_no, cars };
+                    if let Ok(bytes) = encode_server(&msg) {
+                        for player in players.values() {
+                            let _ = player.conn.send_datagram(bytes.clone());
+                        }
                     }
                 }
 
