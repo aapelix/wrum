@@ -5,11 +5,14 @@ use raylib::{
     ffi::{Vector3, rlDisableBackfaceCulling, rlEnableBackfaceCulling},
     math::{Rectangle, Vector2},
     shaders::{RaylibShader, Shader},
-    texture::Texture2D,
+    texture::{RaylibTexture2D, Texture2D},
 };
 use wrum_core::map::{LayerJson, ObjectKindJson, load_map};
 
 use crate::{GLSL_VERSION, camera::Camera, car::SHADOW_OFFSET, ctx::Context, stack::Stack};
+
+const OVERLAP: f32 = 0.5;
+const INSET: f32 = 0.01;
 
 pub const TILE_SIZE: f32 = 16.;
 pub const CENTER: Vector2 = Vector2 {
@@ -75,10 +78,10 @@ impl Map {
                         let row = index / tiles_per_row;
 
                         let src = Rectangle {
-                            x: col as f32 * TILE_SIZE,
-                            y: row as f32 * TILE_SIZE,
-                            width: TILE_SIZE,
-                            height: TILE_SIZE,
+                            x: col as f32 * TILE_SIZE + INSET,
+                            y: row as f32 * TILE_SIZE + INSET,
+                            width: TILE_SIZE - 2.0 * INSET,
+                            height: TILE_SIZE - 2.0 * INSET,
                         };
 
                         tiles.push(Tile {
@@ -169,6 +172,7 @@ impl Map {
             .rl
             .load_texture(&ctx.thread, "assets/tiles.png")
             .expect("failed to load tileset");
+        tileset.set_texture_filter(ctx.thread, raylib::ffi::TextureFilter::TEXTURE_FILTER_POINT);
 
         let shader_dir = format!("assets/shaders/glsl{}", GLSL_VERSION);
         let water_shader = ctx.rl.load_shader(
@@ -210,8 +214,8 @@ impl Map {
                 tm.draw_texture_pro(
                     &self.tileset,
                     tile.src,
-                    Rectangle::new(pos.x, pos.y, TILE_SIZE, TILE_SIZE),
-                    CENTER,
+                    Rectangle::new(pos.x, pos.y, TILE_SIZE + OVERLAP, TILE_SIZE + OVERLAP),
+                    Vector2::new(CENTER.x + OVERLAP / 2., CENTER.y + OVERLAP / 2.),
                     a,
                     Color::WHITE,
                 );
