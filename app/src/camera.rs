@@ -57,4 +57,11 @@ impl Camera {
             a - self.a,
         )
     }
+    pub fn inverse(&self) -> (Vector2, [f32; 4]) {
+        let (o, _) = self.apply(Vector2::zero(), 0.);
+        let ex = self.apply(Vector2::new(1., 0.), 0.).0 - o;
+        let ey = self.apply(Vector2::new(0., 1.), 0.).0 - o;
+        let det = ex.x * ey.y - ex.y * ey.x;
+        (o, [ey.y / det, -ey.x / det, -ex.y / det, ex.x / det])
+    }
 }

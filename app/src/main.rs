@@ -2,6 +2,7 @@ mod app;
 mod camera;
 mod car;
 mod ctx;
+mod fx;
 mod game_loop;
 mod map;
 mod net;

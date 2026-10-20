@@ -46,6 +46,7 @@ pub struct Map {
     loc_inv: i32,
     loc_clip: i32,
     loc_alpha: i32,
+    pub size: Vector2,
 }
 
 impl Map {
@@ -58,6 +59,11 @@ impl Map {
         let mut layers = Vec::new();
         let mut props = Vec::new();
         let mut water = Vec::new();
+
+        let size = Vector2::new(
+            map_json.width as f32 * TILE_SIZE,
+            map_json.height as f32 * TILE_SIZE,
+        );
 
         for layer in map_json.layers {
             match layer {
@@ -95,13 +101,18 @@ impl Map {
                 LayerJson::ObjectLayer(layer) => {
                     for object in layer.objects {
                         match object.kind {
-                            ObjectKindJson::Fence { .. } => {
+                            ObjectKindJson::Fence { properties, .. } => {
+                                let rotation = properties
+                                    .iter()
+                                    .find(|p| p.name == "rotation")
+                                    .and_then(|p| p.value.as_f64())
+                                    .unwrap() as f32;
                                 let stack = Stack::new(ctx, "assets/fence.png", 20.);
 
                                 props.push(Prop {
                                     stack,
                                     pos: Vector2::new(object.x, object.y),
-                                    a: 0.,
+                                    a: rotation,
                                     z: 0.,
                                 });
                             }
@@ -198,6 +209,7 @@ impl Map {
             loc_inv,
             loc_alpha,
             loc_clip,
+            size,
         }
     }
 

@@ -9,6 +9,8 @@ pub fn load_map(path: &str) -> anyhow::Result<MapJson> {
 pub struct MapJson {
     pub layers: Vec<LayerJson>,
     pub tilesets: Vec<TilesetJson>,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,7 +62,10 @@ pub struct ObjectJson {
 #[serde(tag = "type")]
 pub enum ObjectKindJson {
     #[serde(rename = "fence")]
-    Fence { point: bool },
+    Fence {
+        point: bool,
+        properties: Vec<PropJson>,
+    },
     #[serde(rename = "pole")]
     Pole {
         point: bool,

@@ -23,6 +23,25 @@ pub struct Zone {
     pub points: Vec<Vec2>, // relative to pos
     pub surface: Surface,
 }
+impl Zone {
+    fn contains(&self, p: Vec2) -> bool {
+        let d = p - self.pos;
+        let (s, c) = (-self.rot).sin_cos();
+        let l = Vec2::new(d.x * c - d.y * s, d.x * s + d.y * c);
+        let pts = &self.points;
+        let mut inside = false;
+        let mut j = pts.len() - 1;
+        for i in 0..pts.len() {
+            let (a, b) = (pts[i], pts[j]);
+            if (a.y > l.y) != (b.y > l.y) && l.x < (b.x - a.x) * (l.y - a.y) / (b.y - a.y) + a.x {
+                inside = !inside;
+            }
+            j = i;
+        }
+        inside
+    }
+}
+
 #[derive(Default)]
 pub struct Level {
     pub obstacles: Vec<Obstacle>,
@@ -159,5 +178,10 @@ impl Level {
             .filter(|c| c.index == index)
             .map(|c| c.pos.distance(p))
             .fold(f32::MAX, f32::min)
+    }
+    pub fn on_grass(&self, p: Vec2) -> bool {
+        self.zones
+            .iter()
+            .any(|z| z.surface == Surface::Grass && z.contains(p))
     }
 }

@@ -22,7 +22,7 @@ use wrum_net::{
     proto::{ClientMsg, PlayerResult, ServerMsg},
 };
 
-use crate::{camera::Camera, car::Car, ctx, map::Map, scene::Scene};
+use crate::{camera::Camera, car::Car, ctx, fx::Fx, map::Map, scene::Scene};
 
 const INTERP_DELAY: f32 = 0.1;
 const MAX_PENDING: usize = 120;
@@ -94,6 +94,9 @@ pub struct GameScene {
     game_finished: bool,
 
     results: Option<(Vec<PlayerId>, Vec<PlayerResult>)>,
+
+    level: Level,
+    fx: Fx,
 }
 
 impl GameScene {
@@ -115,6 +118,8 @@ impl GameScene {
         physics.set_state(my_id, spawn);
 
         let shadow_canvas = ctx.rl.load_render_texture(ctx.thread, 320, 180).unwrap();
+
+        let fx = Fx::new(ctx, Vector2::zero(), map.size);
 
         let mut s = Self {
             camera: Camera::default(),
@@ -152,6 +157,8 @@ impl GameScene {
             remote_finished: HashSet::new(),
             game_finished: false,
             results: None,
+            fx,
+            level,
         };
         s.ensure_car(ctx, my_id, spawn);
         for (id, st) in existing {
@@ -411,6 +418,8 @@ impl Scene for GameScene {
             }
         }
 
+        self.fx.update(dt, &self.cars, &self.level);
+
         if self.game_finished {
             self.camera
                 .update(self.last_camera_pos.0, self.last_camera_pos.1, dt);
@@ -423,6 +432,7 @@ impl Scene for GameScene {
         super::Transition::None
     }
     fn draw(&mut self, ctx: &mut ctx::Context) {
+        self.fx.flush(ctx);
         {
             let mut tm = ctx
                 .rl
@@ -439,6 +449,7 @@ impl Scene for GameScene {
         tm.clear_background(Color::BLACK);
 
         self.map.draw_layers(&mut tm, &self.camera);
+        self.fx.draw_marks(&mut tm, &self.camera);
         tm.draw_texture_rec(
             self.shadow_canvas.texture(),
             Rectangle::new(0., 0., 320., -180.),
@@ -476,6 +487,7 @@ impl Scene for GameScene {
                 }
             }
         }
+        self.fx.draw_puffs(&mut tm, &self.camera);
 
         #[cfg(feature = "debug-renderer")]
         render(&mut tm, &self.camera, &self.physics.debug_backend.lines);
