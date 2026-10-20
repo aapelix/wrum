@@ -20,7 +20,7 @@ void main() {
     vec2 uv = (w - uMarkOrigin) / uMarkSize;
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) discard;
 
-    float v = texture(uMarks, vec2(uv.x, 1.0 - uv.y)).r;
+    float v = texture2D(uMarks, vec2(uv.x, 1.0 - uv.y)).r;
     if (v < 0.03) discard;
 
     float n = hash(floor(w));
