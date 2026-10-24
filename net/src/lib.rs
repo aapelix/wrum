@@ -13,24 +13,18 @@ pub fn connect(url: &str) -> anyhow::Result<PlatformTransport> {
     PlatformTransport::connect(url)
 }
 
-pub const MAX_PACKET_SIZE: usize = 1024 * 1024;
+pub const MAX_PACKET_SIZE: usize = 64 * 1024;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Channel {
-    Unreliable,
-    Reliable,
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnState {
     Connecting,
     Open,
     Closed,
 }
-pub type Packet = (Channel, Vec<u8>);
 
 pub trait Transport {
-    fn send(&mut self, ch: Channel, bytes: &[u8]) -> anyhow::Result<()>;
-    fn poll(&mut self) -> anyhow::Result<Option<(Channel, Vec<u8>)>>;
+    fn send(&mut self, bytes: &[u8]) -> anyhow::Result<()>;
+    fn poll(&mut self) -> Option<Vec<u8>>;
     fn state(&self) -> ConnState;
     fn error(&self) -> Option<String>;
 }

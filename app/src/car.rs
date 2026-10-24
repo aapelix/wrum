@@ -1,5 +1,5 @@
 use raylib::{RaylibHandle, drawing::RaylibTextureMode, math::Vector2};
-use wrum_core::physics::Status;
+use wrum_core::sim::Status;
 
 use crate::{
     camera::Camera,

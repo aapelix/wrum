@@ -1,6 +1,6 @@
 use crate::TICK_DT;
 
-pub const TOTAL_LAPS: u32 = 1;
+pub const TOTAL_LAPS: u32 = 3;
 
 pub struct RaceProgress {
     pub next: u32,

@@ -1,11 +1,12 @@
-use rkyv::{Archive, Deserialize, Serialize, rancor};
+use rkyv::{Archive, Deserialize, Serialize, rancor, util::AlignedVec};
 use wrum_core::{
     PlayerId,
-    physics::{CarState, Input},
+    sim::{Input, World},
 };
 
 pub const TICK_RATE: u32 = 60;
-pub const SNAPSHOT_EVERY: u32 = 3;
+pub const PROTO_VERSION: usize = 2;
+pub const SNAPSHOT_EVERY: u32 = 2;
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub enum ClientMsg {
@@ -14,43 +15,52 @@ pub enum ClientMsg {
     JoinLobby { code: String },
     JoinPublic,
     LeaveLobby,
-    Input { inputs: Vec<Input> },
     Ready(bool),
     StartRace,
     PlayAgain,
     Heartbeat,
+    Inputs { first: u32, inputs: Vec<Input> },
+    Ping { t0: u32 },
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub enum ServerMsg {
-    PlayerJoined {
-        id: PlayerId,
-        name: String,
-        spawn: CarState,
-    },
-    PlayerLeft {
-        id: PlayerId,
-    },
     Welcome {
-        your_id: PlayerId,
-        spawn: CarState,
-        existing: Vec<(PlayerId, CarState)>,
+        slot: PlayerId,
+        tick: u32,
         code: String,
         private: bool,
+        players: Vec<(PlayerId, String)>,
+    },
+    PlayerJoined {
+        slot: PlayerId,
+        name: String,
+    },
+    PlayerLeft {
+        slot: PlayerId,
     },
     Snapshot {
+        world: World,
+        early: i8,
+    },
+    Relay {
+        slot: PlayerId,
+        first: u32,
+        inputs: Vec<Input>,
+    },
+    Pong {
+        t0: u32,
         tick: u32,
-        cars: Vec<(PlayerId, CarState)>,
+        frac: f32,
     },
     Race {
-        id: PlayerId,
+        slot: PlayerId,
         lap: u32,
         next: u32,
         finished: bool,
         lap_time: Option<f32>,
     },
     Positions {
-        tick: u32,
         order: Vec<PlayerId>,
     },
     Reject(RejectReason),
@@ -85,17 +95,20 @@ pub enum RejectReason {
     RaceStarted,
 }
 
-pub fn decode_client(bytes: &[u8]) -> anyhow::Result<ClientMsg> {
-    let deserialized = rkyv::from_bytes::<ClientMsg, rancor::Error>(bytes)?;
-    Ok(deserialized)
+fn aligned(b: &[u8]) -> AlignedVec<16> {
+    let mut v = AlignedVec::<16>::with_capacity(b.len());
+    v.extend_from_slice(b);
+    v
 }
-pub fn decode_server(bytes: &[u8]) -> anyhow::Result<ServerMsg> {
-    let deserialized = rkyv::from_bytes::<ServerMsg, rancor::Error>(bytes)?;
-    Ok(deserialized)
+pub fn decode_client(b: &[u8]) -> anyhow::Result<ClientMsg> {
+    Ok(rkyv::from_bytes::<ClientMsg, rancor::Error>(&aligned(b))?)
 }
-pub fn encode_client(msg: &ClientMsg) -> anyhow::Result<Vec<u8>> {
-    Ok(rkyv::to_bytes::<rancor::Error>(msg)?.to_vec())
+pub fn decode_server(b: &[u8]) -> anyhow::Result<ServerMsg> {
+    Ok(rkyv::from_bytes::<ServerMsg, rancor::Error>(&aligned(b))?)
 }
-pub fn encode_server(msg: &ServerMsg) -> anyhow::Result<Vec<u8>> {
-    Ok(rkyv::to_bytes::<rancor::Error>(msg)?.to_vec())
+pub fn encode_client(m: &ClientMsg) -> anyhow::Result<Vec<u8>> {
+    Ok(rkyv::to_bytes::<rancor::Error>(m)?.to_vec())
+}
+pub fn encode_server(m: &ServerMsg) -> anyhow::Result<Vec<u8>> {
+    Ok(rkyv::to_bytes::<rancor::Error>(m)?.to_vec())
 }

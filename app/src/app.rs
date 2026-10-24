@@ -5,7 +5,7 @@ use raylib::{
     math::Rectangle,
     texture::RaylibRenderTexture2D,
 };
-use wrum_net::proto::TICK_RATE;
+use wrum_net::proto::{PROTO_VERSION, TICK_RATE};
 
 use crate::{
     ctx::State,
@@ -44,6 +44,12 @@ impl App {
             match e {
                 NetEvent::Connected => {
                     self.scenes.on_connect(&mut ctx);
+                    ctx.net
+                        .send(&wrum_net::proto::ClientMsg::Hello {
+                            version: PROTO_VERSION,
+                            name: "test".into(),
+                        })
+                        .unwrap();
                 }
                 NetEvent::Disconnected(_err) => {
                     self.scenes.on_disconnect(&mut ctx);

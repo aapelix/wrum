@@ -1,9 +1,14 @@
 use glam::Vec2;
 
-use crate::{
-    map::{LayerJson, ObjectKindJson, load_map},
-    physics::{Shape, Surface},
-};
+use crate::map::{LayerJson, ObjectKindJson, load_map};
+
+pub enum Shape {
+    Box { hw: f32, hh: f32 },
+    Convex { points: Vec<Vec2> },
+    Wall { points: Vec<Vec2> },
+}
+
+use crate::sim::Surface;
 
 pub struct Checkpoint {
     pub index: u32,
@@ -24,9 +29,9 @@ pub struct Zone {
     pub surface: Surface,
 }
 impl Zone {
-    fn contains(&self, p: Vec2) -> bool {
+    pub fn contains(&self, p: Vec2) -> bool {
         let d = p - self.pos;
-        let (s, c) = (-self.rot).sin_cos();
+        let (s, c) = libm::sincosf(-self.rot);
         let l = Vec2::new(d.x * c - d.y * s, d.x * s + d.y * c);
         let pts = &self.points;
         let mut inside = false;
@@ -42,7 +47,6 @@ impl Zone {
     }
 }
 
-#[derive(Default)]
 pub struct Level {
     pub obstacles: Vec<Obstacle>,
     pub spawns: Vec<(Vec2, f32)>,
@@ -119,7 +123,7 @@ impl Level {
                                     as u32;
                                 let (hw, hh) = (obj.width * 0.5, obj.height * 0.5);
                                 let rot = obj.rotation.to_radians();
-                                let (s, c) = rot.sin_cos();
+                                let (s, c) = libm::sincosf(rot);
                                 let center =
                                     Vec2::new(obj.x + hw * c - hh * s, obj.y + hw * s + hh * c);
                                 checkpoints.push(Checkpoint {

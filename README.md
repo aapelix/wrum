@@ -3,7 +3,9 @@
 multiplayer racing game made with raylib
 
 todo:
-- helper & cacher for rendering, assets
+- map as one large image/sprite stack
+- data in ron
+- prerotated stacks (not for map, i tried and bad things happened trust me)
 - grass, trees
 - culling
 - more props

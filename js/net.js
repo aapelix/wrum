@@ -1,115 +1,55 @@
 mergeInto(LibraryManager.library, {
-  wt_open__deps: ["$UTF8ToString"],
-  wt_open: function (urlPtr) {
-    const url = UTF8ToString(urlPtr);
-    const MAX = 1024 * 1024;
-    const S = (Module.wt = { state: 0, inbox: [], t: null, w: null, dg: null });
-    const fail = () => {
-      S.state = 2;
+  ws_open: function (urlPtr) {
+    var url = UTF8ToString(urlPtr);
+    if (url.startsWith("/")) {
+      url =
+        (location.protocol === "https:" ? "wss://" : "ws://") +
+        location.host +
+        url;
+    }
+    if (Module.__ws && Module.__ws.s) {
+      try {
+        Module.__ws.s.close();
+      } catch (e) {}
+    }
+    var w = { q: [], state: 0, s: null };
+    Module.__ws = w;
+    var s = new WebSocket(url);
+    s.binaryType = "arraybuffer";
+    s.onopen = function () {
+      w.state = 1;
     };
-    const push = (ch, data) => {
-      if (data.length <= MAX) S.inbox.push([ch, data]);
+    s.onmessage = function (e) {
+      w.q.push(new Uint8Array(e.data));
     };
-
-    async function readDatagrams(t) {
-      const r = t.datagrams.readable.getReader();
-      for (;;) {
-        const { value, done } = await r.read();
-        if (done) break;
-        push(1, value);
-      }
-    }
-    async function readStream(stream) {
-      const r = stream.getReader();
-      let buf = new Uint8Array(0);
-      for (;;) {
-        const { value, done } = await r.read();
-        if (done) break;
-        const nb = new Uint8Array(buf.length + value.length);
-        nb.set(buf);
-        nb.set(value, buf.length);
-        buf = nb;
-        while (buf.length >= 4) {
-          const len = new DataView(buf.buffer, buf.byteOffset).getUint32(
-            0,
-            true,
-          );
-          if (len > MAX) throw new Error("packet too large");
-          if (buf.length < 4 + len) break;
-          push(0, buf.slice(4, 4 + len));
-          buf = buf.slice(4 + len);
-        }
-      }
-    }
-    async function acceptStreams(t) {
-      const r = t.incomingUnidirectionalStreams.getReader();
-      for (;;) {
-        const { value, done } = await r.read();
-        if (done) break;
-        readStream(value).catch(fail);
-      }
-    }
-
-    try {
-      const t = new WebTransport(url);
-      S.t = t;
-      t.closed.then(fail, fail);
-      t.ready
-        .then(() => {
-          S.dg = t.datagrams.writable.getWriter();
-          S.state = 1;
-          readDatagrams(t).catch(fail);
-          acceptStreams(t).catch(fail);
-
-          S.chain = t.createUnidirectionalStream().then((s) => {
-            S.w = s.getWriter();
-          });
-          S.chain.catch(fail);
-        })
-        .catch(fail);
-    } catch (e) {
-      console.error("wt fail", e);
-      fail();
-    }
+    s.onclose = s.onerror = function () {
+      w.state = 2;
+    };
+    w.s = s;
   },
-
-  wt_state: function () {
-    return Module.wt ? Module.wt.state : 2;
+  ws_state: function () {
+    return Module.__ws ? Module.__ws.state : 2;
   },
-
-  wt_max_datagram_size: function () {
-    const S = Module.wt;
-    return S && S.t ? S.t.datagrams.maxDatagramSize : 0;
-  },
-
-  wt_send: function (ch, ptr, len) {
-    const S = Module.wt;
-    if (!S || S.state !== 1) return -1;
-    if (ch === 0) {
-      const f = new Uint8Array(4 + len);
-      new DataView(f.buffer).setUint32(0, len, true);
-      f.set(HEAPU8.subarray(ptr, ptr + len), 4);
-      S.w.write(f).catch(function () {
-        S.state = 2;
-      });
-    } else {
-      S.dg.write(HEAPU8.slice(ptr, ptr + len)).catch(function () {});
-    }
+  ws_send: function (ptr, len) {
+    var w = Module.__ws;
+    if (!w || w.state !== 1) return -1;
+    w.s.send(HEAPU8.slice(ptr, ptr + len));
     return 0;
   },
-
-  wt_poll: function (bufPtr, cap) {
-    const S = Module.wt;
-    if (!S || S.inbox.length === 0) return 0;
-    const item = S.inbox.shift();
-    if (1 + item[1].length > cap) return 0;
-    HEAPU8[bufPtr] = item[0];
-    HEAPU8.set(item[1], bufPtr + 1);
-    return 1 + item[1].length;
+  ws_poll: function (ptr, cap) {
+    var w = Module.__ws;
+    if (!w || w.q.length === 0) return 0;
+    var m = w.q.shift();
+    if (m.length > cap) return -1;
+    HEAPU8.set(m, ptr);
+    return m.length;
   },
-
-  wt_close: function () {
-    const S = Module.wt;
-    if (S && S.t) S.t.close();
+  ws_close: function () {
+    var w = Module.__ws;
+    if (w && w.s) {
+      try {
+        w.s.close();
+      } catch (e) {}
+    }
   },
 });

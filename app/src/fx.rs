@@ -16,7 +16,7 @@ use raylib::{
 use wrum_core::{
     PlayerId,
     level::Level,
-    physics::{Status, Vec2},
+    sim::{Status, V2},
 };
 
 use crate::{
@@ -134,7 +134,7 @@ impl Fx {
         self.tracks.retain(|id, _| cars.contains_key(id));
 
         for (id, car) in cars {
-            let grass = level.on_grass(Vec2::new(car.p.x, car.p.y));
+            let grass = level.on_grass(V2::new(car.p.x, car.p.y));
             let mut tr = self.tracks.remove(id).unwrap_or_default();
             self.step_car(&mut tr, car, dt, grass);
             self.tracks.insert(*id, tr);

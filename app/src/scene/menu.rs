@@ -4,10 +4,7 @@ use raylib::{
     math::Rectangle,
     texture::Texture2D,
 };
-use wrum_net::{
-    Channel,
-    proto::{ClientMsg, ServerMsg},
-};
+use wrum_net::proto::{ClientMsg, ServerMsg};
 
 use crate::scene::{Scene, game::GameScene};
 
@@ -59,21 +56,14 @@ impl Scene for MenuScene {
             .is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
         {
             if QUICK_RECT.check_collision_point_rec(mouse) {
-                ctx.net
-                    .send(Channel::Reliable, &ClientMsg::JoinPublic)
-                    .unwrap()
+                ctx.net.send(&ClientMsg::JoinPublic).unwrap()
             } else if CREATE_RECT.check_collision_point_rec(mouse) {
-                ctx.net
-                    .send(Channel::Reliable, &ClientMsg::CreateLobby)
-                    .unwrap()
+                ctx.net.send(&ClientMsg::CreateLobby).unwrap()
             } else if JOIN_RECT.check_collision_point_rec(mouse) {
                 ctx.net
-                    .send(
-                        Channel::Reliable,
-                        &ClientMsg::JoinLobby {
-                            code: self.code.clone(),
-                        },
-                    )
+                    .send(&ClientMsg::JoinLobby {
+                        code: self.code.clone(),
+                    })
                     .unwrap()
             }
         }
@@ -111,14 +101,14 @@ impl Scene for MenuScene {
     ) -> super::Transition {
         match msg {
             ServerMsg::Welcome {
-                your_id,
-                spawn,
-                existing,
+                slot,
+                players,
                 code,
                 private,
+                ..
             } => {
                 return super::Transition::Switch(Box::new(GameScene::new(
-                    ctx, *your_id, spawn, existing, code, *private,
+                    ctx, *slot, players, code, *private,
                 )));
             }
             _ => super::Transition::None,

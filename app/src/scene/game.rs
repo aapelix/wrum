@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "debug-renderer")]
 use raylib::drawing::RaylibTextureMode;
@@ -12,35 +12,33 @@ use raylib::{
 #[cfg(feature = "debug-renderer")]
 use wrum_core::physics::{DebugColor, Vector};
 use wrum_core::{
-    PlayerId, TICK_DT,
+    PlayerId,
     level::Level,
-    physics::{CarState, Input, PhysicsWorld, Status, Vec2},
     race::TOTAL_LAPS,
+    sim::{DT, Input, MAX_CARS, Status, V2, grid},
 };
-use wrum_net::{
-    Channel,
-    proto::{ClientMsg, PlayerResult, ServerMsg},
+use wrum_net::proto::{ClientMsg, PlayerResult, ServerMsg};
+
+use crate::{
+    camera::Camera,
+    car::Car,
+    ctx,
+    fx::Fx,
+    map::Map,
+    scene::{Scene, Transition},
+    sim::NetSim,
 };
-
-use crate::{camera::Camera, car::Car, ctx, fx::Fx, map::Map, scene::Scene};
-
-const INTERP_DELAY: f32 = 0.1;
-const MAX_PENDING: usize = 120;
-const ERR_DECAY: f32 = 12.0;
-const SNAP_DIST: f32 = 40.0;
-const REDUNDANCY: usize = 3;
-const GHOST_LEAD: f32 = INTERP_DELAY;
 
 #[derive(Clone, Copy)]
 enum StartPhase {
     Waiting,
-    Countdown { go_time: f32 },
+    Countdown { go_tick: u32 },
     Racing,
 }
 
 #[allow(unused)]
 struct Pose {
-    pos: Vec2,
+    pos: V2,
     rot: f32,
     z: f32,
     vz: f32,
@@ -59,24 +57,11 @@ pub struct GameScene {
     map: Map,
     shadow_canvas: RenderTexture2D,
 
-    recent: VecDeque<Input>,
-    physics: PhysicsWorld,
-    next_seq: u32,
-    pending: VecDeque<Input>,
-    prev: CarState,
-    curr: CarState,
-    err_pos: Vec2,
-    err_rot: f32,
-    last_snap_tick: u32,
-
-    remotes: HashMap<PlayerId, VecDeque<(f32, CarState)>>,
-    render_time: f32,
-    latest_server_time: f32,
-    have_clock: bool,
-
     order: Vec<PlayerId>,
     last_order_tick: u32,
     lap: u32,
+
+    sim: NetSim,
 
     code: String,
     private: bool,
@@ -87,7 +72,6 @@ pub struct GameScene {
     host: PlayerId,
     ready: HashSet<PlayerId>,
     go_at: f32,
-    snap_clock_at: f32,
 
     finished: bool,
     remote_finished: HashSet<PlayerId>,
@@ -103,25 +87,21 @@ impl GameScene {
     pub fn new(
         ctx: &mut ctx::Context,
         my_id: PlayerId,
-        spawn: &CarState,
-        existing: &Vec<(PlayerId, CarState)>,
+        _players: &Vec<(PlayerId, String)>,
         code: &str,
         private: bool,
     ) -> Self {
         let level = Level::load("assets/maps/untitled.json").unwrap();
         let map = Map::load(ctx, "assets/maps/untitled.json");
 
-        let mut physics = PhysicsWorld::default();
-        physics.authoritative = false;
-        physics.load_level(&level);
-        physics.spawn_car(my_id, spawn.pos, spawn.rot);
-        physics.set_state(my_id, spawn);
+        let map_grid = grid::Map::from_level(&level);
+        let sim = NetSim::new(map_grid, my_id as usize);
 
         let shadow_canvas = ctx.rl.load_render_texture(ctx.thread, 320, 180).unwrap();
 
         let fx = Fx::new(ctx, Vector2::zero(), map.size);
 
-        let mut s = Self {
+        let s = Self {
             camera: Camera::default(),
             last_camera_pos: (Vector2::ZERO, 0.),
             following: my_id,
@@ -129,19 +109,7 @@ impl GameScene {
             my_id,
             map,
             shadow_canvas,
-            recent: VecDeque::new(),
-            physics,
-            next_seq: 0,
-            pending: VecDeque::new(),
-            prev: *spawn,
-            curr: *spawn,
-            err_pos: Vec2::ZERO,
-            err_rot: 0.0,
-            last_snap_tick: 0,
-            remotes: HashMap::new(),
-            render_time: 0.0,
-            latest_server_time: 0.0,
-            have_clock: false,
+            sim,
             order: Vec::new(),
             last_order_tick: 0,
             lap: 1,
@@ -152,7 +120,6 @@ impl GameScene {
             host: 0,
             ready: HashSet::new(),
             go_at: 0.,
-            snap_clock_at: 0.,
             finished: false,
             remote_finished: HashSet::new(),
             game_finished: false,
@@ -160,156 +127,27 @@ impl GameScene {
             fx,
             level,
         };
-        s.ensure_car(ctx, my_id, spawn);
-        for (id, st) in existing {
-            s.ensure_car(ctx, *id, st);
-        }
+        // for (id, st) in players {
+        //     s.ensure_car(ctx, *id, st.pos, st.rot);
+        // }
         s
     }
 
-    fn ensure_car(&mut self, ctx: &mut ctx::Context, id: PlayerId, spawn: &CarState) {
+    fn ensure_car(&mut self, ctx: &mut ctx::Context, id: PlayerId, pos: V2, rot_rad: f32) {
         self.cars.entry(id).or_insert_with(|| {
             Car::new(
                 ctx,
-                Vector2 {
-                    x: spawn.pos.x,
-                    y: spawn.pos.y,
-                },
-                spawn.rot.to_degrees(),
+                Vector2 { x: pos.x, y: pos.y },
+                rot_rad.to_degrees(),
                 0.,
                 0.,
             )
         });
     }
-    fn sim_tick(&mut self, ctx: &mut ctx::Context) {
-        // input ---------------------------------------------------
-        self.next_seq = self.next_seq.wrapping_add(1);
-        let mut input = sample_input(ctx.rl);
-
-        if !self.game_finished {
-            if !matches!(self.phase, StartPhase::Racing) {
-                input.throttle = 0;
-                input.steer = 0;
-                input.drift = false;
-            }
-            input.seq = self.next_seq;
-
-            self.recent.push_back(input);
-            while self.recent.len() > REDUNDANCY {
-                self.recent.pop_front();
-            }
-            let inputs: Vec<Input> = self.recent.iter().copied().collect();
-
-            if let Err(e) = ctx
-                .net
-                .send(Channel::Unreliable, &ClientMsg::Input { inputs })
-            {
-                eprintln!("failed to send input: {e:#?}");
-            }
-        }
-
-        // prediction ----------------------------------------------
-        if self.have_clock {
-            let t = self.render_time + GHOST_LEAD;
-            for (id, q) in &self.remotes {
-                if let Some(p) = sample(q, t) {
-                    self.physics.set_remote(*id, p.pos, p.rot);
-                }
-            }
-        }
-
-        if !self.game_finished {
-            self.physics.set_input(self.my_id, input);
-            self.physics.step();
-            self.prev = self.curr;
-            if let Some(s) = self.physics.state(self.my_id) {
-                self.curr = s;
-            }
-
-            self.pending.push_back(input);
-            while self.pending.len() > MAX_PENDING {
-                self.pending.pop_front();
-            }
-        }
-    }
-    fn apply_snapshot(
-        &mut self,
-        ctx: &mut ctx::Context,
-        tick: u32,
-        cars: &Vec<(PlayerId, CarState)>,
-    ) {
-        if tick <= self.last_snap_tick {
-            return;
-        }
-        self.snap_clock_at = self.clock;
-        self.last_snap_tick = tick;
-
-        let t = tick as f32 * TICK_DT;
-        self.latest_server_time = self.latest_server_time.max(t);
-        if !self.have_clock {
-            self.render_time = t - INTERP_DELAY;
-            self.have_clock = true;
-        }
-
-        for (id, state) in cars {
-            if *id == self.my_id {
-                self.reconcile(state);
-            } else {
-                self.ensure_car(ctx, *id, state);
-                if !self.remotes.contains_key(id) {
-                    self.physics.spawn_remote(*id, state);
-                }
-                let q = self.remotes.entry(*id).or_default();
-                q.push_back((t, *state));
-                while q.len() > 32 {
-                    q.pop_front();
-                }
-            }
-        }
-    }
-    fn reconcile(&mut self, server: &CarState) {
-        let old = self.curr;
-
-        while self
-            .pending
-            .front()
-            .is_some_and(|i| (i.seq.wrapping_sub(server.ack) as i32) <= 0)
-        {
-            self.pending.pop_front();
-        }
-
-        self.physics.set_state(self.my_id, server);
-        for input in &self.pending {
-            self.physics.set_input(self.my_id, *input);
-            self.physics.step();
-        }
-        let Some(new) = self.physics.state(self.my_id) else {
-            return;
-        };
-
-        let dp = new.pos - old.pos;
-        let dr = wrap_angle(new.rot - old.rot);
-
-        if dp.length() > SNAP_DIST || dr.abs() > 1.0 {
-            self.prev = new;
-            self.err_pos = Vec2::ZERO;
-            self.err_rot = 0.0;
-        } else {
-            self.err_pos -= dp;
-            self.err_rot -= dr;
-            self.prev.pos += dp;
-            self.prev.rot += dr;
-        }
-        self.curr = new;
-    }
 
     fn my_place(&self) -> Option<(usize, usize)> {
         let i = self.order.iter().position(|&id| id == self.my_id)?;
         Some((i + 1, self.order.len()))
-    }
-
-    fn server_now(&self) -> f32 {
-        self.latest_server_time + (self.clock - self.snap_clock_at)
     }
     fn next_unfinished(&self) -> Option<PlayerId> {
         self.order
@@ -332,31 +170,21 @@ impl GameScene {
         self.go_at = 0.0;
         self.last_camera_pos = (Vector2::ZERO, 0.0);
 
-        self.pending.clear();
-        self.recent.clear();
-        self.err_pos = Vec2::ZERO;
-        self.err_rot = 0.0;
-
-        self.last_snap_tick = 0;
-        self.render_time = 0.0;
-        self.latest_server_time = 0.0;
-        self.snap_clock_at = self.clock;
-        self.have_clock = false;
-        self.remotes.clear();
-
-        self.prev = self.curr;
         self.results = None;
+
+        self.sim.go_tick = None;
     }
 }
 
 impl Scene for GameScene {
-    fn fixed_update(&mut self, ctx: &mut ctx::Context) -> super::Transition {
-        self.sim_tick(ctx);
-        super::Transition::None
+    fn fixed_update(&mut self, _ctx: &mut ctx::Context) -> Transition {
+        Transition::None
     }
-    fn update(&mut self, ctx: &mut ctx::Context, dt: f32, alpha: f32) -> super::Transition {
-        if let StartPhase::Countdown { go_time } = self.phase {
-            if self.server_now() >= go_time {
+    fn update(&mut self, ctx: &mut ctx::Context, dt: f32, _alpha: f32) -> super::Transition {
+        self.clock += dt;
+
+        if let StartPhase::Countdown { go_tick } = self.phase {
+            if (self.sim.tick().wrapping_sub(go_tick) as i32) >= 0 {
                 self.phase = StartPhase::Racing;
                 self.go_at = self.clock;
             }
@@ -371,49 +199,42 @@ impl Scene for GameScene {
                 Some(ClientMsg::Ready(!self.ready.contains(&self.my_id)))
             };
             if let Some(m) = msg {
-                let _ = ctx.net.send(Channel::Reliable, &m);
+                let _ = ctx.net.send(&m);
             }
         }
 
-        self.clock += dt;
-        let now = self.clock;
-
-        let k = (-ERR_DECAY * dt).exp();
-        self.err_pos *= k;
-        self.err_rot *= k;
-
-        let pos = self.prev.pos.lerp(self.curr.pos, alpha) + self.err_pos;
-        let rot = self.prev.rot + wrap_angle(self.curr.rot - self.prev.rot) * alpha + self.err_rot;
-        let z = self.prev.z + (self.curr.z - self.prev.z) * alpha;
-        let me = Pose {
-            pos,
-            rot,
-            z,
-            vz: self.curr.vz,
-            speed: self.curr.vel.length(),
-            status: self.curr.status,
-            invuln: self.curr.invuln,
+        let input = if self.game_finished {
+            Input::default()
+        } else {
+            sample_input(ctx.rl)
         };
-        if let Some(car) = self.cars.get_mut(&self.my_id) {
-            apply_pose(car, now, &me);
+        let mut out = Vec::new();
+        self.sim.update(dt.min(0.25), input, &mut out);
+        for m in out {
+            let _ = ctx.net.send(&m);
         }
 
-        if self.have_clock {
-            self.render_time += dt;
-            let target = self.latest_server_time - INTERP_DELAY;
-            let diff = target - self.render_time;
-            if diff.abs() > 0.25 {
-                self.render_time = target;
-            } else {
-                self.render_time += diff * (1.0 - (-2.0 * dt).exp());
-            }
-
-            for (id, q) in self.remotes.iter_mut() {
-                while q.len() > 2 && q[1].0 <= self.render_time {
-                    q.pop_front();
+        if self.sim.have_world() {
+            for i in 0..MAX_CARS {
+                let id = i as PlayerId;
+                let c = self.sim.w.cars[i];
+                if !c.active {
+                    self.cars.remove(&id);
+                    continue;
                 }
-                if let (Some(p), Some(car)) = (sample(q, self.render_time), self.cars.get_mut(id)) {
-                    apply_pose(car, now, &p);
+                self.ensure_car(ctx, id, c.pos, c.rot);
+                let (pos, rot, z) = self.sim.view(i);
+                let pose = Pose {
+                    pos,
+                    rot,
+                    z,
+                    vz: c.vz,
+                    speed: c.speed(),
+                    status: c.status,
+                    invuln: c.invuln,
+                };
+                if let Some(car) = self.cars.get_mut(&id) {
+                    apply_pose(car, self.clock, &pose);
                 }
             }
         }
@@ -429,7 +250,7 @@ impl Scene for GameScene {
             }
         }
 
-        super::Transition::None
+        Transition::None
     }
     fn draw(&mut self, ctx: &mut ctx::Context) {
         self.fx.flush(ctx);
@@ -531,8 +352,8 @@ impl Scene for GameScene {
                     let w = tm.measure_text(&hint, 10);
                     tm.draw_text(&hint, 160 - w / 2, 150, 10, Color::WHITE);
                 }
-                StartPhase::Countdown { go_time } => {
-                    let rem = go_time - self.server_now();
+                StartPhase::Countdown { go_tick } => {
+                    let rem = (go_tick.wrapping_sub(self.sim.tick()) as i32) as f32 * DT;
                     if rem > 0.0 {
                         let n = rem.ceil();
                         let p = 1.0 - (rem - (n - 1.0));
@@ -594,31 +415,51 @@ impl Scene for GameScene {
                 tm.draw_text("Race finished", 10, 166, 8, Color::GRAY);
             }
         }
+
+        // let debug = format!(
+        //     "rtt {:.0} ms | margin {} (target 2) | clock x{:.3} | lead {} | corr {:.2}px",
+        //     self.sim.rtt * 1000.,
+        //     self.sim.early,
+        //     self.sim.rate(),
+        //     self.sim.lead_ticks(),
+        //     self.sim.max_err
+        // );
+        // tm.draw_text(&debug, 10, 40, 10, Color::WHITE);
     }
 
     fn on_message(
         &mut self,
-        ctx: &mut ctx::Context,
+        _ctx: &mut ctx::Context,
         msg: &wrum_net::proto::ServerMsg,
     ) -> super::Transition {
         match msg {
-            ServerMsg::Snapshot { tick, cars } => self.apply_snapshot(ctx, *tick, cars),
-            ServerMsg::PlayerJoined { id, name: _, spawn } => {
-                self.ensure_car(ctx, *id, spawn);
+            ServerMsg::Snapshot { world, early } => self.sim.on_snapshot(world, *early),
+            ServerMsg::Relay {
+                slot,
+                first,
+                inputs,
+            } => self.sim.on_relay(*slot as usize, *first, inputs),
+            ServerMsg::Pong { t0, tick, frac } => self.sim.on_pong(*t0, *tick, *frac),
+            ServerMsg::PlayerJoined { slot, .. } => self.sim.on_player_changed(*slot as usize),
+            ServerMsg::PlayerLeft { slot } => {
+                self.sim.on_player_changed(*slot as usize);
+                self.cars.remove(slot);
             }
-            ServerMsg::PlayerLeft { id } => {
-                self.physics.remove_remote(*id);
-                self.remotes.remove(id);
-                self.cars.remove(id);
+            ServerMsg::Countdown { go_tick } => {
+                self.phase = StartPhase::Countdown { go_tick: *go_tick };
+                self.sim.go_tick = Some(*go_tick);
+            }
+            ServerMsg::RaceReset => {
+                self.reset_race();
             }
             ServerMsg::Race {
-                id,
+                slot,
                 lap,
                 next: _,
                 finished,
                 lap_time: _,
             } => {
-                if *id == self.my_id {
+                if *slot == self.my_id {
                     self.lap = *lap;
                     if *finished {
                         self.finished = true;
@@ -629,33 +470,23 @@ impl Scene for GameScene {
                         }
                     }
                 } else if *finished {
-                    self.remote_finished.insert(*id);
-                    if self.following == *id {
+                    self.remote_finished.insert(*slot);
+                    if self.following == *slot {
                         if let Some(next) = self.next_unfinished() {
                             self.following = next;
                         }
                     }
                 }
             }
-            ServerMsg::Positions { tick, order } => {
-                if *tick > self.last_order_tick {
-                    self.last_order_tick = *tick;
-                    self.order = order.clone();
-                }
-            }
-            ServerMsg::Countdown { go_tick } => {
-                self.phase = StartPhase::Countdown {
-                    go_time: *go_tick as f32 * TICK_DT,
-                }
+            ServerMsg::Positions { order } => {
+                self.order = order.clone();
             }
             ServerMsg::LobbyState { host, ready } => {
                 self.host = *host;
                 self.ready = ready.iter().copied().collect();
             }
-            ServerMsg::RaceReset => {
-                self.reset_race();
-            }
             ServerMsg::Results { order, players } => {
+                self.sim.go_tick = None;
                 if let Some(following) = self.cars.get(&self.following) {
                     self.last_camera_pos = (following.p, following.a);
                 }
@@ -689,44 +520,11 @@ fn big_text(tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, s: &str, size: i32
 
 fn sample_input(rl: &RaylibHandle) -> Input {
     Input {
-        seq: 0,
         steer: rl.is_key_down(KeyboardKey::KEY_D) as i8 - rl.is_key_down(KeyboardKey::KEY_A) as i8,
         throttle: rl.is_key_down(KeyboardKey::KEY_W) as i8
             - rl.is_key_down(KeyboardKey::KEY_S) as i8,
         drift: rl.is_key_down(KeyboardKey::KEY_SPACE),
     }
-}
-fn wrap_angle(a: f32) -> f32 {
-    use std::f32::consts::{PI, TAU};
-    (a + PI).rem_euclid(TAU) - PI
-}
-fn sample(q: &VecDeque<(f32, CarState)>, t: f32) -> Option<Pose> {
-    let pose = |s: &CarState, pos, rot, z| Pose {
-        pos,
-        rot,
-        z,
-        vz: s.vz,
-        speed: s.vel.length(),
-        status: s.status,
-        invuln: s.invuln,
-    };
-    let (t_first, first) = q.front()?;
-    if t <= *t_first {
-        return Some(pose(first, first.pos, first.rot, first.z));
-    }
-    for ((t0, s0), (t1, s1)) in q.iter().zip(q.iter().skip(1)) {
-        if t >= *t0 && t <= *t1 {
-            let f = (t - t0) / (t1 - t0);
-            return Some(pose(
-                s0,
-                s0.pos.lerp(s1.pos, f),
-                s0.rot + wrap_angle(s1.rot - s0.rot) * f,
-                s0.z + (s1.z - s0.z) * f,
-            ));
-        }
-    }
-    let (_, l) = q.back()?;
-    Some(pose(l, l.pos, l.rot, l.z))
 }
 fn apply_pose(car: &mut Car, now: f32, p: &Pose) {
     car.p = Vector2 {

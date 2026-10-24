@@ -7,6 +7,7 @@ mod game_loop;
 mod map;
 mod net;
 mod scene;
+mod sim;
 mod stack;
 
 #[cfg(target_family = "wasm")]

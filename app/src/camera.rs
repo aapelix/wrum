@@ -7,11 +7,19 @@ pub struct Camera {
     vel: Vector2,
     av: f32,
     init: bool,
+
+    last_target: Vector2,
+    target_vel: Vector2,
 }
 
 const POS_SMOOTH: f32 = 0.10;
 const ROT_SMOOTH: f32 = 0.35;
 const MAX_ROT_SPEED: f32 = 240.0;
+
+const LOOK_TIME: f32 = 0.4;
+const MAX_LOOK: f32 = 55.0;
+const VEL_SMOOTH: f32 = 0.30;
+const MAX_PLAUSIBLE_SPEED: f32 = 3000.0;
 
 fn angle_diff(target: f32, current: f32) -> f32 {
     (target - current + 180.0).rem_euclid(360.0) - 180.0
@@ -27,17 +35,45 @@ fn smooth_damp(cur: f32, target: f32, vel: &mut f32, smooth_time: f32, dt: f32) 
 }
 
 impl Camera {
-    pub fn update(&mut self, target: Vector2, target_a: f32, dt: f32) {
-        let dt = dt.min(1.0 / 20.0);
+    pub fn update(&mut self, target: Vector2, target_a: f32, raw_dt: f32) {
+        let dt = raw_dt.min(1.0 / 20.0);
         if !self.init {
             self.p = target;
             self.a = target_a;
+            self.last_target = target;
             self.init = true;
             return;
         }
 
-        self.p.x = smooth_damp(self.p.x, target.x, &mut self.vel.x, POS_SMOOTH, dt);
-        self.p.y = smooth_damp(self.p.y, target.y, &mut self.vel.y, POS_SMOOTH, dt);
+        if raw_dt > 1e-5 {
+            let raw = Vector2::new(
+                (target.x - self.last_target.x) / raw_dt,
+                (target.y - self.last_target.y) / raw_dt,
+            );
+            if raw.length() > MAX_PLAUSIBLE_SPEED {
+                self.target_vel = Vector2::zero();
+            } else {
+                let k = 1.0 - (-raw_dt / VEL_SMOOTH).exp();
+                self.target_vel.x += (raw.x - self.target_vel.x) * k;
+                self.target_vel.y += (raw.y - self.target_vel.y) * k;
+            }
+        }
+        self.last_target = target;
+
+        let speed = self.target_vel.length();
+        let look = if speed > 1e-3 {
+            let dist = MAX_LOOK * (speed * LOOK_TIME / MAX_LOOK).tanh();
+            Vector2::new(
+                self.target_vel.x / speed * dist,
+                self.target_vel.y / speed * dist,
+            )
+        } else {
+            Vector2::zero()
+        };
+        let aim = Vector2::new(target.x + look.x, target.y + look.y);
+
+        self.p.x = smooth_damp(self.p.x, aim.x, &mut self.vel.x, POS_SMOOTH, dt);
+        self.p.y = smooth_damp(self.p.y, aim.y, &mut self.vel.y, POS_SMOOTH, dt);
 
         let unwrapped = self.a + angle_diff(target_a, self.a);
         self.a = smooth_damp(self.a, unwrapped, &mut self.av, ROT_SMOOTH, dt);
