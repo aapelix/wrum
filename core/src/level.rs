@@ -1,6 +1,6 @@
 use glam::Vec2;
 
-use crate::map::{LayerJson, ObjectKindJson, load_map};
+use crate::map::load_map;
 
 pub enum Shape {
     Box { hw: f32, hh: f32 },
@@ -27,6 +27,33 @@ pub struct Zone {
     pub rot: f32,
     pub points: Vec<Vec2>, // relative to pos
     pub surface: Surface,
+}
+#[derive(Clone)]
+pub struct Pad {
+    pub pos: Vec2,
+    pub rot: f32,
+    pub hw: f32,
+    pub hh: f32,
+    pub jump_power: f32,
+    // pub vel_power: f32,
+}
+impl Pad {
+    pub fn contains(&self, p: Vec2) -> bool {
+        let d = p - self.pos;
+        let (s, c) = libm::sincosf(-self.rot);
+        let l = Vec2::new(d.x * c - d.y * s, d.x * s + d.y * c);
+        l.x.abs() <= self.hw && l.y.abs() <= self.hh
+    }
+    pub fn corners(&self) -> [Vec2; 4] {
+        let (s, c) = libm::sincosf(self.rot);
+        let rotate = |x: f32, y: f32| Vec2::new(x * c - y * s, x * s + y * c) + self.pos;
+        [
+            rotate(-self.hw, -self.hh),
+            rotate(self.hw, -self.hh),
+            rotate(self.hw, self.hh),
+            rotate(-self.hw, self.hh),
+        ]
+    }
 }
 impl Zone {
     pub fn contains(&self, p: Vec2) -> bool {
@@ -55,6 +82,7 @@ pub struct Level {
     pub surf_h: usize,
     pub checkpoints: Vec<Checkpoint>,
     pub checkpoint_count: u32,
+    pub pads: Vec<Pad>,
 }
 
 impl Level {
@@ -64,59 +92,50 @@ impl Level {
         let mut obstacles = Vec::new();
         let mut spawns = Vec::new();
         let mut checkpoints = Vec::new();
+        let mut pads = Vec::new();
 
-        for layer in &map.layers {
-            match layer {
-                LayerJson::ObjectLayer(layer) => {
-                    for obj in &layer.objects {
-                        match &obj.kind {
-                            ObjectKindJson::Wall => {
-                                let hw = obj.width * 0.5;
-                                let hh = obj.height * 0.5;
-
-                                obstacles.push(Obstacle {
-                                    pos: Vec2 {
-                                        x: obj.x + hw,
-                                        y: obj.y + hh,
-                                    },
-                                    rot: obj.rotation.to_radians(),
-                                    shape: Shape::Box { hw, hh },
-                                });
-                            }
-                            ObjectKindJson::Spawn { properties } => {
-                                let rotation = properties
-                                    .iter()
-                                    .find(|p| p.name == "rotation")
-                                    .and_then(|p| p.value.as_f64())
-                                    .unwrap() as f32;
-                                spawns.push((Vec2 { x: obj.x, y: obj.y }, rotation.to_radians()));
-                            }
-                            ObjectKindJson::Check { properties } => {
-                                let index = properties
-                                    .iter()
-                                    .find(|p| p.name == "index")
-                                    .and_then(|p| p.value.as_u64())
-                                    .ok_or_else(|| anyhow::anyhow!("checkpoint without index"))?
-                                    as u32;
-                                let (hw, hh) = (obj.width * 0.5, obj.height * 0.5);
-                                let rot = obj.rotation.to_radians();
-                                let (s, c) = libm::sincosf(rot);
-                                let center =
-                                    Vec2::new(obj.x + hw * c - hh * s, obj.y + hw * s + hh * c);
-                                checkpoints.push(Checkpoint {
-                                    index,
-                                    pos: center,
-                                    rot,
-                                    hw,
-                                    hh,
-                                });
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            }
+        for check in map.checkpoints {
+            checkpoints.push(Checkpoint {
+                index: check.5,
+                pos: Vec2 {
+                    x: check.0,
+                    y: check.1,
+                },
+                rot: check.4.to_radians(),
+                hw: check.2 / 2.,
+                hh: check.3 / 2.,
+            });
+        }
+        for spawn in map.spawns {
+            spawns.push((
+                Vec2 {
+                    x: spawn.0,
+                    y: spawn.1,
+                },
+                (spawn.2 + 90.).to_radians(),
+            ));
+        }
+        for coll in map.colliders {
+            obstacles.push(Obstacle {
+                pos: Vec2 {
+                    x: coll.0,
+                    y: coll.1,
+                },
+                rot: coll.4.to_radians(),
+                shape: Shape::Box {
+                    hw: coll.2 / 2.,
+                    hh: coll.3 / 2.,
+                },
+            });
+        }
+        for p in map.jump_pads {
+            pads.push(Pad {
+                pos: Vec2::new(p.0, p.1),
+                rot: p.4.to_radians(),
+                hw: p.2 / 2.,
+                hh: p.3 / 2.,
+                jump_power: p.5,
+            });
         }
 
         let (surf_px, surf_w, surf_h) = load_mask("assets/maps/untitled_mask.png")?;
@@ -142,6 +161,7 @@ impl Level {
             surf_h,
             checkpoints,
             checkpoint_count,
+            pads,
         })
     }
     pub fn dist_to_gate(&self, index: u32, p: Vec2) -> f32 {
@@ -169,7 +189,6 @@ pub fn load_mask(path: &str) -> anyhow::Result<(Vec<u8>, usize, usize)> {
         .map(|p| match p.0 {
             [0, 255, 0] => Surface::Grass as u8,
             [0, 0, 255] => Surface::Water as u8,
-            [255, 255, 0] => Surface::Pad as u8,
             _ => Surface::Road as u8,
         })
         .collect();

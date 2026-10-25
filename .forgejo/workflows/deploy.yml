@@ -7,7 +7,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: wrum
+    runs-on: codeberg-small
     steps:
       - uses: actions/checkout@v7
       - name: Install Railway CLI
@@ -17,4 +17,4 @@ jobs:
       - name: Deploy to Railway
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: railway up --ci --service web
+        run: railway up --ci --service wrum

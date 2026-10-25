@@ -313,4 +313,7 @@ impl NetSim {
         }
         (p + self.err_pos[i], r + self.err_rot[i], z)
     }
+    pub fn map(&self) -> &wrum_core::sim::grid::Map {
+        &self.map
+    }
 }

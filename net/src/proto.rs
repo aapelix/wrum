@@ -74,6 +74,7 @@ pub enum ServerMsg {
     Results {
         order: Vec<PlayerId>,
         players: Vec<PlayerResult>,
+        reset_tick: u32,
     },
     RaceReset,
 }

@@ -667,11 +667,20 @@ impl Lobby {
                 })
             })
             .collect();
+        let reset_tick = self
+            .world
+            .tick
+            .wrapping_add((RESULTS_TIMEOUT.as_secs_f64() / DT as f64).ceil() as u32);
         self.phase = Phase::Results {
             reset_at: Instant::now() + RESULTS_TIMEOUT,
         };
+
         self.h.open.store(false, Relaxed);
-        self.broadcast(&ServerMsg::Results { order, players });
+        self.broadcast(&ServerMsg::Results {
+            order,
+            players,
+            reset_tick,
+        });
     }
     fn reset_race(&mut self) {
         let tick = self.world.tick;

@@ -7,17 +7,10 @@ use raylib::{
     shaders::{RaylibShader, Shader},
     texture::RaylibTexture2D,
 };
-use wrum_core::map::{LayerJson, ObjectKindJson, load_map};
+use wrum_core::map::load_map;
 
-use crate::{GLSL_VERSION, camera::Camera, car::SHADOW_OFFSET, ctx::Context, stack::Stack};
-
-const OVERLAP: f32 = 0.5;
-const INSET: f32 = 0.01;
-
-pub const TILE_SIZE: f32 = 16.;
-pub const CENTER: Vector2 = Vector2 {
-    x: TILE_SIZE / 2.,
-    y: TILE_SIZE / 2.,
+use crate::{
+    GLSL_VERSION, assets::Assets, camera::Camera, car::SHADOW_OFFSET, ctx::Context, stack::Stack,
 };
 
 pub struct Prop {
@@ -42,99 +35,20 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn load(ctx: &mut Context, path: &str) -> Map {
-        let map_json = load_map(path).expect("failed to load map");
+    pub fn load(ctx: &mut Context, path: &str, data_path: &str, layers: i8) -> Map {
+        let map_json = load_map(data_path).expect("failed to load map");
 
         let mut props = Vec::new();
         let mut water = Vec::new();
 
-        let size = Vector2::new(
-            map_json.width as f32 * TILE_SIZE,
-            map_json.height as f32 * TILE_SIZE,
-        );
-
-        for layer in map_json.layers {
-            match layer {
-                LayerJson::TileLayer(_) => {}
-                LayerJson::ObjectLayer(layer) => {
-                    for object in layer.objects {
-                        match object.kind {
-                            ObjectKindJson::Fence { properties, .. } => {
-                                let rotation = properties
-                                    .iter()
-                                    .find(|p| p.name == "rotation")
-                                    .and_then(|p| p.value.as_f64())
-                                    .unwrap() as f32;
-                                let stack = Stack::new(ctx, "assets/fence.png", 20.);
-
-                                props.push(Prop {
-                                    stack,
-                                    pos: Vector2::new(object.x, object.y),
-                                    a: rotation,
-                                    z: 0.,
-                                });
-                            }
-                            ObjectKindJson::Water => {
-                                water.push(Rectangle {
-                                    x: object.x,
-                                    y: object.y,
-                                    width: object.width,
-                                    height: object.height,
-                                });
-                            }
-                            ObjectKindJson::Pole { properties, .. } => {
-                                let rotation = properties
-                                    .iter()
-                                    .find(|p| p.name == "rotation")
-                                    .and_then(|p| p.value.as_f64())
-                                    .unwrap() as f32;
-                                let stack = Stack::new(ctx, "assets/pole.png", 5.);
-
-                                props.push(Prop {
-                                    stack,
-                                    pos: Vector2::new(object.x, object.y),
-                                    a: rotation,
-                                    z: 0.,
-                                });
-                            }
-                            ObjectKindJson::FinishFlag { properties, .. } => {
-                                let rotation = properties
-                                    .iter()
-                                    .find(|p| p.name == "rotation")
-                                    .and_then(|p| p.value.as_f64())
-                                    .unwrap() as f32;
-                                let z = properties
-                                    .iter()
-                                    .find(|p| p.name == "z")
-                                    .and_then(|p| p.value.as_f64())
-                                    .unwrap() as f32;
-                                let stack = Stack::new(ctx, "assets/finish_flag_wide.png", 55.);
-                                props.push(Prop {
-                                    stack,
-                                    pos: Vector2::new(object.x, object.y),
-                                    a: rotation,
-                                    z,
-                                });
-                            }
-                            ObjectKindJson::JumpPad { properties, .. } => {
-                                let stack = Stack::new(ctx, "assets/jump_pad.png", 60.);
-                                let rotation = properties
-                                    .iter()
-                                    .find(|p| p.name == "rotation")
-                                    .and_then(|p| p.value.as_f64())
-                                    .unwrap() as f32;
-                                props.push(Prop {
-                                    stack,
-                                    pos: Vector2::new(object.x, object.y),
-                                    a: rotation,
-                                    z: 0.,
-                                });
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
+        for w in map_json.water {
+            let (hw, hh) = (w.2 / 2., w.3 / 2.);
+            water.push(Rectangle {
+                x: w.0 - hw,
+                y: w.1 - hh,
+                width: w.2,
+                height: w.3,
+            });
         }
 
         let shader_dir = format!("assets/shaders/glsl{}", GLSL_VERSION);
@@ -150,7 +64,12 @@ impl Map {
         let loc_clip = water_shader.get_shader_location("uClip");
         let loc_alpha = water_shader.get_shader_location("uAlpha");
 
-        let layers = Stack::new(ctx, "assets/maps/untitled.png", 2129.);
+        let (w, h) = {
+            let tex = ctx.assets.load(ctx.rl, ctx.thread, path);
+            let tex = ctx.assets.get(&tex);
+            (tex.width() as f32, tex.height() as f32)
+        };
+        let layers = Stack::new(ctx, path, w / layers as f32);
 
         Self {
             layers,
@@ -162,25 +81,27 @@ impl Map {
             loc_inv,
             loc_alpha,
             loc_clip,
-            size,
+            size: Vector2 { x: w, y: h },
         }
     }
 
     pub fn draw_layers(
         &mut self,
+        assets: &Assets,
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         camera: &Camera,
     ) {
         self.draw_water(tm, camera);
         self.layers.draw(
+            assets,
             tm,
             Vector2 {
-                x: 1064.5,
-                y: 756.5,
+                x: self.size.x / 2.,
+                y: self.size.y / 2.,
             },
             0.,
             camera,
-            1.,
+            0.,
         );
     }
     pub fn draw_water(
@@ -246,12 +167,14 @@ impl Map {
     }
     pub fn draw_prop(
         &mut self,
+        assets: &Assets,
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         i: usize,
         camera: &Camera,
     ) {
         let prop = &self.props[i];
         prop.stack.draw(
+            assets,
             tm,
             Vector2 {
                 x: prop.pos.x,

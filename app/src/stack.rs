@@ -2,12 +2,15 @@ use raylib::{
     RaylibHandle,
     color::Color,
     drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
-    ffi::TextureFilter,
     math::{Rectangle, Vector2},
-    texture::{RaylibRenderTexture2D, RaylibTexture2D, RenderTexture2D, Texture2D},
+    texture::{RaylibRenderTexture2D, RaylibTexture2D, RenderTexture2D},
 };
 
-use crate::{camera::Camera, ctx::Context};
+use crate::{
+    assets::{AssetId, Assets},
+    camera::Camera,
+    ctx::Context,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Part {
@@ -18,7 +21,7 @@ pub enum Part {
 const WATER_FADE: f32 = 12.0;
 
 pub struct Stack {
-    tex: Texture2D,
+    asset_id: AssetId,
     shadow: RenderTexture2D,
     center: Vector2,
     sw: f32,
@@ -29,8 +32,8 @@ pub struct Stack {
 
 impl Stack {
     pub fn new(ctx: &mut Context, path: &str, sw: f32) -> Self {
-        let tex = ctx.rl.load_texture(&ctx.thread, path).unwrap();
-        tex.set_texture_filter(&ctx.thread, TextureFilter::TEXTURE_FILTER_POINT);
+        let asset_id = ctx.assets.load(ctx.rl, ctx.thread, path);
+        let tex = ctx.assets.get(&asset_id);
 
         let w = tex.width();
         let h = tex.height();
@@ -60,7 +63,7 @@ impl Stack {
         }
 
         Self {
-            tex,
+            asset_id,
             shadow,
             center: Vector2 {
                 x: sw / 2.,
@@ -78,16 +81,18 @@ impl Stack {
     // }
     pub fn draw(
         &self,
+        assets: &Assets,
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         pos: Vector2,
         a: f32,
         camera: &Camera,
         offset_y: f32,
     ) {
-        self.draw_part(tm, pos, a, camera, offset_y, Part::All, 255);
+        self.draw_part(assets, tm, pos, a, camera, offset_y, Part::All, 255);
     }
     pub fn draw_part(
         &self,
+        assets: &Assets,
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         pos: Vector2,
         a: f32,
@@ -98,6 +103,7 @@ impl Stack {
     ) {
         let (pos, a) = camera.apply(pos, a);
         let zr = z.round();
+        let tex = assets.get(&self.asset_id);
         for i in 0..self.c {
             let lift = (i as f32 * self.spacing).round();
             let h = z + lift;
@@ -128,7 +134,7 @@ impl Stack {
                 width: self.sw,
                 height: self.h,
             };
-            tm.draw_texture_pro(&self.tex, src, dst, self.center, a, tint);
+            tm.draw_texture_pro(tex, src, dst, self.center, a, tint);
         }
     }
     pub fn draw_shadow(

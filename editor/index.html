@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Collider Editor</title>
+  </head>
+  <body>
+    <aside id="side">
+      <h1>Collider Editor</h1>
+
+      <section class="row wrap">
+        <button id="btn-image" title="Load background image (or drop one on the window)">Load image</button>
+        <button id="btn-import" title="Import a JSON file (or drop one on the window)">Import JSON</button>
+        <button id="btn-paste" title="Import JSON from clipboard">Paste JSON</button>
+        <button id="btn-copy">Copy JSON</button>
+        <button id="btn-download">Download</button>
+        <button id="btn-fit" title="F">Fit view</button>
+        <button id="btn-clear">Clear all</button>
+        <input id="file-image" type="file" accept="image/*" hidden />
+        <input id="file-json" type="file" accept=".json,application/json" hidden />
+      </section>
+
+      <section class="row">
+        <button id="mode-select" class="toggle" title="V">Select (V)</button>
+        <button id="mode-draw" class="toggle" title="D or 1-9">Draw (D)</button>
+        <label class="check"><input id="snap" type="checkbox" checked /> Snap to ints</label>
+      </section>
+
+      <section>
+        <h2>Types <small>(click or press 1-9 to draw)</small></h2>
+        <div id="types"></div>
+      </section>
+
+      <section>
+        <h2>Selected</h2>
+        <div id="props"></div>
+      </section>
+
+      <section class="grow">
+        <h2>Items</h2>
+        <div id="list"></div>
+      </section>
+
+      <section class="help">
+        <b>Wheel</b> zoom · <b>Space/Middle/Right drag</b> pan<br />
+        <b>Drag</b> move · handles resize/rotate · <b>Shift</b> rotate snaps 15°<br />
+        <b>Alt+click</b> pick item underneath<br />
+        <b>Del</b> delete · <b>Ctrl+D</b> duplicate · <b>Arrows</b> nudge (Shift ×10)<br />
+        <b>Ctrl+Z / Ctrl+Shift+Z</b> undo / redo · <b>Esc</b> deselect
+      </section>
+    </aside>
+
+    <main id="stage">
+      <canvas id="cv"></canvas>
+      <div id="status"></div>
+      <div id="toast"></div>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

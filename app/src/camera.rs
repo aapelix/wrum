@@ -16,8 +16,8 @@ const POS_SMOOTH: f32 = 0.10;
 const ROT_SMOOTH: f32 = 0.35;
 const MAX_ROT_SPEED: f32 = 240.0;
 
-const LOOK_TIME: f32 = 0.4;
-const MAX_LOOK: f32 = 55.0;
+const LOOK_TIME: f32 = 0.5;
+const MAX_LOOK: f32 = 70.0;
 const VEL_SMOOTH: f32 = 0.30;
 const MAX_PLAUSIBLE_SPEED: f32 = 3000.0;
 

@@ -1,7 +1,7 @@
 use glam::Vec2;
 
 use crate::{
-    level::{Level, Shape},
+    level::{Level, Pad, Shape},
     sim::Surface,
 };
 
@@ -50,6 +50,7 @@ pub struct Map {
     grid: Vec<Vec<u16>>,
     pub segs: Vec<Seg>,
     pub gates: Vec<Gate>,
+    pub pads: Vec<Pad>,
 }
 
 fn xform(pos: Vec2, rot: f32, pts: &[Vec2]) -> Vec<Vec2> {
@@ -155,6 +156,7 @@ impl Map {
             grid,
             segs,
             gates,
+            pads: level.pads.clone(),
         }
     }
     pub fn surface_at(&self, p: Vec2) -> Surface {
@@ -166,6 +168,12 @@ impl Map {
             return Surface::Road;
         }
         Surface::from_u8(self.surf[y * self.sw + x])
+    }
+    pub fn pad_at(&self, p: Vec2) -> Option<f32> {
+        self.pads
+            .iter()
+            .find(|pad| pad.contains(p))
+            .map(|pad| pad.jump_power)
     }
     pub fn nearby(&self, p: Vec2) -> &[u16] {
         if p.x < 0.0 || p.y < 0.0 {

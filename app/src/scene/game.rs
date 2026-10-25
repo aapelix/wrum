@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-#[cfg(feature = "debug-renderer")]
-use raylib::drawing::RaylibTextureMode;
 use raylib::{
     RaylibHandle,
     drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
@@ -9,8 +7,6 @@ use raylib::{
     math::Rectangle,
     texture::{RaylibRenderTexture2D, RenderTexture2D},
 };
-#[cfg(feature = "debug-renderer")]
-use wrum_core::physics::{DebugColor, Vector};
 use wrum_core::{
     PlayerId,
     level::Level,
@@ -78,9 +74,15 @@ pub struct GameScene {
     game_finished: bool,
 
     results: Option<(Vec<PlayerId>, Vec<PlayerResult>)>,
+    results_at: f32,
+    reset_tick: u32,
+    results_wait: f32,
 
     level: Level,
     fx: Fx,
+
+    #[cfg(feature = "debug-renderer")]
+    show_debug: bool,
 }
 
 impl GameScene {
@@ -92,7 +94,12 @@ impl GameScene {
         private: bool,
     ) -> Self {
         let level = Level::load("assets/maps/untitled.json").unwrap();
-        let map = Map::load(ctx, "assets/maps/untitled.json");
+        let map = Map::load(
+            ctx,
+            "assets/maps/untitled.png",
+            "assets/maps/untitled.json",
+            1,
+        );
 
         let map_grid = grid::Map::from_level(&level);
         let sim = NetSim::new(map_grid, my_id as usize);
@@ -124,8 +131,13 @@ impl GameScene {
             remote_finished: HashSet::new(),
             game_finished: false,
             results: None,
+            results_at: 0.,
+            reset_tick: 0,
+            results_wait: 0.,
             fx,
             level,
+            #[cfg(feature = "debug-renderer")]
+            show_debug: false,
         };
         // for (id, st) in players {
         //     s.ensure_car(ctx, *id, st.pos, st.rot);
@@ -171,8 +183,10 @@ impl GameScene {
         self.last_camera_pos = (Vector2::ZERO, 0.0);
 
         self.results = None;
+        self.results_at = 0.;
 
         self.sim.go_tick = None;
+        self.fx.clear();
     }
 }
 
@@ -250,6 +264,11 @@ impl Scene for GameScene {
             }
         }
 
+        #[cfg(feature = "debug-renderer")]
+        if ctx.rl.is_key_pressed(KeyboardKey::KEY_F6) {
+            self.show_debug = !self.show_debug;
+        }
+
         Transition::None
     }
     fn draw(&mut self, ctx: &mut ctx::Context) {
@@ -269,7 +288,7 @@ impl Scene for GameScene {
         let mut tm = ctx.rl.begin_texture_mode(ctx.thread, ctx.canvas);
         tm.clear_background(Color::BLACK);
 
-        self.map.draw_layers(&mut tm, &self.camera);
+        self.map.draw_layers(ctx.assets, &mut tm, &self.camera);
         self.fx.draw_marks(&mut tm, &self.camera);
         tm.draw_texture_rec(
             self.shadow_canvas.texture(),
@@ -299,19 +318,22 @@ impl Scene for GameScene {
                 Drawable::Car(id) => {
                     let car = self.cars.get(&id).unwrap();
                     let (map, cam) = (&mut self.map, &self.camera);
-                    car.draw(&mut tm, &self.camera, self.clock, |tm, pos, depth| {
-                        map.draw_water_overlay(tm, cam, pos, depth);
-                    });
+                    car.draw(
+                        ctx.assets,
+                        &mut tm,
+                        &self.camera,
+                        self.clock,
+                        |tm, pos, depth| {
+                            map.draw_water_overlay(tm, cam, pos, depth);
+                        },
+                    );
                 }
                 Drawable::Prop => {
-                    self.map.draw_prop(&mut tm, i, &self.camera);
+                    self.map.draw_prop(ctx.assets, &mut tm, i, &self.camera);
                 }
             }
         }
         self.fx.draw_puffs(&mut tm, &self.camera);
-
-        #[cfg(feature = "debug-renderer")]
-        render(&mut tm, &self.camera, &self.physics.debug_backend.lines);
 
         if !self.game_finished {
             if let Some((place, _total)) = self.my_place() {
@@ -366,65 +388,38 @@ impl Scene for GameScene {
                     }
                 }
             }
-        } else {
-            if let Some((order, players)) = &self.results {
-                tm.draw_rectangle(0, 0, 320, 180, Color::new(0, 0, 0, 180));
-
-                tm.draw_text("Results", 10, 8, 20, Color::WHITE);
-
-                tm.draw_text("POS", 12, 36, 10, Color::GRAY);
-                tm.draw_text("PLAYER", 42, 36, 10, Color::GRAY);
-                tm.draw_text("LAPS", 150, 36, 10, Color::GRAY);
-                tm.draw_text("TOTAL", 220, 36, 10, Color::GRAY);
-
-                let row_height = 16;
-                let max_rows = 7;
-
-                for (i, id) in order.iter().take(max_rows).enumerate() {
-                    let Some(result) = players.iter().find(|p| p.id == *id) else {
-                        continue;
-                    };
-
-                    let y = 50 + i as i32 * row_height;
-                    let color = if *id == self.my_id {
-                        Color::YELLOW
-                    } else {
-                        Color::WHITE
-                    };
-
-                    let position = format!("{}.", i + 1);
-                    tm.draw_text(&position, 12, y, 10, color);
-
-                    let name = format!("Player {}", id);
-                    tm.draw_text(&name, 42, y, 10, color);
-
-                    let total = format_time(result.total_time);
-                    tm.draw_text(&total, 220, y, 10, color);
-
-                    let laps = result
-                        .lap_times
-                        .iter()
-                        .enumerate()
-                        .map(|(lap, time)| format!("{}:{}", lap + 1, format_time(*time)))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-
-                    tm.draw_text(&laps, 150, y, 8, color);
-                }
-
-                tm.draw_text("Race finished", 10, 166, 8, Color::GRAY);
-            }
+        } else if let Some((order, players)) = &self.results {
+            let rem = (self.reset_tick.wrapping_sub(self.sim.tick()) as i32) as f32 * DT;
+            draw_results(
+                &mut tm,
+                order,
+                players,
+                self.my_id,
+                self.clock - self.results_at,
+                rem,
+                self.results_wait,
+            );
         }
 
-        // let debug = format!(
-        //     "rtt {:.0} ms | margin {} (target 2) | clock x{:.3} | lead {} | corr {:.2}px",
-        //     self.sim.rtt * 1000.,
-        //     self.sim.early,
-        //     self.sim.rate(),
-        //     self.sim.lead_ticks(),
-        //     self.sim.max_err
-        // );
-        // tm.draw_text(&debug, 10, 40, 10, Color::WHITE);
+        #[cfg(feature = "debug-renderer")]
+        if self.show_debug {
+            debug_draw(&mut tm, &self.camera, &self.sim);
+            let labels = ["RTT", "Marg", "Clock", "Lead", "Corr"];
+            let values = [
+                format!("{:>4.0} ms", self.sim.rtt * 1000.),
+                format!("{:>3} (target 2)", self.sim.early),
+                format!("x{:.3}", self.sim.rate()),
+                format!("{:>3} ticks", self.sim.lead_ticks()),
+                format!("{:.2} px", self.sim.max_err),
+            ];
+
+            tm.draw_rectangle(5, 5, 105, 57, Color::new(0, 0, 0, 180));
+            for (i, (label, value)) in labels.iter().zip(&values).enumerate() {
+                let y = 9 + i as i32 * 10;
+                tm.draw_text(label, 9, y, 8, Color::WHITE);
+                text_right(&mut tm, value, 105, y, 8, Color::WHITE);
+            }
+        };
     }
 
     fn on_message(
@@ -485,11 +480,19 @@ impl Scene for GameScene {
                 self.host = *host;
                 self.ready = ready.iter().copied().collect();
             }
-            ServerMsg::Results { order, players } => {
+            ServerMsg::Results {
+                order,
+                players,
+                reset_tick,
+            } => {
                 self.sim.go_tick = None;
                 if let Some(following) = self.cars.get(&self.following) {
                     self.last_camera_pos = (following.p, following.a);
                 }
+                self.reset_tick = *reset_tick;
+                self.results_wait =
+                    (reset_tick.wrapping_sub(self.sim.tick()) as i32).max(1) as f32 * DT;
+                self.results_at = self.clock;
                 self.results = Some((order.clone(), players.clone()));
                 self.game_finished = true;
             }
@@ -516,6 +519,151 @@ fn big_text(tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, s: &str, size: i32
     let (x, y) = (160 - w / 2, 70 - size / 2);
     tm.draw_text(s, x + 2, y + 2, size, Color::BLACK);
     tm.draw_text(s, x, y, size, Color::WHITE);
+}
+fn fade(c: Color, a: f32) -> Color {
+    Color::new(c.r, c.g, c.b, (c.a as f32 * a.clamp(0.0, 1.0)) as u8)
+}
+fn text_right(
+    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+    s: &str,
+    right: i32,
+    y: i32,
+    size: i32,
+    c: Color,
+) {
+    let w = tm.measure_text(s, size);
+    tm.draw_text(s, right - w, y, size, c);
+}
+
+fn draw_results(
+    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+    order: &[PlayerId],
+    players: &[PlayerResult],
+    my_id: PlayerId,
+    t: f32,
+    rem: f32,
+    wait: f32,
+) {
+    const GOLD: Color = Color::new(255, 215, 64, 255);
+    const SILVER: Color = Color::new(200, 205, 215, 255);
+    const BRONZE: Color = Color::new(205, 127, 80, 255);
+    const PURPLE: Color = Color::new(190, 120, 255, 255);
+
+    let bg = (t / 0.25).clamp(0.0, 1.0);
+    tm.draw_rectangle(0, 0, 320, 180, fade(Color::new(0, 0, 0, 200), bg));
+
+    tm.draw_text("RESULTS", 14, 10, 20, fade(Color::WHITE, bg));
+    tm.draw_rectangle(14, 32, 292, 1, fade(Color::GRAY, bg));
+
+    let hc = fade(Color::GRAY, bg);
+    tm.draw_text("POS", 14, 37, 8, hc);
+    tm.draw_text("PLAYER", 40, 37, 8, hc);
+    text_right(tm, "BEST LAP", 215, 37, 8, hc);
+    text_right(tm, "TOTAL", 306, 37, 8, hc);
+
+    let fastest = players
+        .iter()
+        .flat_map(|p| p.lap_times.iter().copied())
+        .fold(f32::INFINITY, f32::min);
+
+    let winner_total = order
+        .first()
+        .and_then(|id| players.iter().find(|p| p.id == *id))
+        .map(|p| p.total_time)
+        .unwrap_or(0.0);
+
+    let (row_h, max_rows, top) = (14, 7, 48);
+
+    for (i, id) in order.iter().take(max_rows).enumerate() {
+        let Some(r) = players.iter().find(|p| p.id == *id) else {
+            continue;
+        };
+
+        let p = ((t - 0.2 - i as f32 * 0.1) / 0.25).clamp(0.0, 1.0);
+        if p <= 0.0 {
+            continue;
+        }
+        let ease = 1.0 - (1.0 - p) * (1.0 - p);
+        let dx = ((1.0 - ease) * 40.0) as i32;
+        let y = top + i as i32 * row_h;
+        let me = *id == my_id;
+
+        if me {
+            tm.draw_rectangle(
+                10 + dx,
+                y - 2,
+                300,
+                row_h - 1,
+                fade(Color::new(255, 255, 255, 40), p),
+            );
+        }
+
+        let pos_col = match i {
+            0 => GOLD,
+            1 => SILVER,
+            2 => BRONZE,
+            _ => Color::WHITE,
+        };
+        let txt = if me { Color::YELLOW } else { Color::WHITE };
+
+        tm.draw_text(&format!("{}", i + 1), 16 + dx, y, 10, fade(pos_col, p));
+        let name = if me {
+            format!("Player {} (you)", id)
+        } else {
+            format!("Player {}", id)
+        };
+        tm.draw_text(&name, 40 + dx, y, 10, fade(txt, p));
+
+        if let Some(best) = r.lap_times.iter().copied().reduce(f32::min) {
+            let c = if (best - fastest).abs() < 1e-4 {
+                PURPLE
+            } else {
+                txt
+            };
+            text_right(tm, &format_time(best), 215 + dx, y, 10, fade(c, p));
+        }
+
+        if i == 0 {
+            text_right(
+                tm,
+                &format_time(r.total_time),
+                306 + dx,
+                y,
+                10,
+                fade(txt, p),
+            );
+        } else {
+            let gap = format!("+{:.2}", (r.total_time - winner_total).max(0.0));
+            text_right(tm, &gap, 306 + dx, y, 10, fade(txt, p));
+        }
+    }
+
+    if t > 0.2 + max_rows as f32 * 0.1 {
+        if let Some(me) = players.iter().find(|p| p.id == my_id) {
+            let a = ((t - 1.0) / 0.3).clamp(0.0, 1.0);
+            tm.draw_rectangle(14, 150, 292, 1, fade(Color::GRAY, a));
+            let laps = me
+                .lap_times
+                .iter()
+                .enumerate()
+                .map(|(i, l)| format!("L{} {}", i + 1, format_time(*l)))
+                .collect::<Vec<_>>()
+                .join("   ");
+            tm.draw_text(&laps, 14, 155, 8, fade(Color::WHITE, a));
+        }
+    }
+
+    let s = if rem > 0.0 {
+        format!("Next race in {}", rem.ceil() as i32)
+    } else {
+        "Starting...".to_string()
+    };
+    let w = tm.measure_text(&s, 10);
+    tm.draw_text(&s, 160 - w / 2, 164, 10, fade(Color::WHITE, bg));
+
+    let frac = (1.0 - rem / wait).clamp(0.0, 1.0);
+    tm.draw_rectangle(14, 176, 292, 2, fade(Color::new(255, 255, 255, 50), bg));
+    tm.draw_rectangle(14, 176, (292.0 * frac) as i32, 2, fade(Color::WHITE, bg));
 }
 
 fn sample_input(rl: &RaylibHandle) -> Input {
@@ -550,32 +698,46 @@ fn format_time(seconds: f32) -> String {
 }
 
 #[cfg(feature = "debug-renderer")]
-fn render(
-    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
-    camera: &Camera,
-    lines: &Vec<(Vector, Vector, DebugColor)>,
-) {
-    for (s, e, c) in lines {
-        let (s, _) = camera.apply(Vector2 { x: s.x, y: s.y }, 0.0);
-        let (e, _) = camera.apply(Vector2 { x: e.x, y: e.y }, 0.0);
+fn debug_draw(tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, cam: &Camera, sim: &NetSim) {
+    use wrum_core::sim::{RADIUS, Status};
 
-        tm.draw_line_v(s, e, to_rgba(*c));
-    }
-}
-#[cfg(feature = "debug-renderer")]
-pub fn to_rgba([h, s, l, a]: DebugColor) -> Color {
-    let (h, s, l) = (h / 360.0, s, l);
-
-    let f = |n: f32| {
-        let k = (n + h * 12.0) % 12.0;
-        let x = s * l.min(1.0 - l);
-        l - x * (-1.0_f32).max((k - 3.0).min(9.0 - k).min(1.0))
+    let line = |tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, a: V2, b: V2, c: Color| {
+        let (a, _) = cam.apply(Vector2 { x: a.x, y: a.y }, 0.0);
+        let (b, _) = cam.apply(Vector2 { x: b.x, y: b.y }, 0.0);
+        tm.draw_line_v(a, b, c);
     };
 
-    Color::new(
-        (f(0.0) * 255.0).round() as u8,
-        (f(8.0) * 255.0).round() as u8,
-        (f(4.0) * 255.0).round() as u8,
-        (a.clamp(0.0, 1.0) * 255.0).round() as u8,
-    )
+    let map = sim.map();
+
+    // obstacles
+    for s in &map.segs {
+        line(tm, s.a, s.b, Color::RED);
+    }
+    // checkpoints
+    for g in &map.gates {
+        line(tm, g.a, g.b, Color::YELLOW);
+    }
+    // pads
+    for p in &map.pads {
+        let c = p.corners();
+        for i in 0..4 {
+            line(tm, c[i], c[(i + 1) % 4], Color::ORANGE);
+        }
+    }
+
+    // cars
+    for car in sim.w.cars.iter().filter(|c| c.active) {
+        let col = match car.status {
+            Status::Normal if car.invuln > 0 => Color::SKYBLUE,
+            Status::Normal => Color::LIME,
+            Status::Spun => Color::MAGENTA,
+            Status::Drowning => Color::BLUE,
+        };
+        for p in car.circles() {
+            let (p, _) = cam.apply(Vector2 { x: p.x, y: p.y }, 0.0);
+            tm.draw_circle_lines(p.x as i32, p.y as i32, RADIUS, col);
+        }
+        line(tm, car.pos, car.pos + car.vel * 0.2, Color::WHITE);
+        line(tm, car.safe, car.safe + V2::new(0.0, -4.0), Color::GREEN);
+    }
 }

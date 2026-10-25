@@ -10,13 +10,12 @@ use crate::sim::grid::{Map, crossed};
 pub const DT: f32 = 1.0 / 60.0;
 pub const MAX_CARS: usize = 8;
 
-const HW: f32 = 4.0;
-const HL: f32 = 7.5;
-const RADIUS: f32 = HW; // each car = two circles
-const OFFSET: f32 = HL - HW;
+pub const HW: f32 = 4.0;
+pub const HL: f32 = 7.5;
+pub const RADIUS: f32 = HW;
+pub const OFFSET: f32 = HL - HW;
 
 const GRAVITY: f32 = 400.0;
-const JUMP_VZ: f32 = 150.0;
 const PAD_MIN_SPEED: f32 = 150.0;
 const CLEARANCE: f32 = 6.0;
 const HIT_MIN_SPEED: f32 = 70.0;
@@ -52,7 +51,6 @@ pub enum Surface {
     Road = 0,
     Grass = 1,
     Water = 2,
-    Pad = 3,
 }
 struct SurfParams {
     max_speed: f32,
@@ -65,7 +63,6 @@ impl Surface {
         match v & 3 {
             1 => Surface::Grass,
             2 => Surface::Water,
-            3 => Surface::Pad,
             _ => Surface::Road,
         }
     }
@@ -138,6 +135,10 @@ impl Car {
     }
     fn can_hit(&self) -> bool {
         self.status == Status::Normal && self.invuln == 0 && self.z < CLEARANCE
+    }
+    pub fn circles(&self) -> [Vec2; 2] {
+        let (f, _) = axes(self.rot);
+        [self.pos + f * OFFSET, self.pos - f * OFFSET]
     }
 }
 
@@ -279,9 +280,14 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
         return;
     }
 
-    let launched = surf == Surface::Pad && grounded && c.status == Status::Normal;
-    if launched {
-        c.vz = JUMP_VZ;
+    let pad = if grounded && c.status == Status::Normal {
+        map.pad_at(c.pos)
+    } else {
+        None
+    };
+    let launched = pad.is_some();
+    if let Some(power) = pad {
+        c.vz = power;
         c.z = 0.01;
     }
     let air = c.z > 0.0;

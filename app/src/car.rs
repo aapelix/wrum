@@ -2,6 +2,7 @@ use raylib::{RaylibHandle, drawing::RaylibTextureMode, math::Vector2};
 use wrum_core::sim::Status;
 
 use crate::{
+    assets::Assets,
     camera::Camera,
     ctx::Context,
     stack::{Part, Stack},
@@ -44,6 +45,7 @@ impl Car {
     }
     pub fn draw(
         &self,
+        assets: &Assets,
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         camera: &Camera,
         now: f32,
@@ -63,16 +65,16 @@ impl Car {
 
         if self.z >= 0.0 {
             for (st, p, ang) in &parts {
-                st.draw_part(tm, *p, *ang, camera, self.z, Part::All, alpha);
+                st.draw_part(assets, tm, *p, *ang, camera, self.z, Part::All, alpha);
             }
             return;
         }
         for (st, p, ang) in &parts {
-            st.draw_part(tm, *p, *ang, camera, self.z, Part::Submerged, 255);
+            st.draw_part(assets, tm, *p, *ang, camera, self.z, Part::Submerged, 255);
         }
         overlay(tm, self.p, -self.z);
         for (st, p, ang) in &parts {
-            st.draw_part(tm, *p, *ang, camera, self.z, Part::Dry, alpha);
+            st.draw_part(assets, tm, *p, *ang, camera, self.z, Part::Dry, alpha);
         }
     }
     pub fn draw_shadow(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {

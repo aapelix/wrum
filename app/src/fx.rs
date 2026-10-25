@@ -149,6 +149,9 @@ impl Fx {
         }
         self.puffs.retain(|p| p.age < p.life);
     }
+    pub fn clear(&mut self) {
+        self.tracks.clear();
+    }
 
     fn step_car(&mut self, tr: &mut Track, car: &Car, dt: f32, grass: bool) {
         let Some(prev) = tr.prev_p.replace(car.p) else {
@@ -251,7 +254,6 @@ impl Fx {
             }
         }
     }
-
     fn landing_burst(&mut self, p: Vector2, strength: f32, grass: bool) {
         for n in 0..8 {
             let ang = n as f32 / 8.0 * std::f32::consts::TAU + self.rng.range(-0.3, 0.3);

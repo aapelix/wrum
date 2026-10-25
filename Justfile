@@ -4,7 +4,7 @@ EMCC_CFLAGS :="-v -O3 -sUSE_GLFW=3 -sASSERTIONS=1 -sWASM=1 -sASYNCIFY -sGL_ENABL
 default: run
 
 run:
-    cargo run --bin wrum_app # --features debug-renderer
+    cargo run --bin wrum_app --features debug-renderer
 
 server:
     cargo run --bin wrum_server
