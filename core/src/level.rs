@@ -50,7 +50,9 @@ impl Zone {
 pub struct Level {
     pub obstacles: Vec<Obstacle>,
     pub spawns: Vec<(Vec2, f32)>,
-    pub zones: Vec<Zone>,
+    pub surf_px: Vec<u8>,
+    pub surf_w: usize,
+    pub surf_h: usize,
     pub checkpoints: Vec<Checkpoint>,
     pub checkpoint_count: u32,
 }
@@ -61,7 +63,6 @@ impl Level {
 
         let mut obstacles = Vec::new();
         let mut spawns = Vec::new();
-        let mut zones = Vec::new();
         let mut checkpoints = Vec::new();
 
         for layer in &map.layers {
@@ -90,30 +91,6 @@ impl Level {
                                     .unwrap() as f32;
                                 spawns.push((Vec2 { x: obj.x, y: obj.y }, rotation.to_radians()));
                             }
-                            ObjectKindJson::Grass { polygon } => {
-                                zones.push(Zone {
-                                    pos: Vec2 { x: obj.x, y: obj.y },
-                                    rot: obj.rotation.to_radians(),
-                                    points: polygon.iter().map(|p| Vec2::new(p.x, p.y)).collect(),
-                                    surface: Surface::Grass,
-                                });
-                            }
-                            ObjectKindJson::WaterColl { polygon } => {
-                                zones.push(Zone {
-                                    pos: Vec2 { x: obj.x, y: obj.y },
-                                    rot: obj.rotation.to_radians(),
-                                    points: polygon.iter().map(|p| Vec2::new(p.x, p.y)).collect(),
-                                    surface: Surface::Water,
-                                });
-                            }
-                            ObjectKindJson::Road { polygon } => {
-                                zones.push(Zone {
-                                    pos: Vec2 { x: obj.x, y: obj.y },
-                                    rot: obj.rotation.to_radians(),
-                                    points: polygon.iter().map(|p| Vec2::new(p.x, p.y)).collect(),
-                                    surface: Surface::Road,
-                                });
-                            }
                             ObjectKindJson::Check { properties } => {
                                 let index = properties
                                     .iter()
@@ -134,19 +111,6 @@ impl Level {
                                     hh,
                                 });
                             }
-                            ObjectKindJson::JumpPadColl => {
-                                zones.push(Zone {
-                                    pos: Vec2 { x: obj.x, y: obj.y },
-                                    rot: obj.rotation.to_radians(),
-                                    points: vec![
-                                        Vec2::new(0., 0.),
-                                        Vec2::new(obj.width, 0.),
-                                        Vec2::new(obj.width, obj.height),
-                                        Vec2::new(0., obj.height),
-                                    ],
-                                    surface: Surface::Pad,
-                                });
-                            }
                             _ => {}
                         }
                     }
@@ -154,6 +118,8 @@ impl Level {
                 _ => {}
             }
         }
+
+        let (surf_px, surf_w, surf_h) = load_mask("assets/maps/untitled_mask.png")?;
 
         let checkpoint_count = checkpoints
             .iter()
@@ -171,7 +137,9 @@ impl Level {
         Ok(Self {
             obstacles,
             spawns,
-            zones,
+            surf_px,
+            surf_w,
+            surf_h,
             checkpoints,
             checkpoint_count,
         })
@@ -184,8 +152,26 @@ impl Level {
             .fold(f32::MAX, f32::min)
     }
     pub fn on_grass(&self, p: Vec2) -> bool {
-        self.zones
-            .iter()
-            .any(|z| z.surface == Surface::Grass && z.contains(p))
+        let (x, y) = (p.x as i64, p.y as i64);
+        x >= 0
+            && y >= 0
+            && (x as usize) < self.surf_w
+            && (y as usize) < self.surf_h
+            && self.surf_px[y as usize * self.surf_w + x as usize] == Surface::Grass as u8
     }
+}
+
+pub fn load_mask(path: &str) -> anyhow::Result<(Vec<u8>, usize, usize)> {
+    let img = image::open(path)?.to_rgb8();
+    let (w, h) = img.dimensions();
+    let px = img
+        .pixels()
+        .map(|p| match p.0 {
+            [0, 255, 0] => Surface::Grass as u8,
+            [0, 0, 255] => Surface::Water as u8,
+            [255, 255, 0] => Surface::Pad as u8,
+            _ => Surface::Road as u8,
+        })
+        .collect();
+    Ok((px, w as usize, h as usize))
 }

@@ -5,7 +5,7 @@ use raylib::{
     ffi::{Vector3, rlDisableBackfaceCulling, rlEnableBackfaceCulling},
     math::{Rectangle, Vector2},
     shaders::{RaylibShader, Shader},
-    texture::{RaylibTexture2D, Texture2D},
+    texture::RaylibTexture2D,
 };
 use wrum_core::map::{LayerJson, ObjectKindJson, load_map};
 
@@ -20,13 +20,6 @@ pub const CENTER: Vector2 = Vector2 {
     y: TILE_SIZE / 2.,
 };
 
-pub struct Tile {
-    pos: Vector2,
-    src: Rectangle,
-}
-pub struct Layer {
-    tiles: Vec<Tile>,
-}
 pub struct Prop {
     stack: Stack,
     pub pos: Vector2,
@@ -35,8 +28,7 @@ pub struct Prop {
 }
 
 pub struct Map {
-    layers: Vec<Layer>,
-    tileset: Texture2D,
+    layers: Stack,
     pub props: Vec<Prop>,
     water: Vec<Rectangle>,
 
@@ -53,10 +45,6 @@ impl Map {
     pub fn load(ctx: &mut Context, path: &str) -> Map {
         let map_json = load_map(path).expect("failed to load map");
 
-        let tileset_json = map_json.tilesets.first().expect("map has no tilesets");
-        let tiles_per_row = tileset_json.imagewidth / tileset_json.tilewidth;
-
-        let mut layers = Vec::new();
         let mut props = Vec::new();
         let mut water = Vec::new();
 
@@ -67,37 +55,7 @@ impl Map {
 
         for layer in map_json.layers {
             match layer {
-                LayerJson::TileLayer(layer) => {
-                    let mut tiles = Vec::new();
-
-                    for (i, index) in layer.data.into_iter().enumerate() {
-                        if index == 0 {
-                            continue;
-                        }
-
-                        let x = (i as u32 % layer.width) as f32 * TILE_SIZE;
-                        let y = (i as u32 / layer.width) as f32 * TILE_SIZE;
-
-                        let index = index - 1;
-
-                        let col = index % tiles_per_row;
-                        let row = index / tiles_per_row;
-
-                        let src = Rectangle {
-                            x: col as f32 * TILE_SIZE + INSET,
-                            y: row as f32 * TILE_SIZE + INSET,
-                            width: TILE_SIZE - 2.0 * INSET,
-                            height: TILE_SIZE - 2.0 * INSET,
-                        };
-
-                        tiles.push(Tile {
-                            pos: Vector2::new(x + TILE_SIZE / 2., y + TILE_SIZE / 2.),
-                            src,
-                        });
-                    }
-
-                    layers.push(Layer { tiles });
-                }
+                LayerJson::TileLayer(_) => {}
                 LayerJson::ObjectLayer(layer) => {
                     for object in layer.objects {
                         match object.kind {
@@ -179,12 +137,6 @@ impl Map {
             }
         }
 
-        let tileset = ctx
-            .rl
-            .load_texture(&ctx.thread, "assets/tiles.png")
-            .expect("failed to load tileset");
-        tileset.set_texture_filter(ctx.thread, raylib::ffi::TextureFilter::TEXTURE_FILTER_POINT);
-
         let shader_dir = format!("assets/shaders/glsl{}", GLSL_VERSION);
         let water_shader = ctx.rl.load_shader(
             &ctx.thread,
@@ -198,9 +150,10 @@ impl Map {
         let loc_clip = water_shader.get_shader_location("uClip");
         let loc_alpha = water_shader.get_shader_location("uAlpha");
 
+        let layers = Stack::new(ctx, "assets/maps/untitled.png", 2129.);
+
         Self {
             layers,
-            tileset,
             props,
             water,
             water_shader,
@@ -219,20 +172,16 @@ impl Map {
         camera: &Camera,
     ) {
         self.draw_water(tm, camera);
-
-        for layer in &self.layers {
-            for tile in &layer.tiles {
-                let (pos, a) = camera.apply(tile.pos, 0.);
-                tm.draw_texture_pro(
-                    &self.tileset,
-                    tile.src,
-                    Rectangle::new(pos.x, pos.y, TILE_SIZE + OVERLAP, TILE_SIZE + OVERLAP),
-                    Vector2::new(CENTER.x + OVERLAP / 2., CENTER.y + OVERLAP / 2.),
-                    a,
-                    Color::WHITE,
-                );
-            }
-        }
+        self.layers.draw(
+            tm,
+            Vector2 {
+                x: 1064.5,
+                y: 756.5,
+            },
+            0.,
+            camera,
+            1.,
+        );
     }
     pub fn draw_water(
         &mut self,

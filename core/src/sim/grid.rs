@@ -63,6 +63,7 @@ impl Map {
     pub fn from_level(level: &Level) -> Self {
         let mut segs = Vec::new();
         let mut hi = Vec2::ZERO;
+        hi = hi.max(Vec2::new(level.surf_w as f32, level.surf_h as f32));
         let mut grow = |pts: &[Vec2]| {
             for p in pts {
                 hi = hi.max(*p);
@@ -98,9 +99,7 @@ impl Map {
                 });
             }
         }
-        for z in &level.zones {
-            grow(&xform(z.pos, z.rot, &z.points));
-        }
+
         let gates: Vec<Gate> = level
             .checkpoints
             .iter()
@@ -120,35 +119,16 @@ impl Map {
             })
             .collect();
 
-        let (cell, gcell) = (4.0f32, 32.0f32);
+        let (cell, gcell) = (1.0f32, 32.0f32);
         let (w, h) = (hi.x + 64.0, hi.y + 64.0);
         let (sw, sh) = ((w / cell).ceil() as usize, (h / cell).ceil() as usize);
         let (gw, gh) = ((w / gcell).ceil() as usize, (h / gcell).ceil() as usize);
 
-        let mut surf = vec![0u8; sw * sh];
-        for z in &level.zones {
-            let poly = xform(z.pos, z.rot, &z.points);
-            let (mut lo, mut up) = (poly[0], poly[0]);
-            for p in &poly {
-                lo = lo.min(*p);
-                up = up.max(*p);
-            }
-            let (x0, y0) = (
-                (lo.x / cell).max(0.0) as usize,
-                (lo.y / cell).max(0.0) as usize,
-            );
-            let (x1, y1) = (
-                ((up.x / cell) as usize).min(sw - 1),
-                ((up.y / cell) as usize).min(sh - 1),
-            );
-            for y in y0..=y1 {
-                for x in x0..=x1 {
-                    let c = Vec2::new((x as f32 + 0.5) * cell, (y as f32 + 0.5) * cell);
-                    if z.contains(c) {
-                        surf[y * sw + x] = z.surface as u8;
-                    }
-                }
-            }
+        let mut surf = vec![Surface::Road as u8; sw * sh];
+        for y in 0..level.surf_h.min(sh) {
+            let n = level.surf_w.min(sw);
+            surf[y * sw..y * sw + n]
+                .copy_from_slice(&level.surf_px[y * level.surf_w..y * level.surf_w + n]);
         }
 
         let mut grid = vec![Vec::new(); gw * gh];
@@ -177,7 +157,6 @@ impl Map {
             gates,
         }
     }
-
     pub fn surface_at(&self, p: Vec2) -> Surface {
         if p.x < 0.0 || p.y < 0.0 {
             return Surface::Road;
@@ -188,7 +167,6 @@ impl Map {
         }
         Surface::from_u8(self.surf[y * self.sw + x])
     }
-
     pub fn nearby(&self, p: Vec2) -> &[u16] {
         if p.x < 0.0 || p.y < 0.0 {
             return &[];
