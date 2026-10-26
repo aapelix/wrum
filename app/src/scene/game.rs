@@ -172,7 +172,7 @@ impl GameScene {
             .find(|id| !self.remote_finished.contains(id) && (*id != self.my_id || !self.finished))
     }
 
-    fn reset_race(&mut self) {
+    fn reset_race(&mut self, ctx: &mut ctx::Context) {
         self.following = self.my_id;
         self.finished = false;
         self.game_finished = false;
@@ -190,7 +190,7 @@ impl GameScene {
         self.results_at = 0.;
 
         self.sim.go_tick = None;
-        self.fx.clear();
+        self.fx.clear(ctx);
     }
 }
 
@@ -434,7 +434,7 @@ impl Scene for GameScene {
 
     fn on_message(
         &mut self,
-        _ctx: &mut ctx::Context,
+        ctx: &mut ctx::Context,
         msg: &wrum_net::proto::ServerMsg,
     ) -> super::Transition {
         match msg {
@@ -455,7 +455,7 @@ impl Scene for GameScene {
                 self.sim.go_tick = Some(*go_tick);
             }
             ServerMsg::RaceReset => {
-                self.reset_race();
+                self.reset_race(ctx);
             }
             ServerMsg::Race {
                 slot,

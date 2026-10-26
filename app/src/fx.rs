@@ -149,7 +149,13 @@ impl Fx {
         }
         self.puffs.retain(|p| p.age < p.life);
     }
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self, ctx: &mut Context) {
+        {
+            let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut self.marks);
+            tm.clear_background(Color::BLACK);
+        }
+
+        self.pending.clear();
         self.tracks.clear();
     }
 
