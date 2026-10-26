@@ -169,11 +169,11 @@ impl Map {
         }
         Surface::from_u8(self.surf[y * self.sw + x])
     }
-    pub fn pad_at(&self, p: Vec2) -> Option<f32> {
+    pub fn pad_at(&self, p: Vec2) -> Option<(f32, Vec2)> {
         self.pads
             .iter()
             .find(|pad| pad.contains(p))
-            .map(|pad| pad.jump_power)
+            .map(|pad| (pad.jump_power, pad.dir()))
     }
     pub fn nearby(&self, p: Vec2) -> &[u16] {
         if p.x < 0.0 || p.y < 0.0 {

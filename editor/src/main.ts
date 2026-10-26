@@ -8,6 +8,7 @@ import {
   GEOM,
   typeOf,
   isRect,
+  isLine,
   canRotate,
   geo,
   setFromCenter,
@@ -16,6 +17,8 @@ import {
   makeItem,
   newId,
   bumpId,
+  valOf,
+  ensurePoints,
 } from "./model";
 
 // ---------------------------------------------------------------- DOM
@@ -52,7 +55,7 @@ let drawType = TYPES[0].key;
 const visible: Record<string, boolean> = Object.fromEntries(
   TYPES.map((t) => [t.key, true]),
 );
-const lastVals: Record<string, Record<string, number>> = {};
+const lastVals: Record<string, Record<string, number | string>> = {};
 const view = { s: 1, ox: 40, oy: 40 };
 let img: HTMLImageElement | null = null;
 let spaceDown = false;
@@ -68,6 +71,14 @@ type Drag =
       start: Pt;
       x0: number;
       y0: number;
+      points0?: Pt[];
+      snap0: string;
+      pushed: boolean;
+    }
+  | {
+      kind: "vertex";
+      id: number;
+      index: number;
       snap0: string;
       pushed: boolean;
     }
@@ -90,6 +101,9 @@ type Drag =
       sy: number;
     };
 let drag: Drag | null = null;
+/** In-progress multi-click line; committed on Enter, double-click or leaving draw mode. */
+let pendingLine: { type: string; points: Pt[] } | null = null;
+let linePressStart: Pt | null = null;
 
 const getItem = (id: number | null) =>
   id === null ? undefined : doc.items.find((i) => i.id === id);
@@ -119,7 +133,11 @@ function loadSaved() {
       TYPES.some((t) => t.key === i.type),
     );
     doc.extra = d.extra ?? {};
-    for (const i of doc.items) bumpId(i.id);
+    for (const i of doc.items) {
+      i.s ??= {};
+      ensurePoints(i);
+      bumpId(i.id);
+    }
   } catch {
     /* ignore */
   }
@@ -210,12 +228,10 @@ function worldOf(g: Geo, lx: number, ly: number): Pt {
   return { x: g.cx + c * lx - s * ly, y: g.cy + s * lx + c * ly };
 }
 
-interface Handle {
-  kind: "rotate" | "resize";
-  hx: number;
-  hy: number;
-  pos: Pt;
-}
+type Handle =
+  | { kind: "rotate" | "resize"; hx: number; hy: number; pos: Pt }
+  | { kind: "vertex"; index: number; pos: Pt }
+  | { kind: "insert"; index: number; pos: Pt };
 const HANDLE_DIRS: [number, number][] = [
   [-1, -1],
   [1, -1],
@@ -228,6 +244,22 @@ const HANDLE_DIRS: [number, number][] = [
 ];
 function handlesOf(it: Item): Handle[] {
   const t = typeOf(it.type);
+  if (isLine(t)) {
+    const pts = it.points ?? [];
+    const out: Handle[] = [];
+    pts.forEach((p, i) => out.push({ kind: "vertex", index: i, pos: p }));
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      if (Math.hypot(b.x - a.x, b.y - a.y) * view.s < 24) continue;
+      out.push({
+        kind: "insert",
+        index: i,
+        pos: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+      });
+    }
+    return out;
+  }
   if (!isRect(t)) return [];
   const g = geo(it);
   const s = view.s;
@@ -258,6 +290,17 @@ function hitHandle(it: Item, p: Pt): Handle | null {
     if (Math.hypot(hd.pos.x - p.x, hd.pos.y - p.y) <= r) return hd;
   return null;
 }
+function distToSegment(p: Pt, a: Pt, b: Pt): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = Math.max(
+    0,
+    Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2),
+  );
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
 /** All items under the point, top-most first. */
 function hitAll(p: Pt): Item[] {
   const out: Item[] = [];
@@ -266,7 +309,23 @@ function hitAll(p: Pt): Item[] {
     if (!visible[it.type]) continue;
     const t = typeOf(it.type);
     const g = geo(it);
-    if (!isRect(t)) {
+    if (isLine(t)) {
+      const pts = it.points ?? [];
+      const tol = 6 / view.s;
+      if (
+        pts.length === 1 &&
+        Math.hypot(p.x - pts[0].x, p.y - pts[0].y) <= tol
+      ) {
+        out.push(it);
+        continue;
+      }
+      for (let i = 0; i < pts.length - 1; i++) {
+        if (distToSegment(p, pts[i], pts[i + 1]) <= tol) {
+          out.push(it);
+          break;
+        }
+      }
+    } else if (!isRect(t)) {
       if (Math.hypot(p.x - g.cx, p.y - g.cy) <= 9 / view.s) out.push(it);
     } else {
       const m = localOf(g, p);
@@ -302,6 +361,16 @@ function fitView() {
     x1 = -Infinity;
     y1 = -Infinity;
     for (const it of doc.items) {
+      const t = typeOf(it.type);
+      if (isLine(t) && it.points?.length) {
+        for (const p of it.points) {
+          x0 = Math.min(x0, p.x - 20);
+          y0 = Math.min(y0, p.y - 20);
+          x1 = Math.max(x1, p.x + 20);
+          y1 = Math.max(y1, p.y + 20);
+        }
+        continue;
+      }
       const g = geo(it);
       const rad = Math.max(g.w, g.h) / 2 + 20;
       x0 = Math.min(x0, g.cx - rad);
@@ -334,7 +403,7 @@ function requestDraw() {
 function labelOf(t: TypeDef, it: Item): string {
   return t.columns
     .filter((c) => !GEOM.has(c.name))
-    .map((c) => `${c.name}=${it.v[c.name]}`)
+    .map((c) => `${c.name}=${valOf(it, c)}`)
     .join(" ");
 }
 
@@ -414,8 +483,29 @@ function draw() {
     }
     ctx.setLineDash([]);
   }
+  drawPendingLine(s);
 
   updateStatus();
+}
+
+function drawPendingLine(s: number) {
+  if (!pendingLine) return;
+  const t = typeOf(pendingLine.type);
+  const pts = [...pendingLine.points, snapP(mouseWorld)];
+  ctx.strokeStyle = t.color;
+  ctx.fillStyle = t.color;
+  ctx.lineWidth = 2 / s;
+  ctx.setLineDash([6 / s, 4 / s]);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  for (const p of pendingLine.points) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4 / s, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawItem(it: Item, s: number) {
@@ -424,7 +514,21 @@ function drawItem(it: Item, s: number) {
   ctx.lineWidth = 2 / s;
   ctx.strokeStyle = t.color;
   ctx.fillStyle = t.color + "40";
-  if (isRect(t)) {
+  if (isLine(t)) {
+    const pts = it.points ?? [];
+    if (pts.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+    }
+    ctx.fillStyle = t.color;
+    for (const p of pts) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2.5 / s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (isRect(t)) {
     ctx.save();
     ctx.translate(g.cx, g.cy);
     ctx.rotate(g.r * D2R);
@@ -474,10 +578,12 @@ function drawItem(it: Item, s: number) {
     }
   }
   // (x, y) pivot dot
-  ctx.fillStyle = "#fff";
-  ctx.beginPath();
-  ctx.arc(it.v.x, it.v.y, 2 / s, 0, Math.PI * 2);
-  ctx.fill();
+  if (!isLine(t)) {
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(it.v.x, it.v.y, 2 / s, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   const label = labelOf(t, it);
   if (label) {
@@ -486,7 +592,7 @@ function drawItem(it: Item, s: number) {
     ctx.textBaseline = "middle";
     ctx.lineWidth = 3 / s;
     ctx.strokeStyle = "#000";
-    const ly = isRect(t) ? g.cy : g.cy - 14 / s;
+    const ly = isRect(t) ? g.cy : g.cy - (isLine(t) ? 10 : 14) / s;
     ctx.strokeText(label, g.cx, ly);
     ctx.fillStyle = "#fff";
     ctx.fillText(label, g.cx, ly);
@@ -498,7 +604,17 @@ function drawSelection(it: Item, s: number) {
   const g = geo(it);
   ctx.strokeStyle = "#fff";
   ctx.lineWidth = 1.5 / s;
-  if (isRect(t)) {
+  if (isLine(t)) {
+    const pts = it.points ?? [];
+    if (pts.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.setLineDash([5 / s, 3 / s]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  } else if (isRect(t)) {
     ctx.save();
     ctx.translate(g.cx, g.cy);
     ctx.rotate(g.r * D2R);
@@ -529,6 +645,19 @@ function drawSelection(it: Item, s: number) {
       ctx.arc(hd.pos.x, hd.pos.y, 5 / s, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
+    } else if (hd.kind === "insert") {
+      ctx.fillStyle = "#14161a";
+      ctx.strokeStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(hd.pos.x, hd.pos.y, 4 / s, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(hd.pos.x - 2 / s, hd.pos.y);
+      ctx.lineTo(hd.pos.x + 2 / s, hd.pos.y);
+      ctx.moveTo(hd.pos.x, hd.pos.y - 2 / s);
+      ctx.lineTo(hd.pos.x, hd.pos.y + 2 / s);
+      ctx.stroke();
     } else {
       const sz = 8 / s;
       ctx.beginPath();
@@ -542,11 +671,16 @@ function drawSelection(it: Item, s: number) {
 function updateStatus() {
   statusEl.textContent = `x ${Math.floor(mouseWorld.x)}  y ${Math.floor(mouseWorld.y)}  |  ${Math.round(view.s * 100)}%  |  ${
     mode === "draw" ? "draw: " + typeOf(drawType).label : "select"
-  }  |  ${doc.items.length} items`;
+  }  |  ${doc.items.length} items${
+    pendingLine
+      ? `  |  line: ${pendingLine.points.length} pts · Enter/double-click to finish · Esc to cancel`
+      : ""
+  }`;
 }
 
 // ---------------------------------------------------------------- UI rendering
 function setMode(m: "select" | "draw") {
+  if (pendingLine && m !== "draw") finishLine();
   mode = m;
   renderModes();
   requestDraw();
@@ -586,6 +720,7 @@ function renderTypes() {
   });
 }
 function chooseDrawType(key: string) {
+  if (pendingLine && pendingLine.type !== key) finishLine();
   drawType = key;
   setMode("draw");
 }
@@ -610,6 +745,23 @@ function renderProps() {
   grid.append(h("label", {}, "type"), typeSel);
 
   for (const c of t.columns) {
+    if (c.options) {
+      const sel = h("select");
+      for (const o of c.options) {
+        const opt = h("option", { value: o }, o);
+        if (o === (it.s[c.name] ?? c.options[0])) opt.selected = true;
+        sel.append(opt);
+      }
+      sel.addEventListener("change", () => {
+        pushUndo();
+        it.s[c.name] = sel.value;
+        (lastVals[it.type] ??= {})[c.name] = sel.value;
+        save();
+        renderAll();
+      });
+      grid.append(h("label", {}, c.name), sel);
+      continue;
+    }
     const inp = h("input", { type: "number", step: String(c.step ?? 1) });
     inp.value = String(Math.round((it.v[c.name] ?? 0) * 100) / 100);
     inp.addEventListener("change", () => {
@@ -625,6 +777,8 @@ function renderProps() {
   }
   propsEl.append(grid);
 
+  if (isLine(t)) propsEl.append(linePointsEditor(it));
+
   const del = h("button", {}, "Delete");
   del.addEventListener("click", deleteSelected);
   const dup = h("button", {}, "Duplicate");
@@ -632,16 +786,115 @@ function renderProps() {
   propsEl.append(h("div", { class: "actions" }, dup, del));
 }
 
+function linePointsEditor(it: Item): HTMLElement {
+  const pts = it.points ?? (it.points = []);
+  const box = h("div", { class: "points" });
+  const add = h("button", { title: "Append a point" }, "+ Point");
+  add.addEventListener("click", () => mutate(() => appendPoint(it)));
+  const rev = h("button", { title: "Reverse point order" }, "Reverse");
+  rev.disabled = pts.length < 2;
+  rev.addEventListener("click", () =>
+    mutate(() => {
+      it.points!.reverse();
+    }),
+  );
+  box.append(
+    h(
+      "div",
+      { class: "points-head" },
+      h("span", {}, `Points (${pts.length})`),
+      add,
+      rev,
+    ),
+  );
+
+  pts.forEach((pt, index) => {
+    const set = (x: number, y: number) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return renderProps();
+      mutate(() => {
+        pt.x = x;
+        pt.y = y;
+      });
+    };
+    const ix = h("input", { type: "number", step: "1", title: "x" });
+    ix.value = String(Math.round(pt.x * 100) / 100);
+    ix.addEventListener("change", () => set(Number(ix.value), pt.y));
+    const iy = h("input", { type: "number", step: "1", title: "y" });
+    iy.value = String(Math.round(pt.y * 100) / 100);
+    iy.addEventListener("change", () => set(pt.x, Number(iy.value)));
+    const rm = h("button", { class: "icon", title: "Remove point" }, "×");
+    rm.disabled = pts.length <= 2;
+    rm.addEventListener("click", () =>
+      mutate(() => {
+        pts.splice(index, 1);
+      }),
+    );
+    box.append(
+      h(
+        "div",
+        { class: "point-row" },
+        h("span", { class: "idx" }, String(index + 1)),
+        ix,
+        iy,
+        rm,
+      ),
+    );
+  });
+  return box;
+}
+
+function appendPoint(it: Item) {
+  const pts = it.points ?? (it.points = []);
+  const last = pts[pts.length - 1];
+  const prev = pts[pts.length - 2];
+  let p: Pt;
+  if (!last) {
+    p = { x: 0, y: 0 };
+  } else if (prev) {
+    const dx = last.x - prev.x;
+    const dy = last.y - prev.y;
+    const len = Math.hypot(dx, dy);
+    const step = Math.max(32, len);
+    p = len
+      ? { x: last.x + (dx / len) * step, y: last.y + (dy / len) * step }
+      : { x: last.x + 32, y: last.y };
+  } else {
+    p = { x: last.x + 32, y: last.y };
+  }
+  pts.push(snapP(p));
+}
+
 function changeType(it: Item, key: string) {
   if (key === it.type) return;
   mutate(() => {
+    const old = geo(it);
+    const oldT = typeOf(it.type);
     const nt = typeOf(key);
     const fresh = makeItem(nt, lastVals[key]);
-    for (const c of nt.columns)
-      if (c.name in it.v) fresh.v[c.name] = it.v[c.name];
-    // keep position; if the old type was a point and the new one a rect, keep the new default size
+    for (const c of nt.columns) {
+      if (c.options) {
+        const prev = it.s[c.name];
+        if (prev && c.options.includes(prev)) fresh.s[c.name] = prev;
+      } else if (c.name in it.v) fresh.v[c.name] = it.v[c.name];
+    }
+    if (isLine(nt)) {
+      fresh.points = isLine(oldT)
+        ? (it.points ?? []).map((p) => ({ ...p }))
+        : (() => {
+            const len = Math.max(32, old.w, old.h);
+            return [
+              { x: old.cx - len / 2, y: old.cy },
+              { x: old.cx + len / 2, y: old.cy },
+            ];
+          })();
+    } else if (isLine(oldT) && "x" in fresh.v) {
+      fresh.v.x = old.cx;
+      if ("y" in fresh.v) fresh.v.y = old.cy;
+    }
     it.type = key;
     it.v = fresh.v;
+    it.s = fresh.s;
+    it.points = fresh.points;
   });
 }
 
@@ -654,9 +907,13 @@ function renderList() {
       n++;
       const dot = h("span", { class: "dot" });
       dot.style.background = t.color;
-      const meta = t.columns
-        .map((c) => `${Math.round((it.v[c.name] ?? 0) * 10) / 10}`)
-        .join(", ");
+      const meta = [
+        ...(isLine(t) ? [`${it.points?.length ?? 0} pts`] : []),
+        ...t.columns.map((c) => {
+          const x = valOf(it, c);
+          return typeof x === "number" ? Math.round(x * 10) / 10 : x;
+        }),
+      ].join(", ");
       const row = h(
         "div",
         { class: "item-row" + (it.id === selected ? " sel" : "") },
@@ -711,9 +968,21 @@ function duplicateSelected() {
   const it = selItem();
   if (!it) return;
   mutate(() => {
-    const copy: Item = { id: newId(), type: it.type, v: { ...it.v } };
-    copy.v.x += 10;
-    copy.v.y += 10;
+    const copy: Item = {
+      id: newId(),
+      type: it.type,
+      v: { ...it.v },
+      s: { ...it.s },
+    };
+    if (isLine(typeOf(it.type)))
+      copy.points = (it.points ?? []).map((p) => ({
+        x: p.x + 10,
+        y: p.y + 10,
+      }));
+    else {
+      copy.v.x += 10;
+      copy.v.y += 10;
+    }
     doc.items.push(copy);
     selected = copy.id;
   });
@@ -722,9 +991,40 @@ function nudge(dx: number, dy: number) {
   const it = selItem();
   if (!it) return;
   mutate(() => {
-    it.v.x += dx;
-    it.v.y += dy;
+    if (isLine(typeOf(it.type)))
+      it.points = (it.points ?? []).map((p) => ({
+        x: p.x + dx,
+        y: p.y + dy,
+      }));
+    else {
+      it.v.x += dx;
+      it.v.y += dy;
+    }
   });
+}
+
+function finishLine() {
+  const pending = pendingLine;
+  pendingLine = null;
+  linePressStart = null;
+  if (!pending) return;
+  if (pending.points.length < 2) {
+    requestDraw();
+    return;
+  }
+  const it = makeAt(pending.type);
+  it.points = pending.points.map((p) => ({ ...p }));
+  pushUndo();
+  doc.items.push(it);
+  selected = it.id;
+  save();
+  renderAll();
+}
+function cancelLine() {
+  linePressStart = null;
+  if (!pendingLine) return;
+  pendingLine = null;
+  requestDraw();
 }
 
 function importText(text: string, label: string) {
@@ -793,6 +1093,7 @@ cv.addEventListener("contextmenu", (e) => e.preventDefault());
 cv.addEventListener("pointerdown", (e) => {
   cv.setPointerCapture(e.pointerId);
   const p = toWorld(e);
+  mouseWorld = p;
   if (e.button === 1 || e.button === 2 || (e.button === 0 && spaceDown)) {
     drag = {
       kind: "pan",
@@ -808,6 +1109,20 @@ cv.addEventListener("pointerdown", (e) => {
 
   if (mode === "draw") {
     const sp = snapP(p);
+    if (isLine(typeOf(drawType))) {
+      linePressStart = null;
+      if (!pendingLine || pendingLine.type !== drawType) {
+        if (pendingLine) finishLine();
+        pendingLine = { type: drawType, points: [sp] };
+        linePressStart = p;
+      } else {
+        const last = pendingLine.points[pendingLine.points.length - 1];
+        if (Math.hypot(last.x - sp.x, last.y - sp.y) * view.s > 2)
+          pendingLine.points.push(sp);
+      }
+      requestDraw();
+      return;
+    }
     drag = {
       kind: "create",
       type: drawType,
@@ -824,19 +1139,41 @@ cv.addEventListener("pointerdown", (e) => {
     const hd = hitHandle(sel, p);
     if (hd) {
       const snap0 = snapshot();
-      const g0 = geo(sel);
-      drag =
-        hd.kind === "rotate"
-          ? { kind: "rotate", id: sel.id, g0, snap0, pushed: false }
-          : {
-              kind: "resize",
-              id: sel.id,
-              hx: hd.hx,
-              hy: hd.hy,
-              g0,
-              snap0,
-              pushed: false,
-            };
+      if (hd.kind === "vertex") {
+        drag = {
+          kind: "vertex",
+          id: sel.id,
+          index: hd.index,
+          snap0,
+          pushed: false,
+        };
+      } else if (hd.kind === "insert") {
+        const pts = sel.points ?? (sel.points = []);
+        pushUndo(snap0);
+        pts.splice(hd.index + 1, 0, snapP(hd.pos));
+        drag = {
+          kind: "vertex",
+          id: sel.id,
+          index: hd.index + 1,
+          snap0,
+          pushed: true,
+        };
+        renderAll();
+      } else {
+        const g0 = geo(sel);
+        drag =
+          hd.kind === "rotate"
+            ? { kind: "rotate", id: sel.id, g0, snap0, pushed: false }
+            : {
+                kind: "resize",
+                id: sel.id,
+                hx: hd.hx,
+                hy: hd.hy,
+                g0,
+                snap0,
+                pushed: false,
+              };
+      }
       return;
     }
   }
@@ -853,8 +1190,11 @@ cv.addEventListener("pointerdown", (e) => {
       kind: "move",
       id: pick.id,
       start: p,
-      x0: pick.v.x,
-      y0: pick.v.y,
+      x0: pick.v.x ?? 0,
+      y0: pick.v.y ?? 0,
+      points0: isLine(typeOf(pick.type))
+        ? (pick.points ?? []).map((q) => ({ ...q }))
+        : undefined,
       snap0: snapshot(),
       pushed: false,
     };
@@ -895,14 +1235,28 @@ cv.addEventListener("pointermove", (e) => {
 
   if (drag.kind === "move") {
     ensureUndo();
-    let nx = drag.x0 + (p.x - drag.start.x);
-    let ny = drag.y0 + (p.y - drag.start.y);
-    if (snapOn()) {
-      nx = rnd(nx);
-      ny = rnd(ny);
+    if (drag.points0) {
+      let dx = p.x - drag.start.x;
+      let dy = p.y - drag.start.y;
+      if (snapOn()) {
+        dx = rnd(dx);
+        dy = rnd(dy);
+      }
+      it.points = drag.points0.map((q) => ({ x: q.x + dx, y: q.y + dy }));
+    } else {
+      let nx = drag.x0 + (p.x - drag.start.x);
+      let ny = drag.y0 + (p.y - drag.start.y);
+      if (snapOn()) {
+        nx = rnd(nx);
+        ny = rnd(ny);
+      }
+      it.v.x = nx;
+      it.v.y = ny;
     }
-    it.v.x = nx;
-    it.v.y = ny;
+  } else if (drag.kind === "vertex") {
+    ensureUndo();
+    const pts = it.points ?? (it.points = []);
+    if (pts[drag.index]) pts[drag.index] = snapP(p);
   } else if (drag.kind === "rotate") {
     ensureUndo();
     const g0 = drag.g0;
@@ -987,6 +1341,19 @@ function endDrag() {
 }
 cv.addEventListener("pointerup", endDrag);
 cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("pointerup", (e) => {
+  const start = linePressStart;
+  linePressStart = null;
+  if (!start || !pendingLine || pendingLine.points.length !== 1) return;
+  const p = snapP(toWorld(e));
+  const first = pendingLine.points[0];
+  if (Math.hypot(p.x - first.x, p.y - first.y) * view.s < 4) return;
+  pendingLine.points.push(p);
+  finishLine();
+});
+cv.addEventListener("dblclick", () => {
+  if (mode === "draw" && pendingLine) finishLine();
+});
 
 function updateCursor(p: Pt) {
   if (spaceDown) {
@@ -1001,7 +1368,12 @@ function updateCursor(p: Pt) {
   if (sel && visible[sel.type]) {
     const hd = hitHandle(sel, p);
     if (hd) {
-      cv.style.cursor = hd.kind === "rotate" ? "grab" : "pointer";
+      cv.style.cursor =
+        hd.kind === "rotate"
+          ? "grab"
+          : hd.kind === "insert"
+            ? "copy"
+            : "pointer";
       return;
     }
   }
@@ -1061,11 +1433,25 @@ window.addEventListener("keydown", (e) => {
   if (mod) return;
 
   const k = e.key;
-  if (k === "Delete" || k === "Backspace") {
+  if (k === "Enter" && pendingLine) {
+    e.preventDefault();
+    finishLine();
+  } else if (pendingLine && (k === "Delete" || k === "Backspace")) {
+    e.preventDefault();
+    if (k === "Delete") cancelLine();
+    else {
+      pendingLine.points.pop();
+      if (!pendingLine.points.length) pendingLine = null;
+      requestDraw();
+    }
+  } else if (k === "Delete" || k === "Backspace") {
     e.preventDefault();
     deleteSelected();
   } else if (k === "Escape") {
-    if (mode === "draw") setMode("select");
+    if (pendingLine) {
+      cancelLine();
+      updateStatus();
+    } else if (mode === "draw") setMode("select");
     else {
       selected = null;
       renderAll();

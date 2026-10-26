@@ -39,6 +39,14 @@ button.toggle.on { background: var(--accent); color: #000; border-color: var(--a
 #props .grid label { color: var(--dim); }
 #props input[type=number], #props select { width: 100%; }
 #props .actions { display: flex; gap: 6px; margin-top: 8px; }
+#props .points { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
+#props .points-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+#props .points-head span { color: var(--dim); flex: 1; }
+#props .points-head button { padding: 2px 6px; }
+#props .point-row { display: grid; grid-template-columns: 18px 1fr 1fr 22px; gap: 4px; align-items: center; margin-top: 3px; }
+#props .point-row .idx { color: var(--dim); font-size: 11px; text-align: right; }
+#props .point-row button { padding: 2px 0; }
+#props .point-row button:disabled { opacity: .35; cursor: default; }
 .empty { color: var(--dim); font-style: italic; }
 
 .item-row { display: flex; align-items: center; gap: 6px; padding: 2px 4px; cursor: pointer; border-radius: 3px; white-space: nowrap; overflow: hidden; }

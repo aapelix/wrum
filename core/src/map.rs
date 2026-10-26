@@ -1,7 +1,9 @@
 use serde::Deserialize;
 
 pub fn load_map(path: &str) -> anyhow::Result<LevelData> {
-    let json = std::fs::read_to_string(path)?;
+    let bytes = std::fs::read(path)?;
+
+    let json = String::from_utf8(bytes)?;
     Ok(serde_json::from_str(&json)?)
 }
 
@@ -13,6 +15,7 @@ pub struct LevelData {
     pub spawns: Vec<Spawn>,
     pub colliders: Vec<Collider>,
     pub jump_pads: Vec<JumpPad>,
+    pub props: Vec<Prop>,
 }
 
 /// [x, y, w, h, rotation_degrees, index]
@@ -34,3 +37,30 @@ pub struct Collider(pub f32, pub f32, pub f32, pub f32, pub f32);
 /// [x, y, w, h, rotation_degrees, power]
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct JumpPad(pub f32, pub f32, pub f32, pub f32, pub f32, pub f32);
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum PropKind {
+    Fence,
+    FenceEnd,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Prop {
+    pub x: f32,
+    pub y: f32,
+    pub rotation: f32,
+    pub kind: PropKind,
+}
+impl<'de> Deserialize<'de> for Prop {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (x, y, rotation, kind) = <(f32, f32, f32, PropKind)>::deserialize(deserializer)?;
+
+        Ok(Self {
+            x,
+            y,
+            rotation,
+            kind,
+        })
+    }
+}

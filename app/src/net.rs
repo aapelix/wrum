@@ -14,7 +14,7 @@ pub enum NetEvent {
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 
 pub struct Net {
-    url: String,
+    // url: String,
     t: PlatformTransport,
     phase: ConnState,
     last_heartbeat: Instant,
@@ -24,17 +24,17 @@ impl Net {
     pub fn connect(url: &str) -> anyhow::Result<Net> {
         let t = connect(url)?;
         Ok(Net {
-            url: url.into(),
+            // url: url.into(),
             t,
             phase: ConnState::Connecting,
             last_heartbeat: Instant::now(),
         })
     }
-    pub fn reconnect(&mut self) -> anyhow::Result<()> {
-        self.t = connect(&self.url)?;
-        self.phase = ConnState::Connecting;
-        Ok(())
-    }
+    // pub fn reconnect(&mut self) -> anyhow::Result<()> {
+    //     self.t = connect(&self.url)?;
+    //     self.phase = ConnState::Connecting;
+    //     Ok(())
+    // }
     pub fn state(&self) -> ConnState {
         self.t.state()
     }

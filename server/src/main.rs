@@ -17,6 +17,7 @@ use axum::{
     http::{HeaderName, HeaderValue},
     response::IntoResponse,
     routing::get,
+    serve::ListenerExt,
 };
 use futures_util::{SinkExt, StreamExt};
 use rand::RngExt;
@@ -113,7 +114,10 @@ async fn main() -> anyhow::Result<()> {
         .with_state(app);
 
     println!("listening on {addr}");
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, router).await?;
+    let listener = tokio::net::TcpListener::bind(addr).await?.tap_io(|tcp| {
+        let _ = tcp.set_nodelay(true);
+    });
+    axum::serve(listener, router).await?;
     Ok(())
 }
 
@@ -334,10 +338,13 @@ impl Lobby {
     async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Cmd>) {
         let mut tick = tokio::time::interval(Duration::from_secs_f64(1.0 / 60.0));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Burst);
-        loop {
+        'outer: loop {
             tokio::select! {
                 biased;
                 _ = tick.tick() => {
+                    while let Ok(c) = rx.try_recv() {
+                        if self.on_cmd(c) { break 'outer; }
+                    }
                     self.tick();
                     if self.phase == Phase::Waiting && self.waiting_since.elapsed() > LOBBY_WAIT_TIMEOUT { break }
                 }
@@ -565,7 +572,7 @@ impl Lobby {
         }
 
         let mut ins = [Input::default(); MAX_CARS];
-        if self.phase == Phase::Racing {
+        if matches!(self.phase, Phase::Racing | Phase::Results { .. }) {
             for (i, s) in self.players() {
                 ins[i] = s.inbuf.at(t);
             }

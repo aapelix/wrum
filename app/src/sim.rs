@@ -6,7 +6,7 @@ use wrum_core::{
 };
 use wrum_net::proto::ClientMsg;
 
-const MARGIN: f32 = 2.0;
+pub const MARGIN: f32 = 3.0;
 const ERR_DECAY: f32 = 12.0;
 
 pub struct NetSim {
@@ -179,7 +179,7 @@ impl NetSim {
                 };
             }
         }
-        self.w.step(&self.map, &ins, false, &mut |_, _| {});
+        self.w.step(&self.map, &ins, true, &mut |_, _| {});
     }
 
     // ------------------------------------------------------------ clock sync

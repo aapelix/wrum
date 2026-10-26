@@ -15,6 +15,7 @@ export interface Column {
   name: string;
   default: number;
   step?: number;
+  options?: string[];
 }
 
 export interface TypeDef {
@@ -22,6 +23,7 @@ export interface TypeDef {
   label: string;
   color: string; // #rrggbb
   columns: Column[];
+  geometry?: "rect" | "point" | "line";
   anchor?: [number, number];
   defaultSize?: [number, number];
 }
@@ -32,6 +34,11 @@ const col = (name: string, def = 0, step?: number): Column => ({
   name,
   default: def,
   step,
+});
+const choice = (name: string, options: string[]): Column => ({
+  name,
+  default: 0,
+  options,
 });
 
 export const TYPES: TypeDef[] = [
@@ -82,5 +89,16 @@ export const TYPES: TypeDef[] = [
       col("power", 1, 0.1),
     ],
     defaultSize: [48, 12],
+  },
+  {
+    key: "props",
+    label: "Prop",
+    color: "#fcc419",
+    columns: [
+      col("x"),
+      col("y"),
+      col("r"),
+      choice("kind", ["fence", "fence_end"]),
+    ],
   },
 ];

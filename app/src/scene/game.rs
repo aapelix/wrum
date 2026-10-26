@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+#[cfg(feature = "debug-renderer")]
+use crate::sim::MARGIN;
 use raylib::{
     RaylibHandle,
     drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
@@ -72,6 +74,7 @@ pub struct GameScene {
     finished: bool,
     remote_finished: HashSet<PlayerId>,
     game_finished: bool,
+    loading_fade: f32,
 
     results: Option<(Vec<PlayerId>, Vec<PlayerResult>)>,
     results_at: f32,
@@ -130,6 +133,7 @@ impl GameScene {
             finished: false,
             remote_finished: HashSet::new(),
             game_finished: false,
+            loading_fade: 1.0,
             results: None,
             results_at: 0.,
             reset_tick: 0,
@@ -258,10 +262,12 @@ impl Scene for GameScene {
         if self.game_finished {
             self.camera
                 .update(self.last_camera_pos.0, self.last_camera_pos.1, dt);
-        } else {
-            if let Some(c) = self.cars.get(&self.following) {
-                self.camera.update(c.p, c.a, dt);
-            }
+        } else if let Some(c) = self.cars.get(&self.following) {
+            self.camera.update(c.p, c.a, dt);
+        }
+
+        if self.sim.have_world() && !self.cars.is_empty() {
+            self.loading_fade = (self.loading_fade - dt / 0.5).max(0.0);
         }
 
         #[cfg(feature = "debug-renderer")]
@@ -407,7 +413,7 @@ impl Scene for GameScene {
             let labels = ["RTT", "Marg", "Clock", "Lead", "Corr"];
             let values = [
                 format!("{:>4.0} ms", self.sim.rtt * 1000.),
-                format!("{:>3} (target 2)", self.sim.early),
+                format!("{:>3} (target {MARGIN})", self.sim.early),
                 format!("x{:.3}", self.sim.rate()),
                 format!("{:>3} ticks", self.sim.lead_ticks()),
                 format!("{:.2} px", self.sim.max_err),
@@ -420,6 +426,10 @@ impl Scene for GameScene {
                 text_right(&mut tm, value, 105, y, 8, Color::WHITE);
             }
         };
+
+        if self.loading_fade > 0.0 {
+            tm.draw_rectangle(0, 0, 320, 180, fade(Color::BLACK, self.loading_fade));
+        }
     }
 
     fn on_message(
@@ -485,7 +495,6 @@ impl Scene for GameScene {
                 players,
                 reset_tick,
             } => {
-                self.sim.go_tick = None;
                 if let Some(following) = self.cars.get(&self.following) {
                     self.last_camera_pos = (following.p, following.a);
                 }

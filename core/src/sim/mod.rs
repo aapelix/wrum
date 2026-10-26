@@ -285,10 +285,11 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
     } else {
         None
     };
-    let launched = pad.is_some();
-    if let Some(power) = pad {
+    if let Some((power, dir)) = pad {
         c.vz = power;
         c.z = 0.01;
+        let speed = c.vel.dot(dir).max(PAD_MIN_SPEED);
+        c.vel = dir * speed;
     }
     let air = c.z > 0.0;
     let stunned = c.status == Status::Spun;
@@ -329,10 +330,10 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
             fwd = (fwd + over).min(-max_r);
         }
     }
-    if launched {
-        fwd = fwd.max(PAD_MIN_SPEED);
+
+    if !air {
+        fwd = fwd.clamp(-MAX_REVERSE, MAX_SPEED);
     }
-    fwd = fwd.clamp(-MAX_REVERSE, MAX_SPEED);
 
     if !air {
         let g = if stunned { DRIFT_GRIP * 0.5 } else { grip };

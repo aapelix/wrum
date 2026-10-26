@@ -1,6 +1,6 @@
 use glam::Vec2;
 
-use crate::map::load_map;
+use crate::map::{PropKind, load_map};
 
 pub enum Shape {
     Box { hw: f32, hh: f32 },
@@ -32,12 +32,17 @@ pub struct Zone {
 pub struct Pad {
     pub pos: Vec2,
     pub rot: f32,
+    pub dir: f32,
     pub hw: f32,
     pub hh: f32,
     pub jump_power: f32,
     // pub vel_power: f32,
 }
 impl Pad {
+    pub fn dir(&self) -> Vec2 {
+        let (s, c) = libm::sincosf(self.dir);
+        Vec2::new(s, -c)
+    }
     pub fn contains(&self, p: Vec2) -> bool {
         let d = p - self.pos;
         let (s, c) = libm::sincosf(-self.rot);
@@ -132,10 +137,29 @@ impl Level {
             pads.push(Pad {
                 pos: Vec2::new(p.0, p.1),
                 rot: p.4.to_radians(),
+                dir: (p.4 + 90.).to_radians(),
                 hw: p.2 / 2.,
                 hh: p.3 / 2.,
                 jump_power: p.5,
             });
+        }
+        for p in map.props {
+            match p.kind {
+                PropKind::Fence => {
+                    obstacles.push(Obstacle {
+                        pos: Vec2 { x: p.x, y: p.y },
+                        rot: p.rotation.to_radians(),
+                        shape: Shape::Box { hw: 8.5, hh: 2. },
+                    });
+                }
+                PropKind::FenceEnd => {
+                    obstacles.push(Obstacle {
+                        pos: Vec2 { x: p.x, y: p.y },
+                        rot: p.rotation.to_radians(),
+                        shape: Shape::Box { hw: 2., hh: 2. },
+                    });
+                }
+            }
         }
 
         let (surf_px, surf_w, surf_h) = load_mask("assets/maps/untitled_mask.png")?;

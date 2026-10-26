@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use raylib::{
     RaylibHandle,
     color::Color,
@@ -13,8 +15,12 @@ use crate::{
     GLSL_VERSION, assets::Assets, camera::Camera, car::SHADOW_OFFSET, ctx::Context, stack::Stack,
 };
 
-pub struct Prop {
+struct PropKind {
     stack: Stack,
+}
+
+pub struct Prop {
+    kind: usize,
     pub pos: Vector2,
     pub a: f32,
     pub z: f32,
@@ -22,6 +28,7 @@ pub struct Prop {
 
 pub struct Map {
     layers: Stack,
+    kinds: Vec<PropKind>,
     pub props: Vec<Prop>,
     water: Vec<Rectangle>,
 
@@ -39,6 +46,8 @@ impl Map {
         let map_json = load_map(data_path).expect("failed to load map");
 
         let mut props = Vec::new();
+        let mut kinds: Vec<PropKind> = Vec::new();
+        let mut kind_indices = HashMap::new();
         let mut water = Vec::new();
 
         for w in map_json.water {
@@ -48,6 +57,27 @@ impl Map {
                 y: w.1 - hh,
                 width: w.2,
                 height: w.3,
+            });
+        }
+        for p in map_json.props {
+            let kind = *kind_indices.entry(p.kind).or_insert_with(|| {
+                let index = kinds.len();
+                kinds.push(PropKind {
+                    stack: match p.kind {
+                        wrum_core::map::PropKind::Fence => Stack::new(ctx, "assets/fence.png", 17.),
+                        wrum_core::map::PropKind::FenceEnd => {
+                            Stack::new(ctx, "assets/fence_end.png", 4.)
+                        }
+                    },
+                });
+                index
+            });
+
+            props.push(Prop {
+                kind,
+                pos: Vector2 { x: p.x, y: p.y },
+                a: p.rotation,
+                z: 0.,
             });
         }
 
@@ -73,6 +103,7 @@ impl Map {
 
         Self {
             layers,
+            kinds,
             props,
             water,
             water_shader,
@@ -161,7 +192,8 @@ impl Map {
         camera: &Camera,
     ) {
         for prop in &self.props {
-            prop.stack
+            let kind = &self.kinds[prop.kind];
+            kind.stack
                 .draw_shadow(tm, prop.pos, prop.a, camera, SHADOW_OFFSET, 255);
         }
     }
@@ -173,7 +205,8 @@ impl Map {
         camera: &Camera,
     ) {
         let prop = &self.props[i];
-        prop.stack.draw(
+        let kind = &self.kinds[prop.kind];
+        kind.stack.draw(
             assets,
             tm,
             Vector2 {
