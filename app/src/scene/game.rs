@@ -23,7 +23,7 @@ use crate::{
     ctx,
     fx::Fx,
     map::Map,
-    scene::{Scene, Transition},
+    scene::{Scene, Transition, basic::DisconnectedScene},
     sim::NetSim,
 };
 
@@ -150,9 +150,6 @@ impl GameScene {
             #[cfg(feature = "debug-renderer")]
             show_debug: false,
         };
-        // for (id, st) in players {
-        //     s.ensure_car(ctx, *id, st.pos, st.rot);
-        // }
         s
     }
 
@@ -465,6 +462,9 @@ impl Scene for GameScene {
         msg: &wrum_net::proto::ServerMsg,
     ) -> super::Transition {
         match msg {
+            ServerMsg::Reject(reason) => {
+                println!("reject: {reason:#?}")
+            }
             ServerMsg::Snapshot { world, early } => self.sim.on_snapshot(world, *early),
             ServerMsg::Relay {
                 slot,
@@ -535,6 +535,9 @@ impl Scene for GameScene {
             _ => {}
         }
         super::Transition::None
+    }
+    fn on_disconnect(&mut self, _ctx: &mut ctx::Context) -> Transition {
+        Transition::Switch(Box::new(DisconnectedScene))
     }
 
     fn blocks_draw(&self) -> bool {

@@ -3,7 +3,6 @@
 multiplayer racing game made with raylib
 
 todo:
-- better reject, throw back to menu
 - account (rustrict, rusqlite)
 - leaderboard
 - water splashes not on top of tiles
