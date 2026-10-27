@@ -91,6 +91,20 @@ export const TYPES: TypeDef[] = [
     defaultSize: [48, 12],
   },
   {
+    key: "speed_pads",
+    label: "Speed pad",
+    color: "#e678e8",
+    columns: [
+      col("x"),
+      col("y"),
+      col("w"),
+      col("h"),
+      col("r"),
+      col("tier", 1, 1),
+    ],
+    defaultSize: [48, 12],
+  },
+  {
     key: "props",
     label: "Prop",
     color: "#fcc419",

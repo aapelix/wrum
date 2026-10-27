@@ -34,15 +34,17 @@ enum StartPhase {
     Racing,
 }
 
-#[allow(unused)]
 struct Pose {
     pos: V2,
     rot: f32,
     z: f32,
-    vz: f32,
-    speed: f32,
     status: Status,
     invuln: u8,
+    drift_dir: i8,
+    tier: u8,
+    charge: u16,
+    boost: u8,
+    boost_lvl: u8,
 }
 
 pub struct GameScene {
@@ -83,6 +85,9 @@ pub struct GameScene {
 
     level: Level,
     fx: Fx,
+
+    last_tier: u8,
+    last_status: Status,
 
     #[cfg(feature = "debug-renderer")]
     show_debug: bool,
@@ -140,6 +145,8 @@ impl GameScene {
             results_wait: 0.,
             fx,
             level,
+            last_tier: 0,
+            last_status: Status::Normal,
             #[cfg(feature = "debug-renderer")]
             show_debug: false,
         };
@@ -246,10 +253,13 @@ impl Scene for GameScene {
                     pos,
                     rot,
                     z,
-                    vz: c.vz,
-                    speed: c.speed(),
                     status: c.status,
                     invuln: c.invuln,
+                    drift_dir: c.drift_dir,
+                    tier: c.tier(),
+                    charge: c.charge,
+                    boost: c.boost,
+                    boost_lvl: c.boost_lvl,
                 };
                 if let Some(car) = self.cars.get_mut(&id) {
                     apply_pose(car, self.clock, &pose);
@@ -258,6 +268,20 @@ impl Scene for GameScene {
         }
 
         self.fx.update(dt, &self.cars, &self.level);
+
+        if !self.game_finished {
+            if let Some(c) = self.cars.get(&self.following) {
+                self.camera.set_boost(c.boost);
+                if c.tier > self.last_tier {
+                    self.camera.add_shake(0.25);
+                }
+                if c.status == Status::Spun && self.last_status != Status::Spun {
+                    self.camera.add_shake(0.8);
+                }
+                self.last_tier = c.tier;
+                self.last_status = c.status;
+            }
+        }
 
         if self.game_finished {
             self.camera
@@ -302,6 +326,7 @@ impl Scene for GameScene {
             Vector2::zero(),
             Color::new(255, 255, 255, 180),
         );
+        self.fx.draw_trails(&mut tm, &self.camera);
 
         let mut drawables: Vec<(f32, usize, Drawable)> = Vec::new();
         for (i, (id, car)) in self.cars.iter().enumerate() {
@@ -339,6 +364,8 @@ impl Scene for GameScene {
                 }
             }
         }
+
+        self.fx.draw_bits(&mut tm, &self.camera);
         self.fx.draw_puffs(&mut tm, &self.camera);
 
         if !self.game_finished {
@@ -695,6 +722,12 @@ fn apply_pose(car: &mut Car, now: f32, p: &Pose) {
         car.sunk_at = now;
     }
     car.status = p.status;
+
+    car.drift_dir = p.drift_dir;
+    car.tier = p.tier;
+    car.charge = p.charge;
+    car.boost = p.boost;
+    car.boost_lvl = p.boost_lvl;
 }
 
 fn format_time(seconds: f32) -> String {
@@ -728,6 +761,12 @@ fn debug_draw(tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, cam: &Camera, si
     }
     // pads
     for p in &map.pads {
+        let c = p.corners();
+        for i in 0..4 {
+            line(tm, c[i], c[(i + 1) % 4], Color::ORANGE);
+        }
+    }
+    for p in &map.speed_pads {
         let c = p.corners();
         for i in 0..4 {
             line(tm, c[i], c[(i + 1) % 4], Color::ORANGE);

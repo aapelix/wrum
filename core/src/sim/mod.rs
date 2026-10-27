@@ -35,15 +35,24 @@ const ACCEL: f32 = 220.0;
 const BRAKE: f32 = 450.0;
 const COAST_DECEL: f32 = 120.0;
 const LATERAL_GRIP: f32 = 16.0;
-const DRIFT_GRIP: f32 = 5.0;
 const TURN_RATE: f32 = 2.8;
-const DRIFT_TURN: f32 = TURN_RATE * 1.3;
 const TURN_SMOOTH: f32 = 14.0;
 const MIN_TURN_SPEED: f32 = 25.0;
 
 const WALL_BOUNCE: f32 = 0.2;
 const CAR_BOUNCE: f32 = 0.1;
 const MAX_PUSH: f32 = 2.0;
+
+const DRIFT_GRIP: f32 = 7.0;
+const DRIFT_TURN: f32 = TURN_RATE * 1.15;
+const DRIFT_MIN_SPEED: f32 = 85.0;
+const DRIFT_MIN_ANG: f32 = 0.9;
+pub const CHARGE_TIERS: [u16; 3] = [60, 135, 225];
+const BOOST_TICKS: [u8; 3] = [40, 65, 95];
+const BOOST_MULT: [f32; 3] = [1.22, 1.32, 1.42];
+const BOOST_ACCEL: f32 = 700.0;
+const BOOST_KICK: f32 = 25.0;
+const ABS_MAX: f32 = MAX_SPEED * 1.5;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
@@ -125,6 +134,11 @@ pub struct Car {
     pub safe_rot: f32,
     pub safe_next: Vec2,
     pub safe_next_rot: f32,
+
+    pub drift_dir: i8,
+    pub charge: u16,
+    pub boost: u8,
+    pub boost_lvl: u8,
 }
 impl Car {
     pub fn speed(&self) -> f32 {
@@ -139,6 +153,9 @@ impl Car {
     pub fn circles(&self) -> [Vec2; 2] {
         let (f, _) = axes(self.rot);
         [self.pos + f * OFFSET, self.pos - f * OFFSET]
+    }
+    pub fn tier(&self) -> u8 {
+        CHARGE_TIERS.iter().filter(|&&t| self.charge >= t).count() as u8
     }
 }
 
@@ -257,6 +274,11 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
         c.status = Status::Drowning;
         c.timer = DROWN_TICKS;
         c.vz = landed * 0.35 - 25.0;
+
+        c.drift_dir = 0;
+        c.charge = 0;
+        c.boost = 0;
+        c.boost_lvl = 0;
     }
     if c.status == Status::Drowning {
         c.vz = (c.vz - SINK_ACCEL * DT) * decay(SINK_DRAG);
@@ -280,6 +302,7 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
         return;
     }
 
+    // jump pad
     let pad = if grounded && c.status == Status::Normal {
         map.pad_at(c.pos)
     } else {
@@ -291,6 +314,24 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
         let speed = c.vel.dot(dir).max(PAD_MIN_SPEED);
         c.vel = dir * speed;
     }
+    // speed pad
+    if grounded && c.status == Status::Normal {
+        if let Some(level) = map.speed_pad_at(c.pos) {
+            let level = level as usize - 1;
+
+            c.boost = c.boost.max(BOOST_TICKS[level]);
+            c.boost_lvl = c.boost_lvl.max(level as u8 + 1);
+
+            let (f, _) = axes(c.rot);
+            c.vel += f * (BOOST_KICK + 20.0).max(0.0);
+
+            let forward = c.vel.dot(f);
+            if forward < MAX_SPEED * BOOST_MULT[level] {
+                c.vel += f * (MAX_SPEED * BOOST_MULT[level] - forward);
+            }
+        }
+    }
+
     let air = c.z > 0.0;
     let stunned = c.status == Status::Spun;
 
@@ -303,17 +344,63 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
         (LATERAL_GRIP, TURN_RATE)
     };
 
+    if c.drift_dir == 0 {
+        if inp.drift && grounded && !stunned && fwd > DRIFT_MIN_SPEED && inp.steer != 0 {
+            c.drift_dir = inp.steer;
+            c.charge = 0;
+        }
+    } else {
+        let keep = inp.drift && !stunned && fwd > DRIFT_MIN_SPEED * 0.6;
+        if !keep {
+            let t = c.tier();
+            if t > 0 && grounded && !stunned {
+                c.boost = BOOST_TICKS[t as usize - 1];
+                c.boost_lvl = t;
+                fwd = fwd.max(MAX_SPEED) + BOOST_KICK;
+                lat *= 0.3;
+            }
+            c.drift_dir = 0;
+            c.charge = 0;
+        } else if grounded {
+            if c.ang * c.drift_dir as f32 > DRIFT_MIN_ANG {
+                let inc = match inp.steer * c.drift_dir {
+                    1 => 3,
+                    0 => 2,
+                    _ => 1,
+                };
+                c.charge = (c.charge + inc).min(CHARGE_TIERS[2] + 30);
+            }
+        }
+    }
+    let drifting = c.drift_dir != 0;
+
     if air {
         // momentum only
     } else if stunned {
         fwd *= decay(2.0);
     } else {
-        let max_f = MAX_SPEED * sp.max_speed;
+        let max_f = if c.boost > 0 {
+            MAX_SPEED * BOOST_MULT[c.boost_lvl as usize - 1]
+        } else {
+            MAX_SPEED * sp.max_speed
+        };
+
         let max_r = MAX_REVERSE * sp.max_speed;
-        let th = inp.throttle as f32;
+        let th = if c.boost > 0 {
+            1.0
+        } else {
+            inp.throttle as f32
+        };
+
         if th != 0.0 {
             let braking = fwd != 0.0 && th.signum() != fwd.signum();
-            let rate = if braking { BRAKE } else { ACCEL * sp.accel };
+            let rate = if c.boost > 0 {
+                BOOST_ACCEL
+            } else if braking {
+                BRAKE
+            } else {
+                ACCEL * sp.accel
+            };
             fwd += th * rate * DT;
         } else {
             let d = COAST_DECEL * DT;
@@ -323,6 +410,7 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
                 fwd - fwd.signum() * d
             };
         }
+
         let over = (COAST_DECEL + sp.extra_decel) * DT;
         if fwd > max_f {
             fwd = (fwd - over).max(max_f);
@@ -332,7 +420,13 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
     }
 
     if !air {
-        fwd = fwd.clamp(-MAX_REVERSE, MAX_SPEED);
+        let max_speed = if c.boost > 0 { ABS_MAX } else { MAX_SPEED };
+        fwd = fwd.clamp(-MAX_REVERSE, max_speed);
+    }
+
+    c.boost = c.boost.saturating_sub(1);
+    if c.boost == 0 {
+        c.boost_lvl = 0;
     }
 
     if !air {
@@ -341,12 +435,17 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
     }
     c.vel = f * fwd + r * lat;
 
+    let steer = if drifting {
+        c.drift_dir as f32 + 0.5 * inp.steer as f32
+    } else {
+        inp.steer as f32
+    };
     let target = if stunned {
         let dir = if c.ang >= 0.0 { 1.0 } else { -1.0 };
         dir * SPIN_RATE * (c.timer as f32 / STUN_TICKS as f32).max(0.25)
     } else {
         let ctl = if air { 0.35 } else { 1.0 };
-        inp.steer as f32 * turn * (fwd / MIN_TURN_SPEED).clamp(-1.0, 1.0) * ctl
+        steer * turn * (fwd / MIN_TURN_SPEED).clamp(-1.0, 1.0) * ctl
     };
     c.ang += (target - c.ang) * (1.0 - decay(TURN_SMOOTH));
 

@@ -25,6 +25,11 @@ pub struct Car {
     pub status: Status,
     pub invuln: u8,
     pub sunk_at: f32,
+    pub drift_dir: i8,
+    pub tier: u8,
+    pub charge: u16,
+    pub boost: u8,
+    pub boost_lvl: u8,
     tire: Stack,
     body: Stack,
 }
@@ -41,6 +46,11 @@ impl Car {
             sunk_at: 0.,
             tire: Stack::new(ctx, "assets/tire.png", 1.),
             body: Stack::new(ctx, "assets/body.png", 10.),
+            drift_dir: 0,
+            tier: 0,
+            charge: 0,
+            boost: 0,
+            boost_lvl: 0,
         }
     }
     pub fn draw(

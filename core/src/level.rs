@@ -60,6 +60,33 @@ impl Pad {
         ]
     }
 }
+#[derive(Clone)]
+pub struct SpeedPad {
+    pub pos: Vec2,
+    pub rot: f32,
+    pub hw: f32,
+    pub hh: f32,
+    pub level: u8,
+}
+impl SpeedPad {
+    pub fn contains(&self, p: Vec2) -> bool {
+        let d = p - self.pos;
+        let (s, c) = libm::sincosf(-self.rot);
+        let local = Vec2::new(d.x * c - d.y * s, d.x * s + d.y * c);
+
+        local.x.abs() <= self.hw && local.y.abs() <= self.hh
+    }
+    pub fn corners(&self) -> [Vec2; 4] {
+        let (s, c) = libm::sincosf(self.rot);
+        let rotate = |x: f32, y: f32| Vec2::new(x * c - y * s, x * s + y * c) + self.pos;
+        [
+            rotate(-self.hw, -self.hh),
+            rotate(self.hw, -self.hh),
+            rotate(self.hw, self.hh),
+            rotate(-self.hw, self.hh),
+        ]
+    }
+}
 impl Zone {
     pub fn contains(&self, p: Vec2) -> bool {
         let d = p - self.pos;
@@ -88,6 +115,7 @@ pub struct Level {
     pub checkpoints: Vec<Checkpoint>,
     pub checkpoint_count: u32,
     pub pads: Vec<Pad>,
+    pub speed_pads: Vec<SpeedPad>,
 }
 
 impl Level {
@@ -98,6 +126,7 @@ impl Level {
         let mut spawns = Vec::new();
         let mut checkpoints = Vec::new();
         let mut pads = Vec::new();
+        let mut speed_pads = Vec::new();
 
         for check in map.checkpoints {
             checkpoints.push(Checkpoint {
@@ -143,6 +172,15 @@ impl Level {
                 jump_power: p.5,
             });
         }
+        for p in map.speed_pads {
+            speed_pads.push(SpeedPad {
+                pos: Vec2::new(p.0, p.1),
+                rot: p.4.to_radians(),
+                hw: p.2 / 2.,
+                hh: p.3 / 2.,
+                level: p.5 as u8,
+            });
+        }
         for p in map.props {
             match p.kind {
                 PropKind::Fence => {
@@ -186,6 +224,7 @@ impl Level {
             checkpoints,
             checkpoint_count,
             pads,
+            speed_pads,
         })
     }
     pub fn dist_to_gate(&self, index: u32, p: Vec2) -> f32 {

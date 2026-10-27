@@ -15,6 +15,7 @@ pub struct LevelData {
     pub spawns: Vec<Spawn>,
     pub colliders: Vec<Collider>,
     pub jump_pads: Vec<JumpPad>,
+    pub speed_pads: Vec<SpeedPad>,
     pub props: Vec<Prop>,
 }
 
@@ -37,6 +38,10 @@ pub struct Collider(pub f32, pub f32, pub f32, pub f32, pub f32);
 /// [x, y, w, h, rotation_degrees, power]
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct JumpPad(pub f32, pub f32, pub f32, pub f32, pub f32, pub f32);
+
+/// [x, y, w, h, rotation_degrees, tier]
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct SpeedPad(pub f32, pub f32, pub f32, pub f32, pub f32, pub u32);
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]

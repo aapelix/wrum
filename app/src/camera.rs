@@ -10,6 +10,11 @@ pub struct Camera {
 
     last_target: Vector2,
     target_vel: Vector2,
+
+    shake: f32,
+    shake_t: f32,
+    off: Vector2,
+    boost_prev: u8,
 }
 
 const POS_SMOOTH: f32 = 0.10;
@@ -20,6 +25,10 @@ const LOOK_TIME: f32 = 0.5;
 const MAX_LOOK: f32 = 70.0;
 const VEL_SMOOTH: f32 = 0.30;
 const MAX_PLAUSIBLE_SPEED: f32 = 3000.0;
+
+const MAX_SHAKE_PX: f32 = 4.0;
+const SHAKE_DECAY: f32 = 1.6;
+const SHAKE_HZ: f32 = 40.0;
 
 fn angle_diff(target: f32, current: f32) -> f32 {
     (target - current + 180.0).rem_euclid(360.0) - 180.0
@@ -33,6 +42,13 @@ fn smooth_damp(cur: f32, target: f32, vel: &mut f32, smooth_time: f32, dt: f32) 
     *vel = (*vel - omega * temp) * e;
     target + (change + temp) * e
 }
+fn hash(n: i32) -> f32 {
+    let mut x = n as u32;
+    x = x.wrapping_mul(0x9E3779B1) ^ (x >> 15);
+    x = x.wrapping_mul(0x85EBCA6B);
+    x ^= x >> 13;
+    (x & 0xFFFF) as f32 / 32767.5 - 1.0
+}
 
 impl Camera {
     pub fn update(&mut self, target: Vector2, target_a: f32, raw_dt: f32) {
@@ -44,6 +60,7 @@ impl Camera {
             self.init = true;
             return;
         }
+        self.fx_step(dt);
 
         if raw_dt > 1e-5 {
             let raw = Vector2::new(
@@ -85,10 +102,12 @@ impl Camera {
         let ty = p.y - self.p.y;
         let rad = -self.a.to_radians();
         let (s, c) = rad.sin_cos();
+        let rx = tx * c - ty * s;
+        let ry = tx * s + ty * c;
         (
             Vector2 {
-                x: tx * c - ty * s + 160.0,
-                y: tx * s + ty * c + 90.5,
+                x: rx + 160.0 + self.off.x,
+                y: ry + 90.5 + self.off.y,
             },
             a - self.a,
         )
@@ -99,5 +118,25 @@ impl Camera {
         let ey = self.apply(Vector2::new(0., 1.), 0.).0 - o;
         let det = ex.x * ey.y - ex.y * ey.x;
         (o, [ey.y / det, -ey.x / det, -ex.y / det, ex.x / det])
+    }
+
+    pub fn add_shake(&mut self, amt: f32) {
+        self.shake = (self.shake + amt).min(1.0);
+    }
+    pub fn set_boost(&mut self, boost: u8) {
+        if boost > 0 && self.boost_prev == 0 {
+            self.add_shake(0.5);
+        }
+        self.boost_prev = boost;
+    }
+    fn fx_step(&mut self, dt: f32) {
+        self.shake = (self.shake - SHAKE_DECAY * dt).max(0.0);
+        self.shake_t += dt;
+        let step = (self.shake_t * SHAKE_HZ) as i32;
+        let amp = self.shake * MAX_SHAKE_PX;
+        self.off = Vector2::new(
+            (hash(step * 2) * amp).round(),
+            (hash(step * 2 + 1) * amp).round(),
+        );
     }
 }

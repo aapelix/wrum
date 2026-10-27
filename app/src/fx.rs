@@ -44,6 +44,23 @@ fn smooth(a: f32, b: f32, x: f32) -> f32 {
     t * t * (3. - 2. * t)
 }
 
+#[derive(Clone, Copy)]
+enum Kind {
+    Trail,
+    Spark(u8),
+    Flame,
+}
+struct Bit {
+    kind: Kind,
+    p: Vector2,
+    v: Vector2,
+    dir: Vector2,
+    z: f32,
+    vz: f32,
+    age: f32,
+    life: f32,
+    len: f32,
+}
 struct Puff {
     p: Vector2,
     v: Vector2,
@@ -68,6 +85,10 @@ struct Track {
     peak_z: f32,
     airborne: bool,
     land: f32,
+    streak: f32,
+    spark: [f32; 2],
+    flame: f32,
+    boost_prev: u8,
 }
 
 pub struct Fx {
@@ -78,6 +99,7 @@ pub struct Fx {
     puffs: Vec<Puff>,
     tracks: HashMap<PlayerId, Track>,
     rng: Rng,
+    bits: Vec<Bit>,
 
     shader: Shader,
     loc_origin: i32,
@@ -122,6 +144,7 @@ impl Fx {
             puffs: Vec::new(),
             tracks: HashMap::new(),
             rng: Rng(0x9E3779B9),
+            bits: Vec::new(),
         }
     }
 
@@ -148,6 +171,29 @@ impl Fx {
             p.vz *= (-1.2 * dt).exp();
         }
         self.puffs.retain(|p| p.age < p.life);
+
+        for b in &mut self.bits {
+            b.age += dt;
+            b.p += b.v * dt;
+            match b.kind {
+                Kind::Trail => {
+                    b.v *= (-4.0 * dt).exp();
+                }
+                Kind::Spark(_) => {
+                    b.v *= (-2.5 * dt).exp();
+                    b.vz -= 220.0 * dt;
+                    b.z += b.vz * dt;
+                    if b.z < 0.0 {
+                        b.z = 0.0;
+                        b.vz *= -0.3;
+                    }
+                }
+                Kind::Flame => {
+                    b.v *= (-3.0 * dt).exp();
+                }
+            }
+        }
+        self.bits.retain(|b| b.age < b.life);
     }
     pub fn clear(&mut self, ctx: &mut Context) {
         {
@@ -157,6 +203,7 @@ impl Fx {
 
         self.pending.clear();
         self.tracks.clear();
+        self.bits.clear();
     }
 
     fn step_car(&mut self, tr: &mut Track, car: &Car, dt: f32, grass: bool) {
@@ -203,13 +250,87 @@ impl Fx {
         };
         let spun = if car.status == Status::Spun { 0.9 } else { 0.0 };
         tr.land = (tr.land - dt * 4.0).max(0.0);
-        let boost = if fwd.abs() > 60.0 { tr.land * 0.8 } else { 0.0 };
+        let boost_k = if fwd.abs() > 60.0 { tr.land * 0.8 } else { 0.0 };
 
-        let rear = slide.max(hard).max(spun).max(boost);
+        let rear = slide.max(hard).max(spun).max(boost_k);
         let front = (slide * smooth(40.0, 90.0, slip))
             .max(hard * 0.7)
             .max(spun * 0.8)
             * 0.6;
+
+        let speed = tr.vel.length();
+        let dir = if speed > 1.0 {
+            tr.vel * (1.0 / speed)
+        } else {
+            fwd_v
+        };
+        let drifting = car.drift_dir != 0 && grounded;
+        let frac = (car.charge as f32 / 360.0).min(1.0);
+
+        let sk = smooth(150.0, 260.0, speed);
+        if grounded && !grass && sk > 0.0 {
+            tr.streak += (5.0 + 48.0 * sk) * dt;
+            while tr.streak >= 1.0 && self.bits.len() < 900 {
+                tr.streak -= 1.0;
+                for _ in 0..2 {
+                    let r = &mut self.rng;
+                    let back = dir * (-speed * dt * r.next());
+                    self.bits.push(Bit {
+                        kind: Kind::Trail,
+                        p: car.p - fwd_v * 4.0 + right_v * r.range(-4.0, 4.0) + back,
+                        v: right_v * r.range(-6.0, 6.0) + dir * (-speed * 0.08),
+                        dir,
+                        z: 0.0,
+                        vz: r.next(),
+                        age: 0.0,
+                        life: r.range(0.2, 0.45),
+                        len: 3.5 + 7.0 * sk * r.range(0.6, 1.3),
+                    });
+                }
+            }
+        } else {
+            tr.streak = 0.0;
+        }
+
+        if car.boost > 0 && car.status != Status::Drowning {
+            if tr.boost_prev == 0 {
+                for _ in 0..14 {
+                    let r = &mut self.rng;
+                    self.bits.push(Bit {
+                        kind: Kind::Spark(car.boost_lvl),
+                        p: car.p - fwd_v * 8.0,
+                        v: -fwd_v * r.range(60.0, 140.0) + right_v * r.range(-60.0, 60.0),
+                        dir: fwd_v,
+                        z: car.z + 1.0,
+                        vz: r.range(8.0, 24.0),
+                        age: 0.0,
+                        life: r.range(0.3, 0.5),
+                        len: 0.0,
+                    });
+                }
+            }
+            tr.flame += (90.0 + 30.0 * car.boost_lvl as f32) * dt;
+            while tr.flame >= 1.0 && self.bits.len() < 700 {
+                tr.flame -= 1.0;
+                let r = &mut self.rng;
+                self.bits.push(Bit {
+                    kind: Kind::Flame,
+                    p: car.p - fwd_v * 9.0 + right_v * r.range(-2.0, 2.0),
+                    v: -fwd_v * r.range(70.0, 130.0)
+                        + right_v * r.range(-12.0, 12.0)
+                        + tr.vel * 0.3,
+                    dir: fwd_v,
+                    z: car.z + 2.0,
+                    vz: 0.0,
+                    age: 0.0,
+                    life: r.range(0.25, 0.45),
+                    len: r.range(0.6, 1.4),
+                });
+            }
+        } else {
+            tr.flame = 0.0;
+        }
+        tr.boost_prev = car.boost;
 
         for i in 0..4 {
             let k = if grounded {
@@ -237,7 +358,7 @@ impl Fx {
             }
 
             let min_k = if i < 2 { 0.4 } else { 0.3 };
-            if k > min_k && (!grass || slip > 22.0) && self.puffs.len() < 400 {
+            if grass && k > min_k && slip > 22.0 && self.puffs.len() < 400 {
                 tr.smoke[i] += 12.0 * k * dt;
                 while tr.smoke[i] >= 1.0 {
                     tr.smoke[i] -= 1.0;
@@ -245,18 +366,44 @@ impl Fx {
                     self.puffs.push(Puff {
                         p: w + Vector2::new(r.range(-1.0, 1.0), r.range(-1.0, 1.0)),
                         v: tr.vel * 0.3 + Vector2::new(r.range(-8.0, 8.0), r.range(-8.0, 8.0)),
-                        z: 1.0,
+                        z: car.z + 1.0,
                         vz: r.range(10.0, 22.0),
                         age: 0.0,
                         life: r.range(0.5, 0.9) * (0.8 + 0.4 * k),
                         r0: 1.5,
                         r1: r.range(4.0, 6.0) * (0.7 + 0.5 * k),
                         a: (0.35 + 0.35 * k).min(0.75),
-                        dust: grass,
+                        dust: true,
                     });
                 }
             } else {
                 tr.smoke[i] = 0.0;
+            }
+
+            if i >= 2 {
+                let n = i - 2;
+                if drifting && self.bits.len() < 700 {
+                    tr.spark[n] += (8.0 + 25.0 * frac + 25.0 * car.tier as f32) * dt;
+                    while tr.spark[n] >= 1.0 {
+                        tr.spark[n] -= 1.0;
+                        let r = &mut self.rng;
+                        self.bits.push(Bit {
+                            kind: Kind::Spark(car.tier),
+                            p: w,
+                            v: -fwd_v * r.range(20.0, 55.0)
+                                - right_v * (car.drift_dir as f32 * r.range(10.0, 35.0))
+                                + tr.vel * 0.5,
+                            dir: fwd_v,
+                            z: car.z + 1.0,
+                            vz: r.range(8.0, 24.0),
+                            age: 0.0,
+                            life: r.range(0.18, 0.35),
+                            len: 0.0,
+                        });
+                    }
+                } else {
+                    tr.spark[n] = 0.0;
+                }
             }
         }
     }
@@ -320,7 +467,6 @@ impl Fx {
         }
         unsafe { rlEnableBackfaceCulling() }
     }
-
     pub fn draw_puffs(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
         for p in &self.puffs {
             let t = p.age / p.life;
@@ -343,6 +489,99 @@ impl Fx {
             if r > 3.0 {
                 tm.draw_circle(x - 1, y - 1, (r * 0.5).round(), Color::new(hr, hg, hb, al));
             }
+        }
+    }
+    pub fn draw_bits(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
+        for b in &self.bits {
+            let t = b.age / b.life;
+            let proj = |p: Vector2| {
+                let (s, _) = camera.apply(p, 0.0);
+                Vector2::new(s.x.round(), (s.y - b.z).round())
+            };
+            match b.kind {
+                Kind::Trail => continue,
+                Kind::Spark(tier) => {
+                    let ((r, g, bl), (hr, hg, hb)) = Self::tier_cols(tier);
+                    let al = (((1.0 - t) * 4.0).ceil() / 4.0 * 255.0) as u8;
+                    let a = proj(b.p);
+                    let e = proj(b.p - b.v * 0.06);
+                    tm.draw_line_ex(
+                        a,
+                        e,
+                        if t < 0.5 { 2.0 } else { 1.0 },
+                        Color::new(r, g, bl, al),
+                    );
+                    tm.draw_line_ex(a, e, 1.0, Color::new(hr, hg, hb, al));
+                }
+                Kind::Flame => {
+                    let (r, g, bl) = if t < 0.15 {
+                        (255, 250, 200)
+                    } else if t < 0.4 {
+                        (255, 214, 64)
+                    } else if t < 0.7 {
+                        (255, 140, 30)
+                    } else {
+                        (200, 50, 30)
+                    };
+                    let al = if t > 0.8 { 150 } else { 255 };
+                    let sp = b.v.length().max(1.0);
+                    let vn = b.v * (1.0 / sp);
+                    let l = (sp * 0.08 + 3.0) * b.len * (1.0 - t * 0.5);
+                    let th = (3.0 * (1.0 - t) + 1.0).round();
+                    tm.draw_line_ex(proj(b.p), proj(b.p - vn * l), th, Color::new(r, g, bl, al));
+                }
+            }
+        }
+    }
+    pub fn draw_trails(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
+        let pr = |p: Vector2| {
+            let (s, _) = camera.apply(p, 0.0);
+            Vector2::new(s.x.round(), s.y.round())
+        };
+        for b in &self.bits {
+            if !matches!(b.kind, Kind::Trail) {
+                continue;
+            }
+            let t = b.age / b.life;
+            let seed = b.vz;
+
+            let h = (seed * 97.0).fract();
+            if t > 0.6 && h < (t - 0.6) * 2.5 {
+                continue;
+            }
+
+            let ang = ((seed * 13.7).fract() - 0.5) * 1.0;
+            let (sn, cs) = ang.sin_cos();
+            let d = Vector2::new(b.dir.x * cs - b.dir.y * sn, b.dir.x * sn + b.dir.y * cs);
+            let n = Vector2::new(-d.y, d.x);
+            let l = b.len * (1.0 - t * 0.4);
+            let col = if t > 0.5 {
+                Color::new(215, 220, 232, 255)
+            } else {
+                Color::WHITE
+            };
+
+            match (seed * 4.0) as u32 {
+                0 => tm.draw_line_ex(pr(b.p), pr(b.p + d * l), 1.0, col),
+                1 => {
+                    tm.draw_line_ex(pr(b.p), pr(b.p + d * (l * 0.55)), 2.0, col);
+                    let o = b.p + n * 1.5 + d * (l * 0.6);
+                    tm.draw_line_ex(pr(o), pr(o + d * (l * 0.5)), 1.0, col);
+                }
+                2 => tm.draw_line_ex(pr(b.p), pr(b.p + d * (l * 0.4)), 2.0, col),
+                _ => {
+                    tm.draw_line_ex(pr(b.p), pr(b.p + d * (l * 0.35)), 2.0, col);
+                    tm.draw_line_ex(pr(b.p + d * (l * 0.35)), pr(b.p + d * l), 1.0, col);
+                }
+            }
+        }
+    }
+    fn tier_cols(t: u8) -> ((u8, u8, u8), (u8, u8, u8)) {
+        match t {
+            0 => ((255, 240, 210), (255, 255, 255)),
+            1 => ((60, 160, 255), (140, 215, 255)),
+            2 => ((255, 150, 40), (255, 220, 120)),
+            _ => ((190, 90, 255), (230, 170, 255)),
         }
     }
 }
