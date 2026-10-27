@@ -6,7 +6,7 @@ use wrum_core::{
 };
 use wrum_net::proto::ClientMsg;
 
-pub const MARGIN: f32 = 3.0;
+pub const MARGIN: f32 = 4.0;
 const ERR_DECAY: f32 = 12.0;
 
 pub struct NetSim {

@@ -10,17 +10,34 @@ pub const SNAPSHOT_EVERY: u32 = 2;
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub enum ClientMsg {
-    Hello { version: usize, name: String },
+    Hello {
+        version: usize,
+        token: Option<String>,
+    }, // None = guest
+    Register {
+        country: String,
+        name: String,
+    },
     CreateLobby,
-    JoinLobby { code: String },
+    JoinLobby {
+        code: String,
+    },
     JoinPublic,
     LeaveLobby,
     Ready(bool),
     StartRace,
     PlayAgain,
     Heartbeat,
-    Inputs { first: u32, inputs: Vec<Input> },
-    Ping { t0: u32 },
+    Inputs {
+        first: u32,
+        inputs: Vec<Input>,
+    },
+    Ping {
+        t0: u32,
+    },
+    GetLeaderboard {
+        kind: BoardKind,
+    },
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
@@ -77,6 +94,16 @@ pub enum ServerMsg {
         reset_tick: u32,
     },
     RaceReset,
+    Registered {
+        token: String,
+        name: String,
+    },
+    NameRejected(NameError),
+    Leaderboard {
+        kind: BoardKind,
+        rows: Vec<(String, f32)>,
+        mine: Option<(u32, f32)>,
+    },
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
@@ -94,6 +121,27 @@ pub enum RejectReason {
     LobbyNotFound,
     VersionMismatch,
     RaceStarted,
+}
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub enum NameError {
+    Taken,
+    Invalid,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub struct BoardKind {
+    pub map: MapKind,
+    pub time: TimeType,
+}
+
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub enum MapKind {
+    Untitled,
+}
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub enum TimeType {
+    BestTotal,
+    BestLap,
 }
 
 fn aligned(b: &[u8]) -> AlignedVec<16> {
