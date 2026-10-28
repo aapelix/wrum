@@ -338,6 +338,7 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
     let (f, r) = axes(c.rot);
     let mut fwd = c.vel.dot(f);
     let mut lat = c.vel.dot(r);
+    let speed = c.vel.length();
     let (grip, turn) = if inp.drift {
         (DRIFT_GRIP, DRIFT_TURN)
     } else {
@@ -350,10 +351,18 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
             c.charge = 0;
         }
     } else {
-        let keep = inp.drift && !stunned && fwd > DRIFT_MIN_SPEED * 0.6;
+        let keep = inp.drift && !stunned;
+
         if !keep {
             let t = c.tier();
-            if t > 0 && grounded && !stunned && surf == Surface::Road {
+
+            let valid_release = !inp.drift
+                && speed > DRIFT_MIN_SPEED * 0.6
+                && grounded
+                && !stunned
+                && surf == Surface::Road;
+
+            if valid_release && t > 0 {
                 c.boost = BOOST_TICKS[t as usize - 1];
                 c.boost_lvl = t;
                 fwd = fwd.max(MAX_SPEED) + BOOST_KICK;
@@ -361,17 +370,17 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
             } else {
                 fwd *= 0.9;
             }
+
             c.drift_dir = 0;
             c.charge = 0;
-        } else if grounded {
-            if c.ang * c.drift_dir as f32 > DRIFT_MIN_ANG {
-                let inc = match inp.steer * c.drift_dir {
-                    1 => 3,
-                    0 => 2,
-                    _ => 1,
-                };
-                c.charge = (c.charge + inc).min(CHARGE_TIERS[2] + 30);
-            }
+        } else if grounded && c.ang * c.drift_dir as f32 > DRIFT_MIN_ANG {
+            let inc = match inp.steer * c.drift_dir {
+                1 => 3,
+                0 => 2,
+                _ => 1,
+            };
+
+            c.charge = (c.charge + inc).min(CHARGE_TIERS[2] + 30);
         }
     }
     let drifting = c.drift_dir != 0;

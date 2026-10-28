@@ -52,4 +52,18 @@ mergeInto(LibraryManager.library, {
       } catch (e) {}
     }
   },
+  store_get__deps: ["$stringToUTF8", "$lengthBytesUTF8"],
+  store_get: function (keyPtr, buf, cap) {
+    var s = null;
+    try {
+      s = localStorage.getItem(UTF8ToString(keyPtr));
+    } catch (e) {}
+    if (s === null || lengthBytesUTF8(s) >= cap) return -1;
+    return stringToUTF8(s, buf, cap);
+  },
+  store_set: function (keyPtr, valPtr) {
+    try {
+      localStorage.setItem(UTF8ToString(keyPtr), UTF8ToString(valPtr));
+    } catch (e) {}
+  },
 });

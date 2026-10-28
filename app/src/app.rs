@@ -5,7 +5,8 @@ use raylib::{
     math::Rectangle,
     texture::RaylibRenderTexture2D,
 };
-use wrum_net::proto::{PROTO_VERSION, TICK_RATE};
+use wrum_net::store;
+use wrum_proto::{PROTO_VERSION, TICK_RATE};
 
 use crate::{
     ctx::State,
@@ -43,13 +44,14 @@ impl App {
         for e in &self.events {
             match e {
                 NetEvent::Connected => {
-                    self.scenes.on_connect(&mut ctx);
+                    let token = store::load("token");
                     ctx.net
-                        .send(&wrum_net::proto::ClientMsg::Hello {
+                        .send(&wrum_proto::ClientMsg::Hello {
                             version: PROTO_VERSION,
-                            name: "test".into(),
+                            token,
                         })
                         .unwrap();
+                    self.scenes.on_connect(&mut ctx);
                 }
                 NetEvent::Disconnected(_err) => {
                     self.scenes.on_disconnect(&mut ctx);

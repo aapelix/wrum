@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1.53.2", features = ["full"] }
-wrum_net = { path = "../net" }
+wrum_proto = { path = "../proto" }
 wrum_core = { path = "../core" }
 anyhow.workspace = true
 futures-channel.workspace = true
@@ -13,3 +13,6 @@ futures-util.workspace = true
 rand = "0.10.3"
 axum = { version = "0.8.9", features = ["ws"] }
 tower-http = { version = "0.7.1", features = ["fs", "set-header"] }
+rusqlite = { version = "0.41.0", features = ["bundled"]}
+blake3 = "1.8.7"
+hex = "0.4.3"

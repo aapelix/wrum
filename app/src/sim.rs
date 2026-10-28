@@ -4,7 +4,7 @@ use wrum_core::{
     sim::grid::Map,
     sim::{DT, Input, InputBuf, MAX_CARS, V2, World},
 };
-use wrum_net::proto::ClientMsg;
+use wrum_proto::ClientMsg;
 
 pub const MARGIN: f32 = 4.0;
 const ERR_DECAY: f32 = 12.0;

@@ -1,2 +1,5 @@
 target/
 .git/
+game.db*
+node_modules/
+web/wrum*

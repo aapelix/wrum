@@ -1,4 +1,4 @@
-pub mod proto;
+pub mod store;
 
 #[cfg(not(target_os = "emscripten"))]
 mod native;

@@ -1,11 +1,13 @@
 use rkyv::{Archive, Deserialize, Serialize, rancor, util::AlignedVec};
+use rustrict::CensorStr;
 use wrum_core::{
     PlayerId,
     sim::{Input, World},
 };
 
+pub const PROTO_VERSION: usize = 3;
+
 pub const TICK_RATE: u32 = 60;
-pub const PROTO_VERSION: usize = 2;
 pub const SNAPSHOT_EVERY: u32 = 2;
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
@@ -15,7 +17,7 @@ pub enum ClientMsg {
         token: Option<String>,
     }, // None = guest
     Register {
-        country: String,
+        country: [char; 2],
         name: String,
     },
     CreateLobby,
@@ -39,19 +41,24 @@ pub enum ClientMsg {
         kind: BoardKind,
     },
 }
-
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub enum ServerMsg {
+    HelloOk {
+        name: String,
+        country: [char; 2],
+        guest: bool,
+    },
     Welcome {
         slot: PlayerId,
         tick: u32,
         code: String,
         private: bool,
-        players: Vec<(PlayerId, String)>,
+        players: Vec<(PlayerId, String, [char; 2])>,
     },
     PlayerJoined {
         slot: PlayerId,
         name: String,
+        country: [char; 2],
     },
     PlayerLeft {
         slot: PlayerId,
@@ -97,11 +104,12 @@ pub enum ServerMsg {
     Registered {
         token: String,
         name: String,
+        country: [char; 2],
     },
     NameRejected(NameError),
     Leaderboard {
         kind: BoardKind,
-        rows: Vec<(String, f32)>,
+        rows: Vec<(String, f32, [char; 2])>,
         mine: Option<(u32, f32)>,
     },
 }
@@ -114,7 +122,7 @@ pub struct PlayerResult {
     pub finished: bool,
 }
 
-#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RejectReason {
     LobbyFull,
     LobbyGone,
@@ -122,26 +130,17 @@ pub enum RejectReason {
     VersionMismatch,
     RaceStarted,
 }
-#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NameError {
     Taken,
     Invalid,
+    Busy,
 }
 
-#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
-pub struct BoardKind {
-    pub map: MapKind,
-    pub time: TimeType,
-}
-
-#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
-pub enum MapKind {
-    Untitled,
-}
-#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
-pub enum TimeType {
-    BestTotal,
-    BestLap,
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoardKind {
+    Lap,
+    Total,
 }
 
 fn aligned(b: &[u8]) -> AlignedVec<16> {
@@ -160,4 +159,14 @@ pub fn encode_client(m: &ClientMsg) -> anyhow::Result<Vec<u8>> {
 }
 pub fn encode_server(m: &ServerMsg) -> anyhow::Result<Vec<u8>> {
     Ok(rkyv::to_bytes::<rancor::Error>(m)?.to_vec())
+}
+
+pub fn valid_name(raw: &str) -> Option<String> {
+    let n = raw.trim();
+    let ok = (3..=16).contains(&n.chars().count())
+        && n.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ' '))
+        && !n.contains("  ");
+    let lower = n.to_lowercase();
+    (ok && !lower.is_inappropriate()).then(|| n.to_string())
 }

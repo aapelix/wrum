@@ -1,9 +1,10 @@
 .DS_Store
 web/wrum*
 
+game.db*
+
 node_modules/
 
 # Added by cargo
 
 /target
-certs/

@@ -1,7 +1,8 @@
-use wrum_net::proto::ServerMsg;
+use wrum_proto::ServerMsg;
 
 use crate::ctx::Context;
 
+pub mod auth;
 pub mod basic;
 pub mod game;
 pub mod menu;

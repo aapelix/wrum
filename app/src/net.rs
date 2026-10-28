@@ -1,9 +1,7 @@
 use std::time::{Duration, Instant};
 
-use wrum_net::{
-    ConnState, PlatformTransport, Transport, connect,
-    proto::{ClientMsg, ServerMsg, decode_server, encode_client},
-};
+use wrum_net::{ConnState, PlatformTransport, Transport, connect};
+use wrum_proto::{ClientMsg, ServerMsg, decode_server, encode_client};
 
 pub enum NetEvent {
     Connected,

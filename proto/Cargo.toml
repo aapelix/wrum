@@ -1,0 +1,10 @@
+[package]
+name = "wrum_proto"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wrum_core = { path = "../core" }
+rkyv.workspace = true
+anyhow.workspace = true
+rustrict = "0.7.39"

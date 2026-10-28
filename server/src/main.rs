@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    net::{IpAddr, SocketAddr},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed},
@@ -11,10 +12,10 @@ use axum::{
     Router,
     body::Bytes,
     extract::{
-        State,
+        ConnectInfo, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
-    http::{HeaderName, HeaderValue},
+    http::{HeaderMap, HeaderName, HeaderValue},
     response::IntoResponse,
     routing::get,
     serve::ListenerExt,
@@ -30,7 +31,11 @@ use wrum_core::{
     sim::grid::Map,
     sim::{DT, Input, InputBuf, MAX_CARS, World},
 };
-use wrum_net::proto::*;
+use wrum_proto::*;
+
+use crate::db::Db;
+
+mod db;
 
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(45);
 const RACE_AFK_TIMEOUT: Duration = Duration::from_secs(45);
@@ -43,8 +48,12 @@ const MIN_PLAYERS_PUBLIC: usize = 1;
 
 struct Shared {
     level: Level,
+    level_id: String,
     map: Map,
+    db: Db,
     lobbies: Mutex<HashMap<String, LobbyHandle>>,
+    online: Mutex<HashMap<i64, Arc<Notify>>>,
+    reg_limit: Mutex<HashMap<IpAddr, (Instant, u32)>>,
 }
 
 #[derive(Clone)]
@@ -78,6 +87,8 @@ enum Cmd {
     Join {
         peer: Peer,
         name: String,
+        country: [char; 2],
+        account: Option<i64>,
         reply: oneshot::Sender<Result<u8, RejectReason>>,
     },
     Leave {
@@ -97,10 +108,15 @@ async fn main() -> anyhow::Result<()> {
 
     let level = Level::load(&level_path)?;
     let map = Map::from_level(&level);
+    let db = Db::open(&std::env::var("DB").unwrap_or("game.db".into()))?;
     let app = Arc::new(Shared {
         level,
+        level_id: level_path.clone(),
         map,
+        db,
         lobbies: Default::default(),
+        online: Default::default(),
+        reg_limit: Default::default(),
     });
 
     let hdr = |k: &'static str, v: &'static str| {
@@ -117,18 +133,55 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?.tap_io(|tcp| {
         let _ = tcp.set_nodelay(true);
     });
-    axum::serve(listener, router).await?;
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(app): State<Arc<Shared>>) -> impl IntoResponse {
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(app): State<Arc<Shared>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let ip = headers
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(addr.ip());
     ws.max_message_size(16 * 1024)
-        .on_upgrade(move |s| session(s, app))
+        .on_upgrade(move |s| session(s, app, ip))
 }
 
 // ---------------------------------------------------------------- conn
 
-async fn session(socket: WebSocket, app: Arc<Shared>) {
+fn new_token() -> (String, [u8; 32]) {
+    let token = hex::encode(rand::rng().random::<[u8; 32]>());
+    let hash = hash_token(&token);
+    (token, hash)
+}
+fn hash_token(t: &str) -> [u8; 32] {
+    *blake3::hash(t.as_bytes()).as_bytes()
+}
+fn reg_allowed(app: &Shared, ip: IpAddr) -> bool {
+    let mut m = app.reg_limit.lock().unwrap();
+    let e = m.entry(ip).or_insert((Instant::now(), 0));
+    if e.0.elapsed() > Duration::from_secs(3600) {
+        *e = (Instant::now(), 0);
+    }
+    e.1 += 1;
+    e.1 <= 5
+}
+fn login(app: &Shared, id: i64, kick: &Arc<Notify>) {
+    if let Some(old) = app.online.lock().unwrap().insert(id, kick.clone()) {
+        old.notify_one();
+    }
+}
+
+async fn session(socket: WebSocket, app: Arc<Shared>, ip: IpAddr) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::channel::<Bytes>(64);
     let kick = Arc::new(Notify::new());
@@ -144,14 +197,22 @@ async fn session(socket: WebSocket, app: Arc<Shared>) {
         }
     });
 
-    let mut name = String::from("player");
+    let mut name = format!("guest-{:04}", rand::rng().random_range(0..10_000));
+    let mut country = ['F', 'I'];
+    let mut acct: Option<i64> = None;
     let mut hello = false;
+    let mut last_board = Instant::now() - Duration::from_secs(1);
     let mut cur: Option<(mpsc::UnboundedSender<Cmd>, u8)> = None;
 
     loop {
+        let limit = if hello {
+            CLIENT_TIMEOUT
+        } else {
+            Duration::from_secs(5)
+        };
         let m = tokio::select! {
             _ = kick.notified() => break,
-            r = tokio::time::timeout(CLIENT_TIMEOUT, stream.next()) => match r {
+            r = tokio::time::timeout(limit, stream.next()) => match r {
                 Ok(Some(Ok(m))) => m,
                 _ => break,
             },
@@ -160,27 +221,75 @@ async fn session(socket: WebSocket, app: Arc<Shared>) {
         let Ok(msg) = decode_client(&b) else { continue };
 
         match msg {
-            ClientMsg::Hello { version, name: n } => {
+            ClientMsg::Hello { version, token } => {
                 if version != PROTO_VERSION {
                     me.send(&enc(&ServerMsg::Reject(RejectReason::VersionMismatch)));
                     break;
                 }
-                name = n.chars().take(16).collect();
                 hello = true;
+                if let Some(t) = token {
+                    if let Some((id, n, c)) = app.db.auth(hash_token(&t)).await {
+                        login(&app, id, &kick);
+                        acct = Some(id);
+                        name = n;
+                        country = c;
+                    }
+                }
+                me.send(&enc(&ServerMsg::HelloOk {
+                    name: name.clone(),
+                    country,
+                    guest: acct.is_none(),
+                }));
             }
             _ if !hello => {}
             ClientMsg::Heartbeat => {}
+            ClientMsg::Register {
+                country: wanted_country,
+                name: wanted,
+            } if acct.is_none() => {
+                if !reg_allowed(&app, ip) {
+                    me.send(&enc(&ServerMsg::NameRejected(NameError::Busy)));
+                    continue;
+                }
+                let Some(n) = valid_name(&wanted) else {
+                    me.send(&enc(&ServerMsg::NameRejected(NameError::Invalid)));
+                    continue;
+                };
+                let (token, hash) = new_token();
+                match app.db.register(n.clone(), wanted_country, hash).await {
+                    Ok(id) => {
+                        login(&app, id, &kick);
+                        acct = Some(id);
+                        name = n.clone();
+                        country = wanted_country;
+                        me.send(&enc(&ServerMsg::Registered {
+                            token,
+                            name: n,
+                            country,
+                        }));
+                    }
+                    Err(e) => me.send(&enc(&ServerMsg::NameRejected(e))),
+                }
+            }
+            ClientMsg::GetLeaderboard { kind } => {
+                if last_board.elapsed() < Duration::from_secs(1) {
+                    continue;
+                }
+                last_board = Instant::now();
+                me.send(&enc(&app.db.board(app.level_id.clone(), kind, acct).await));
+            }
+            // lobby
             ClientMsg::CreateLobby => {
                 leave(&mut cur);
-                cur = join(&app, &me, &name, Target::Create).await;
+                cur = join(&app, &me, &name, country, acct, Target::Create).await;
             }
             ClientMsg::JoinLobby { code } => {
                 leave(&mut cur);
-                cur = join(&app, &me, &name, Target::Code(code)).await;
+                cur = join(&app, &me, &name, country, acct, Target::Code(code)).await;
             }
             ClientMsg::JoinPublic => {
                 leave(&mut cur);
-                cur = join(&app, &me, &name, Target::Public).await;
+                cur = join(&app, &me, &name, country, acct, Target::Public).await;
             }
             ClientMsg::LeaveLobby => leave(&mut cur),
             msg => {
@@ -194,6 +303,12 @@ async fn session(socket: WebSocket, app: Arc<Shared>) {
         }
     }
     leave(&mut cur);
+    if let Some(id) = acct {
+        let mut on = app.online.lock().unwrap();
+        if on.get(&id).is_some_and(|k| Arc::ptr_eq(k, &kick)) {
+            on.remove(&id);
+        }
+    }
     writer.abort();
 }
 fn leave(cur: &mut Option<(mpsc::UnboundedSender<Cmd>, u8)>) {
@@ -212,6 +327,8 @@ async fn join(
     app: &Arc<Shared>,
     me: &Peer,
     name: &str,
+    country: [char; 2],
+    account: Option<i64>,
     t: Target,
 ) -> Option<(mpsc::UnboundedSender<Cmd>, u8)> {
     let reject = |r| me.send(&enc(&ServerMsg::Reject(r)));
@@ -237,6 +354,8 @@ async fn join(
         .send(Cmd::Join {
             peer: me.clone(),
             name: name.into(),
+            country,
+            account,
             reply,
         })
         .is_err()
@@ -298,11 +417,13 @@ enum Phase {
 struct Slot {
     peer: Peer,
     name: String,
+    country: [char; 2],
     inbuf: InputBuf,
     progress: RaceProgress,
     last_control: Instant,
     early: i8,
     ready: bool,
+    account: Option<i64>,
 }
 
 struct Lobby {
@@ -388,8 +509,14 @@ impl Lobby {
 
     fn on_cmd(&mut self, cmd: Cmd) -> bool {
         match cmd {
-            Cmd::Join { peer, name, reply } => {
-                let _ = reply.send(self.join(peer, name));
+            Cmd::Join {
+                peer,
+                name,
+                country,
+                account,
+                reply,
+            } => {
+                let _ = reply.send(self.join(peer, name, country, account));
             }
             Cmd::Leave { slot } => {
                 let i = slot as usize;
@@ -418,7 +545,13 @@ impl Lobby {
         }
         false
     }
-    fn join(&mut self, peer: Peer, name: String) -> Result<u8, RejectReason> {
+    fn join(
+        &mut self,
+        peer: Peer,
+        name: String,
+        country: [char; 2],
+        account: Option<i64>,
+    ) -> Result<u8, RejectReason> {
         if self.phase != Phase::Waiting {
             return Err(RejectReason::RaceStarted);
         }
@@ -435,6 +568,8 @@ impl Lobby {
         self.slots[i] = Some(Slot {
             peer: peer.clone(),
             name: name.clone(),
+            country,
+            account,
             inbuf,
             progress: RaceProgress::new(self.world.tick),
             last_control: Instant::now(),
@@ -446,7 +581,7 @@ impl Lobby {
 
         let players = self
             .players()
-            .map(|(i, s)| (i as u8, s.name.clone()))
+            .map(|(i, s)| (i as u8, s.name.clone(), s.country))
             .collect();
         peer.send(&enc(&ServerMsg::Welcome {
             slot: i as u8,
@@ -458,6 +593,7 @@ impl Lobby {
         let joined = enc(&ServerMsg::PlayerJoined {
             slot: i as u8,
             name,
+            country,
         });
         for (j, s) in self.players() {
             if j != i {
@@ -662,6 +798,7 @@ impl Lobby {
     }
     fn finish_race(&mut self) {
         let order = self.ranking();
+
         let players = order
             .iter()
             .filter_map(|&id| {
@@ -684,10 +821,29 @@ impl Lobby {
 
         self.h.open.store(false, Relaxed);
         self.broadcast(&ServerMsg::Results {
-            order,
+            order: order.clone(),
             players,
             reset_tick,
         });
+
+        let of = order.len() as u32;
+        for (i, &id) in order.iter().enumerate() {
+            let Some(s) = &self.slots[id as usize] else {
+                continue;
+            };
+            let Some(account) = s.account else { continue };
+            let p = &s.progress;
+            let best_lap = p.lap_times.iter().copied().reduce(f32::min);
+            let total = p.finished.then(|| p.lap_times.iter().sum::<f32>());
+            self.app.db.record(
+                account,
+                self.app.level_id.clone(),
+                i as u32 + 1,
+                of,
+                total,
+                best_lap,
+            );
+        }
     }
     fn reset_race(&mut self) {
         let tick = self.world.tick;

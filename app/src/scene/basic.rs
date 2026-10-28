@@ -3,7 +3,7 @@ use raylib::{
     ffi::Color,
 };
 
-use crate::scene::{Scene, menu::MenuScene};
+use crate::scene::{Scene, auth::AuthScene};
 
 pub struct ConnectingScene;
 
@@ -14,8 +14,8 @@ impl Scene for ConnectingScene {
         tm.draw_text("connecting", 130, 80, 10, Color::WHITE);
     }
 
-    fn on_connect(&mut self, ctx: &mut crate::ctx::Context) -> super::Transition {
-        super::Transition::Switch(Box::new(MenuScene::new("", ctx)))
+    fn on_connect(&mut self, _ctx: &mut crate::ctx::Context) -> super::Transition {
+        super::Transition::Switch(Box::new(AuthScene::default()))
     }
 
     fn blocks_draw(&self) -> bool {
@@ -39,8 +39,8 @@ impl Scene for DisconnectedScene {
         tm.draw_text("disconnected, refresh", 130, 80, 10, Color::RED);
     }
 
-    fn on_connect(&mut self, ctx: &mut crate::ctx::Context) -> super::Transition {
-        super::Transition::Switch(Box::new(MenuScene::new("", ctx)))
+    fn on_connect(&mut self, _ctx: &mut crate::ctx::Context) -> super::Transition {
+        super::Transition::Switch(Box::new(AuthScene::default()))
     }
 
     fn blocks_draw(&self) -> bool {

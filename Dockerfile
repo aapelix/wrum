@@ -31,13 +31,13 @@ ENV BINDGEN_EXTRA_CLANG_ARGS="--sysroot=/emsdk/upstream/emscripten/cache/sysroot
 RUN cargo build --release \
     --target wasm32-unknown-emscripten \
     --bin wrum_app \
-    --features debug-renderer
+    --features debug-renderer -j 2
 
 RUN cp target/wasm32-unknown-emscripten/release/wrum_app.wasm web/ \
     && cp target/wasm32-unknown-emscripten/release/wrum_app.js web/ \
     && cp target/wasm32-unknown-emscripten/release/deps/wrum_app.data web/
 
-RUN cargo build --release --bin wrum_server
+RUN cargo build --release --bin wrum_server -j 2
 
 # ---- Runtime ----
 FROM debian:bookworm-slim AS runtime

@@ -15,7 +15,7 @@ use wrum_core::{
     race::TOTAL_LAPS,
     sim::{DT, Input, MAX_CARS, Status, V2, grid},
 };
-use wrum_net::proto::{ClientMsg, PlayerResult, ServerMsg};
+use wrum_proto::{ClientMsg, PlayerResult, ServerMsg};
 
 use crate::{
     camera::Camera,
@@ -97,7 +97,7 @@ impl GameScene {
     pub fn new(
         ctx: &mut ctx::Context,
         my_id: PlayerId,
-        _players: &Vec<(PlayerId, String)>,
+        _players: &Vec<(PlayerId, String, [char; 2])>,
         code: &str,
         private: bool,
     ) -> Self {
@@ -459,7 +459,7 @@ impl Scene for GameScene {
     fn on_message(
         &mut self,
         ctx: &mut ctx::Context,
-        msg: &wrum_net::proto::ServerMsg,
+        msg: &wrum_proto::ServerMsg,
     ) -> super::Transition {
         match msg {
             ServerMsg::Reject(reason) => {
@@ -733,7 +733,7 @@ fn apply_pose(car: &mut Car, now: f32, p: &Pose) {
     car.boost_lvl = p.boost_lvl;
 }
 
-fn format_time(seconds: f32) -> String {
+pub fn format_time(seconds: f32) -> String {
     let centiseconds = (seconds.max(0.0) * 100.0).round() as u32;
     let minutes = centiseconds / 6000;
     let secs = (centiseconds / 100) % 60;
