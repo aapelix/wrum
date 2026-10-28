@@ -43,7 +43,7 @@ const WALL_BOUNCE: f32 = 0.2;
 const CAR_BOUNCE: f32 = 0.1;
 const MAX_PUSH: f32 = 2.0;
 
-const DRIFT_GRIP: f32 = 7.0;
+const DRIFT_GRIP: f32 = 5.0;
 const DRIFT_TURN: f32 = TURN_RATE * 1.15;
 const DRIFT_MIN_SPEED: f32 = 85.0;
 const DRIFT_MIN_ANG: f32 = 0.9;
@@ -353,11 +353,13 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
         let keep = inp.drift && !stunned && fwd > DRIFT_MIN_SPEED * 0.6;
         if !keep {
             let t = c.tier();
-            if t > 0 && grounded && !stunned {
+            if t > 0 && grounded && !stunned && surf == Surface::Road {
                 c.boost = BOOST_TICKS[t as usize - 1];
                 c.boost_lvl = t;
                 fwd = fwd.max(MAX_SPEED) + BOOST_KICK;
                 lat *= 0.3;
+            } else {
+                fwd *= 0.9;
             }
             c.drift_dir = 0;
             c.charge = 0;
