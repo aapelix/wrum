@@ -8,7 +8,7 @@ use wrum_proto::{BoardKind, ClientMsg, ServerMsg};
 
 use crate::scene::{
     Scene,
-    auth::Auth,
+    auth::{Auth, AuthScene},
     game::{GameScene, format_time},
 };
 
@@ -19,10 +19,11 @@ const LOGO_POS: (i32, i32) = (16, 10);
 const QUICK: R = (16, 48, 120, 20);
 const CREATE: R = (16, 72, 120, 20);
 const FIELD: R = (16, 96, 70, 20);
-const JOIN: R = (90, 96, 46, 20);
+const JOIN: R = (90, 95, 46, 20);
 const PANEL: R = (148, 12, 160, 156);
 const TAB_TOTAL: R = (156, 30, 44, 13);
 const TAB_LAP: R = (204, 30, 52, 13);
+const EDIT: R = (110, 137, 26, 15);
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color { r, g, b, a: 255 }
@@ -121,6 +122,11 @@ impl Scene for MenuScene {
             } else if hit(TAB_LAP, mp) && self.kind != BoardKind::Lap {
                 self.kind = BoardKind::Lap;
                 self.want_fetch = true;
+            } else if hit(EDIT, mp) && !self.is_guest() {
+                return super::Transition::Switch(Box::new(AuthScene::update_mode(
+                    self.auth.name.clone(),
+                    self.auth.country,
+                )));
             }
         }
 
@@ -191,6 +197,14 @@ impl Scene for MenuScene {
         if self.is_guest() {
             tm.draw_text("Guest: not ranked", 16, 161, 8, ACCENT);
         }
+        button(
+            &mut tm,
+            EDIT,
+            "edit",
+            hit(EDIT, mp),
+            false,
+            !self.is_guest(),
+        );
 
         fill(&mut tm, PANEL, CARD);
         frame(&mut tm, PANEL, BORDER);

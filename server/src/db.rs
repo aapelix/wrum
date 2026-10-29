@@ -32,6 +32,12 @@ enum Cmd {
         hash: [u8; 32],
         reply: oneshot::Sender<Result<i64, NameError>>,
     },
+    Update {
+        player: i64,
+        name: String,
+        country: [char; 2],
+        reply: oneshot::Sender<Result<(), NameError>>,
+    },
     Auth {
         hash: [u8; 32],
         reply: oneshot::Sender<Option<(i64, String, [char; 2])>>,
@@ -83,6 +89,23 @@ impl Db {
             hash,
             reply,
         });
+        rx.await.unwrap_or(Err(NameError::Busy))
+    }
+    pub async fn update(
+        &self,
+        player: i64,
+        name: String,
+        country: [char; 2],
+    ) -> Result<(), NameError> {
+        let (reply, rx) = oneshot::channel();
+
+        let _ = self.0.send(Cmd::Update {
+            player,
+            name,
+            country,
+            reply,
+        });
+
         rx.await.unwrap_or(Err(NameError::Busy))
     }
     pub async fn auth(&self, hash: [u8; 32]) -> Option<(i64, String, [char; 2])> {
@@ -164,6 +187,34 @@ fn run(conn: &Connection, cmd: Cmd) {
                     Err(NameError::Busy)
                 }
             });
+        }
+        Cmd::Update {
+            player,
+            name,
+            country,
+            reply,
+        } => {
+            let r = conn.execute(
+                "UPDATE players SET name = ?1, country = ?2 WHERE id = ?3",
+                params![name, country.iter().collect::<String>(), player],
+            );
+
+            let result = match r {
+                Ok(1) => Ok(()),
+                Ok(0) => Err(NameError::Busy),
+                Ok(_) => Err(NameError::Busy),
+                Err(rusqlite::Error::SqliteFailure(e, _))
+                    if e.code == ErrorCode::ConstraintViolation =>
+                {
+                    Err(NameError::Taken)
+                }
+                Err(e) => {
+                    eprintln!("db update profile: {e}");
+                    Err(NameError::Busy)
+                }
+            };
+
+            let _ = reply.send(result);
         }
         Cmd::Auth { hash, reply } => {
             let r = conn

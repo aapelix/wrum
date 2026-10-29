@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-raylib = "6.0.0"
+raylib = { version = "6.0.0", features = ["SUPPORT_IMAGE_GENERATION"] }
 anyhow.workspace = true
 wrum_net = { path = "../net" }
 wrum_core = { path = "../core" }

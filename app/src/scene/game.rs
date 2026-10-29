@@ -199,9 +199,6 @@ impl GameScene {
 }
 
 impl Scene for GameScene {
-    fn fixed_update(&mut self, _ctx: &mut ctx::Context) -> Transition {
-        Transition::None
-    }
     fn update(&mut self, ctx: &mut ctx::Context, dt: f32, _alpha: f32) -> super::Transition {
         self.clock += dt;
 

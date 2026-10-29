@@ -80,6 +80,13 @@ fn country_chars(i: usize) -> [char; 2] {
     [it.next().unwrap_or('?'), it.next().unwrap_or('?')]
 }
 
+#[derive(Default, PartialEq)]
+enum Mode {
+    #[default]
+    Register,
+    Update,
+}
+
 pub struct Auth {
     pub name: String,
     pub country: [char; 2],
@@ -89,6 +96,7 @@ pub struct Auth {
 pub struct AuthScene {
     state: State,
     logo: Option<Texture2D>,
+    mode: Mode,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -164,6 +172,26 @@ fn centered(
 ) {
     let w = tm.measure_text(text, size);
     tm.draw_text(text, (CANVAS_W - w) / 2, y, size, color);
+}
+
+impl AuthScene {
+    pub fn update_mode(name: String, country: [char; 2]) -> AuthScene {
+        Self {
+            state: State::NeedName {
+                input: name.clone(),
+                field: Field::Name,
+                idx: country_index(country),
+                buf: String::new(),
+                error: None,
+                shake: 0.,
+                pending: false,
+                guest_name: name,
+                guest_country: country,
+            },
+            logo: None,
+            mode: Mode::Update,
+        }
+    }
 }
 
 impl Scene for AuthScene {
@@ -291,9 +319,15 @@ impl Scene for AuthScene {
                     Some(name) => {
                         *pending = true;
                         *error = None;
-                        let _ = ctx.net.send(&ClientMsg::Register {
-                            name,
-                            country: country_chars(*idx),
+                        let _ = ctx.net.send(&match self.mode {
+                            Mode::Register => ClientMsg::Register {
+                                name,
+                                country: country_chars(*idx),
+                            },
+                            Mode::Update => ClientMsg::Update {
+                                country: country_chars(*idx),
+                                name,
+                            },
                         });
                     }
                     None => {
@@ -359,7 +393,17 @@ impl Scene for AuthScene {
                 tm.draw_rectangle(PANEL.0, PANEL.1, PANEL.2, PANEL.3, CARD);
                 tm.draw_rectangle_lines(PANEL.0, PANEL.1, PANEL.2, PANEL.3, BORDER);
 
-                tm.draw_text("CREATE ACCOUNT", BOX_X, 40, 8, DIM);
+                tm.draw_text(
+                    match self.mode {
+                        Mode::Register => "CREATE ACCOUNT",
+                        Mode::Update => "UPDATE ACCOUNT",
+                    },
+                    BOX_X,
+                    40,
+                    8,
+                    DIM,
+                );
+
                 tm.draw_rectangle(BOX_X, 50, BOX_W, 1, BORDER);
 
                 let off = if *shake > 0.0 {
@@ -441,10 +485,21 @@ impl Scene for AuthScene {
                 button(
                     &mut tm,
                     REGISTER_BTN,
-                    if *pending {
-                        "REGISTERING..."
-                    } else {
-                        "REGISTER"
+                    match self.mode {
+                        Mode::Register => {
+                            if *pending {
+                                "REGISTERING..."
+                            } else {
+                                "REGISTER"
+                            }
+                        }
+                        Mode::Update => {
+                            if *pending {
+                                "UPDATING..."
+                            } else {
+                                "UPDATE"
+                            }
+                        }
                     },
                     ready,
                     hit(REGISTER_BTN, mouse),
@@ -454,18 +509,13 @@ impl Scene for AuthScene {
                 button(
                     &mut tm,
                     GUEST_BTN,
-                    "PLAY AS GUEST",
+                    match self.mode {
+                        Mode::Register => "PLAY AS GUEST",
+                        Mode::Update => "CANCEL",
+                    },
                     !*pending,
                     hit(GUEST_BTN, mouse),
                     false,
-                );
-
-                tm.draw_text(
-                    "tab: switch field   left/right: country",
-                    BOX_X,
-                    163,
-                    8,
-                    DIM,
                 );
             }
         }
@@ -538,6 +588,16 @@ impl Scene for AuthScene {
                         NameError::Busy => "try again later",
                     });
                 }
+            }
+            ServerMsg::Updated { name, country } => {
+                return super::Transition::Switch(Box::new(MenuScene::new(
+                    "",
+                    ctx,
+                    Auth {
+                        name: name.clone(),
+                        country: *country,
+                    },
+                )));
             }
             _ => {}
         }

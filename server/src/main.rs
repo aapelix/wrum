@@ -271,6 +271,23 @@ async fn session(socket: WebSocket, app: Arc<Shared>, ip: IpAddr) {
                     Err(e) => me.send(&enc(&ServerMsg::NameRejected(e))),
                 }
             }
+            ClientMsg::Update {
+                country: wanted_country,
+                name: wanted,
+            } if let Some(id) = acct => {
+                let Some(n) = valid_name(&wanted) else {
+                    me.send(&enc(&ServerMsg::NameRejected(NameError::Invalid)));
+                    continue;
+                };
+                match app.db.update(id, n.clone(), wanted_country).await {
+                    Ok(()) => {
+                        name = n.clone();
+                        country = wanted_country;
+                        me.send(&enc(&ServerMsg::Updated { name: n, country }));
+                    }
+                    Err(e) => me.send(&enc(&ServerMsg::NameRejected(e))),
+                }
+            }
             ClientMsg::GetLeaderboard { kind } => {
                 if last_board.elapsed() < Duration::from_secs(1) {
                     continue;

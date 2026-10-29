@@ -5,7 +5,7 @@ use wrum_core::{
     sim::{Input, World},
 };
 
-pub const PROTO_VERSION: usize = 3;
+pub const PROTO_VERSION: usize = 4;
 
 pub const TICK_RATE: u32 = 60;
 pub const SNAPSHOT_EVERY: u32 = 2;
@@ -17,6 +17,10 @@ pub enum ClientMsg {
         token: Option<String>,
     }, // None = guest
     Register {
+        country: [char; 2],
+        name: String,
+    },
+    Update {
         country: [char; 2],
         name: String,
     },
@@ -103,6 +107,10 @@ pub enum ServerMsg {
     RaceReset,
     Registered {
         token: String,
+        name: String,
+        country: [char; 2],
+    },
+    Updated {
         name: String,
         country: [char; 2],
     },
