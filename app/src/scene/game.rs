@@ -493,8 +493,12 @@ impl Scene for GameScene {
                 inputs,
             } => self.sim.on_relay(*slot as usize, *first, inputs),
             ServerMsg::Pong { t0, tick, frac } => self.sim.on_pong(*t0, *tick, *frac),
-            ServerMsg::PlayerJoined { slot, .. } => self.sim.on_player_changed(*slot as usize),
+            ServerMsg::PlayerJoined { slot, name, .. } => {
+                self.names.insert(*slot, name.clone());
+                self.sim.on_player_changed(*slot as usize)
+            }
             ServerMsg::PlayerLeft { slot } => {
+                self.names.remove(slot);
                 self.sim.on_player_changed(*slot as usize);
                 self.cars.remove(slot);
             }
