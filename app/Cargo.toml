@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 raylib = { version = "6.0.0", features = ["SUPPORT_IMAGE_GENERATION"] }
 anyhow.workspace = true
+libm.workspace = true
 wrum_net = { path = "../net" }
 wrum_core = { path = "../core" }
 wrum_proto = { path = "../proto" }

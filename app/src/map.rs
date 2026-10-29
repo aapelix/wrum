@@ -9,7 +9,7 @@ use raylib::{
     shaders::{RaylibShader, Shader},
     texture::RaylibTexture2D,
 };
-use wrum_core::map::load_map;
+use wrum_core::map::{PropKind::Fence, load_map};
 
 use crate::{
     GLSL_VERSION, assets::Assets, camera::Camera, car::SHADOW_OFFSET, ctx::Context, stack::Stack,
@@ -73,9 +73,21 @@ impl Map {
                 index
             });
 
+            let pos = match p.kind {
+                Fence => {
+                    let rot = p.rotation.to_radians();
+                    let offset = Vector2::new(6.5, 0.0);
+                    let (s, c) = libm::sincosf(rot);
+                    let offset =
+                        Vector2::new(offset.x * c - offset.y * s, offset.x * s + offset.y * c);
+                    Vector2 { x: p.x, y: p.y } + offset
+                }
+                _ => Vector2 { x: p.x, y: p.y },
+            };
+
             props.push(Prop {
                 kind,
-                pos: Vector2 { x: p.x, y: p.y },
+                pos,
                 a: p.rotation,
                 z: 0.,
             });

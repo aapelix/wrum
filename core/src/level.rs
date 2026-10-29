@@ -184,9 +184,15 @@ impl Level {
         for p in map.props {
             match p.kind {
                 PropKind::Fence => {
+                    let rot = p.rotation.to_radians();
+                    let offset = Vec2::new(6.5, 0.0);
+                    let (s, c) = libm::sincosf(rot);
+                    let offset =
+                        Vec2::new(offset.x * c - offset.y * s, offset.x * s + offset.y * c);
+
                     obstacles.push(Obstacle {
-                        pos: Vec2 { x: p.x, y: p.y },
-                        rot: p.rotation.to_radians(),
+                        pos: Vec2::new(p.x, p.y) + offset,
+                        rot,
                         shape: Shape::Box { hw: 8.5, hh: 2. },
                     });
                 }

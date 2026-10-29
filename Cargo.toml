@@ -8,6 +8,7 @@ rkyv = { version = "0.8.18", default-features = false, features = ["std", "bytec
 anyhow = "1.0.104"
 futures-channel = "0.3.34"
 futures-util = "0.3.34"
+libm = "0.2.16"
 
 [profile.release]
 lto = true

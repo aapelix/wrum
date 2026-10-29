@@ -1828,6 +1828,7 @@ name = "wrum_app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "libm",
  "raylib",
  "wrum_core",
  "wrum_net",
