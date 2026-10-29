@@ -6,6 +6,7 @@ pub enum Shape {
     Box { hw: f32, hh: f32 },
     Convex { points: Vec<Vec2> },
     Wall { points: Vec<Vec2> },
+    Circle { r: f32 },
 }
 
 use crate::sim::Surface;
@@ -201,6 +202,13 @@ impl Level {
                         pos: Vec2 { x: p.x, y: p.y },
                         rot: p.rotation.to_radians(),
                         shape: Shape::Box { hw: 2., hh: 2. },
+                    });
+                }
+                PropKind::Tires => {
+                    obstacles.push(Obstacle {
+                        pos: Vec2 { x: p.x, y: p.y },
+                        rot: p.rotation.to_radians(),
+                        shape: Shape::Circle { r: 11. },
                     });
                 }
             }

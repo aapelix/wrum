@@ -166,7 +166,6 @@ impl GameScene {
                 Vector2 { x: pos.x, y: pos.y },
                 rot_rad.to_degrees(),
                 0.,
-                0.,
             )
         });
     }

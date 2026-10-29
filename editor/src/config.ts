@@ -112,7 +112,7 @@ export const TYPES: TypeDef[] = [
       col("x"),
       col("y"),
       col("r"),
-      choice("kind", ["fence", "fence_end"]),
+      choice("kind", ["fence", "fence_end", "tires"]),
     ],
   },
 ];

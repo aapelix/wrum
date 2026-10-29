@@ -48,6 +48,7 @@ pub struct SpeedPad(pub f32, pub f32, pub f32, pub f32, pub f32, pub u32);
 pub enum PropKind {
     Fence,
     FenceEnd,
+    Tires,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -46,7 +46,6 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
 
 const BG: Color = rgb(0, 0, 0);
 const CARD: Color = rgb(20, 24, 36);
-const STRIPE: Color = rgb(25, 30, 46);
 const BORDER: Color = rgb(48, 56, 80);
 const TEXT: Color = rgb(228, 232, 242);
 const DIM: Color = rgb(122, 132, 154);

@@ -85,6 +85,16 @@ impl Map {
                 ),
                 Shape::Convex { points } => (points.clone(), true),
                 Shape::Wall { points } => (points.clone(), false),
+                Shape::Circle { r } => {
+                    let n = 16;
+                    let points: Vec<Vec2> = (0..n)
+                        .map(|i| {
+                            let a = i as f32 * std::f32::consts::TAU / n as f32;
+                            Vec2::new(a.cos(), a.sin()) * r
+                        })
+                        .collect();
+                    (points, true)
+                }
             };
             let w = xform(o.pos, o.rot, &pts);
             grow(&w);

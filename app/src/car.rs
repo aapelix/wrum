@@ -9,8 +9,7 @@ use crate::{
 };
 
 pub const SHADOW_OFFSET: Vector2 = Vector2 { x: 1., y: 0.5 };
-pub const TIRE_COUNT: usize = 4;
-pub const TIRE_POSITIONS: [Vector2; TIRE_COUNT] = [
+pub const TIRE_POSITIONS: [Vector2; 4] = [
     Vector2 { x: -3.5, y: -4.0 },
     Vector2 { x: 3.5, y: -4.0 },
     Vector2 { x: -3.5, y: 4.0 },
@@ -21,7 +20,6 @@ pub struct Car {
     pub p: Vector2,
     pub z: f32,
     pub a: f32,
-    pub t: f32,
     pub status: Status,
     pub invuln: u8,
     pub sunk_at: f32,
@@ -30,21 +28,18 @@ pub struct Car {
     pub charge: u16,
     pub boost: u8,
     pub boost_lvl: u8,
-    tire: Stack,
     body: Stack,
 }
 
 impl Car {
-    pub fn new(ctx: &mut Context, p: Vector2, a: f32, t: f32, z: f32) -> Car {
+    pub fn new(ctx: &mut Context, p: Vector2, a: f32, z: f32) -> Car {
         Car {
             p,
             z,
             a,
-            t,
             status: Status::Normal,
             invuln: 0,
             sunk_at: 0.,
-            tire: Stack::new(ctx, "assets/tire.png", 1.),
             body: Stack::new(ctx, "assets/body.png", 10.),
             drift_dir: 0,
             tier: 0,
@@ -71,21 +66,18 @@ impl Car {
         } else {
             255
         };
-        let parts = self.parts(a);
 
         if self.z >= 0.0 {
-            for (st, p, ang) in &parts {
-                st.draw_part(assets, tm, *p, *ang, camera, self.z, Part::All, alpha);
-            }
+            self.body
+                .draw_part(assets, tm, self.p, a, camera, self.z, Part::All, alpha);
             return;
         }
-        for (st, p, ang) in &parts {
-            st.draw_part(assets, tm, *p, *ang, camera, self.z, Part::Submerged, 255);
-        }
+
+        self.body
+            .draw_part(assets, tm, self.p, a, camera, self.z, Part::Submerged, 255);
         overlay(tm, self.p, -self.z);
-        for (st, p, ang) in &parts {
-            st.draw_part(assets, tm, *p, *ang, camera, self.z, Part::Dry, alpha);
-        }
+        self.body
+            .draw_part(assets, tm, self.p, a, camera, self.z, Part::Dry, alpha);
     }
     pub fn draw_shadow(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
         let lift = (self.z / 30.0).clamp(0.0, 1.0);
@@ -95,28 +87,7 @@ impl Car {
             return;
         }
         let off = SHADOW_OFFSET * (1.0 + self.z.max(0.0) * 0.05);
-        for (st, p, ang) in self.parts(self.a) {
-            st.draw_shadow(tm, p, ang, camera, off, alpha);
-        }
-    }
-
-    fn parts(&self, a_deg: f32) -> [(&Stack, Vector2, f32); TIRE_COUNT + 1] {
-        let rad = a_deg.to_radians();
-        let (s, c) = rad.sin_cos();
-        let tire = |i: usize| {
-            let b = TIRE_POSITIONS[i];
-            let w = Vector2 {
-                x: self.p.x + b.x * c - b.y * s,
-                y: self.p.y + b.x * s + b.y * c,
-            };
-            (&self.tire, w, a_deg + if i < 2 { self.t } else { 0.0 })
-        };
-        [
-            tire(0),
-            tire(1),
-            tire(2),
-            tire(3),
-            (&self.body, self.p, a_deg),
-        ]
+        self.body
+            .draw_shadow(tm, self.p, self.a, camera, off, alpha);
     }
 }
