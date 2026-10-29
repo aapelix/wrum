@@ -317,14 +317,14 @@ impl Fx {
                     kind: Kind::Flame,
                     p: car.p - fwd_v * 9.0 + right_v * r.range(-2.0, 2.0),
                     v: -fwd_v * r.range(70.0, 130.0)
-                        + right_v * r.range(-12.0, 12.0)
+                        + right_v * r.range(-20.0, 20.0)
                         + tr.vel * 0.3,
                     dir: fwd_v,
                     z: car.z + 2.0,
                     vz: 0.0,
                     age: 0.0,
                     life: r.range(0.25, 0.45),
-                    len: r.range(0.6, 1.4),
+                    len: r.range(0.45, 1.6),
                 });
             }
         } else {

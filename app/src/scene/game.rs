@@ -89,6 +89,8 @@ pub struct GameScene {
     last_tier: u8,
     last_status: Status,
 
+    names: HashMap<PlayerId, String>,
+
     #[cfg(feature = "debug-renderer")]
     show_debug: bool,
 }
@@ -97,7 +99,7 @@ impl GameScene {
     pub fn new(
         ctx: &mut ctx::Context,
         my_id: PlayerId,
-        _players: &Vec<(PlayerId, String, [char; 2])>,
+        players: &Vec<(PlayerId, String, [char; 2])>,
         code: &str,
         private: bool,
     ) -> Self {
@@ -147,6 +149,10 @@ impl GameScene {
             level,
             last_tier: 0,
             last_status: Status::Normal,
+            names: players
+                .iter()
+                .map(|(id, name, _)| (*id, name.clone()))
+                .collect(),
             #[cfg(feature = "debug-renderer")]
             show_debug: false,
         };
@@ -359,6 +365,24 @@ impl Scene for GameScene {
             }
         }
 
+        for (&id, car) in &self.cars {
+            if id == self.my_id {
+                continue;
+            }
+            let Some(name) = self.names.get(&id) else {
+                continue;
+            };
+
+            let (pos, _) = self.camera.apply(car.p, car.a);
+
+            let text_size = 8;
+            let width = tm.measure_text(name, text_size);
+            let x = pos.x as i32 - width / 2;
+            let y = pos.y as i32 - 20 - car.z as i32;
+
+            tm.draw_text(name, x, y, text_size, Color::WHITE);
+        }
+
         self.fx.draw_bits(&mut tm, &self.camera);
         self.fx.draw_puffs(&mut tm, &self.camera);
 
@@ -425,6 +449,7 @@ impl Scene for GameScene {
                 self.clock - self.results_at,
                 rem,
                 self.results_wait,
+                &self.names,
             );
         }
 
@@ -579,6 +604,7 @@ fn draw_results(
     t: f32,
     rem: f32,
     wait: f32,
+    names: &HashMap<PlayerId, String>,
 ) {
     const GOLD: Color = Color::new(255, 215, 64, 255);
     const SILVER: Color = Color::new(200, 205, 215, 255);
@@ -643,10 +669,8 @@ fn draw_results(
         let txt = if me { Color::YELLOW } else { Color::WHITE };
 
         tm.draw_text(&format!("{}", i + 1), 16 + dx, y, 10, fade(pos_col, p));
-        let name = if me {
-            format!("Player {} (you)", id)
-        } else {
-            format!("Player {}", id)
+        let Some(name) = names.get(id) else {
+            return;
         };
         tm.draw_text(&name, 40 + dx, y, 10, fade(txt, p));
 
