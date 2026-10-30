@@ -5,6 +5,8 @@ game.db*
 
 node_modules/
 
+*.pem
+
 # Added by cargo
 
 /target

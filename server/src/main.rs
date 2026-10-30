@@ -32,6 +32,7 @@ use wrum_core::{
     sim::{DT, Input, InputBuf, MAX_CARS, World},
 };
 use wrum_proto::*;
+use wtransport::{Endpoint, Identity, RecvStream, ServerConfig, endpoint::IncomingSession};
 
 use crate::db::Db;
 
@@ -67,15 +68,22 @@ struct LobbyHandle {
 #[derive(Clone)]
 struct Peer {
     tx: mpsc::Sender<Bytes>,
+    dg: Option<wtransport::Connection>,
     kick: Arc<Notify>,
 }
 impl Peer {
     fn send(&self, b: &Bytes) {
         let _ = self.tx.try_send(b.clone());
     }
+    fn send_fast(&self, b: &Bytes) {
+        match &self.dg {
+            Some(c) if c.send_datagram(b.clone()).is_ok() => {}
+            _ => self.send(b),
+        }
+    }
     fn send_fresh(&self, b: Bytes) {
-        if self.tx.capacity() + 4 >= self.tx.max_capacity() {
-            let _ = self.tx.try_send(b);
+        if self.dg.is_some() || self.tx.capacity() + 4 >= self.tx.max_capacity() {
+            self.send_fast(&b);
         }
     }
 }
@@ -119,6 +127,16 @@ async fn main() -> anyhow::Result<()> {
         reg_limit: Default::default(),
     });
 
+    if let (Ok(cert), Ok(key)) = (std::env::var("WT_CERT"), std::env::var("WT_KEY")) {
+        let id = Identity::load_pemfiles(cert, key).await?;
+        let cfg = ServerConfig::builder()
+            .with_bind_default(4433)
+            .with_identity(id)
+            .keep_alive_interval(Some(Duration::from_secs(3)))
+            .build();
+        tokio::spawn(wt_accept(Endpoint::server(cfg)?, app.clone()));
+    }
+
     let hdr = |k: &'static str, v: &'static str| {
         SetResponseHeaderLayer::overriding(HeaderName::from_static(k), HeaderValue::from_static(v))
     };
@@ -141,6 +159,17 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn wt_accept(ep: Endpoint<wtransport::endpoint::endpoint_side::Server>, app: Arc<Shared>) {
+    loop {
+        let inc = ep.accept().await;
+        let app = app.clone();
+        tokio::spawn(async move {
+            if let Err(e) = wt_session(inc, app).await {
+                eprintln!("wt session: {e}");
+            }
+        });
+    }
+}
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(app): State<Arc<Shared>>,
@@ -153,7 +182,7 @@ async fn ws_handler(
         .and_then(|v| v.parse().ok())
         .unwrap_or(addr.ip());
     ws.max_message_size(16 * 1024)
-        .on_upgrade(move |s| session(s, app, ip))
+        .on_upgrade(move |s| ws_session(s, app, ip))
 }
 
 // ---------------------------------------------------------------- conn
@@ -181,21 +210,8 @@ fn login(app: &Shared, id: i64, kick: &Arc<Notify>) {
     }
 }
 
-async fn session(socket: WebSocket, app: Arc<Shared>, ip: IpAddr) {
-    let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = mpsc::channel::<Bytes>(64);
-    let kick = Arc::new(Notify::new());
-    let me = Peer {
-        tx,
-        kick: kick.clone(),
-    };
-    let writer = tokio::spawn(async move {
-        while let Some(b) = rx.recv().await {
-            if sink.send(Message::Binary(b)).await.is_err() {
-                break;
-            }
-        }
-    });
+async fn session(mut inbox: mpsc::Receiver<Bytes>, me: Peer, app: Arc<Shared>, ip: IpAddr) {
+    let kick = me.kick.clone();
 
     let mut name = format!("guest-{:04}", rand::rng().random_range(0..10_000));
     let mut country = ['F', 'I'];
@@ -210,14 +226,13 @@ async fn session(socket: WebSocket, app: Arc<Shared>, ip: IpAddr) {
         } else {
             Duration::from_secs(5)
         };
-        let m = tokio::select! {
+        let b = tokio::select! {
             _ = kick.notified() => break,
-            r = tokio::time::timeout(limit, stream.next()) => match r {
-                Ok(Some(Ok(m))) => m,
+            r = tokio::time::timeout(limit, inbox.recv()) => match r {
+                Ok(Some(b)) => b,
                 _ => break,
             },
         };
-        let Message::Binary(b) = m else { continue };
         let Ok(msg) = decode_client(&b) else { continue };
 
         match msg {
@@ -326,8 +341,100 @@ async fn session(socket: WebSocket, app: Arc<Shared>, ip: IpAddr) {
             on.remove(&id);
         }
     }
-    writer.abort();
 }
+async fn ws_session(socket: WebSocket, app: Arc<Shared>, ip: IpAddr) {
+    let (mut sink, mut stream) = socket.split();
+    let (tx, mut rx) = mpsc::channel::<Bytes>(64);
+    let (in_tx, in_rx) = mpsc::channel::<Bytes>(256);
+    let me = Peer {
+        tx,
+        dg: None,
+        kick: Arc::new(Notify::new()),
+    };
+    let w = tokio::spawn(async move {
+        while let Some(b) = rx.recv().await {
+            if sink.send(Message::Binary(b)).await.is_err() {
+                break;
+            }
+        }
+    });
+    let r = tokio::spawn(async move {
+        while let Some(Ok(m)) = stream.next().await {
+            if let Message::Binary(b) = m {
+                if in_tx.send(b).await.is_err() {
+                    break;
+                }
+            }
+        }
+    });
+    session(in_rx, me, app, ip).await;
+    w.abort();
+    r.abort();
+}
+async fn wt_session(incoming: IncomingSession, app: Arc<Shared>) -> anyhow::Result<()> {
+    let conn = incoming.await?.accept().await?;
+    let ip = conn.remote_address().ip();
+    let (tx, mut rx) = mpsc::channel::<Bytes>(64);
+    let (in_tx, in_rx) = mpsc::channel::<Bytes>(256);
+    let me = Peer {
+        tx,
+        dg: Some(conn.clone()),
+        kick: Arc::new(Notify::new()),
+    };
+
+    let mut send = conn.open_uni().await?.await?;
+    let w = tokio::spawn(async move {
+        while let Some(b) = rx.recv().await {
+            let mut f = Vec::with_capacity(4 + b.len());
+            f.extend_from_slice(&(b.len() as u32).to_le_bytes());
+            f.extend_from_slice(&b);
+            if send.write_all(&f).await.is_err() {
+                break;
+            }
+        }
+    });
+    let (c, t) = (conn.clone(), in_tx.clone());
+    let d = tokio::spawn(async move {
+        while let Ok(dg) = c.receive_datagram().await {
+            let _ = t.try_send(Bytes::from(dg.payload().to_vec()));
+        }
+    });
+    let (c, t) = (conn.clone(), in_tx);
+    let r = tokio::spawn(async move {
+        while let Ok(s) = c.accept_uni().await {
+            let t = t.clone();
+            tokio::spawn(read_frames(s, t));
+        }
+    });
+
+    session(in_rx, me, app, ip).await;
+    conn.close(0u32.into(), b"bye");
+    w.abort();
+    d.abort();
+    r.abort();
+    Ok(())
+}
+
+async fn read_frames(mut s: RecvStream, tx: mpsc::Sender<Bytes>) {
+    loop {
+        let mut hdr = [0u8; 4];
+        if s.read_exact(&mut hdr).await.is_err() {
+            return;
+        }
+        let len = u32::from_le_bytes(hdr) as usize;
+        if len > 16 * 1024 {
+            return;
+        }
+        let mut buf = vec![0u8; len];
+        if s.read_exact(&mut buf).await.is_err() {
+            return;
+        }
+        if tx.send(Bytes::from(buf)).await.is_err() {
+            return;
+        }
+    }
+}
+
 fn leave(cur: &mut Option<(mpsc::UnboundedSender<Cmd>, u8)>) {
     if let Some((tx, slot)) = cur.take() {
         let _ = tx.send(Cmd::Leave { slot });
@@ -625,7 +732,7 @@ impl Lobby {
             ClientMsg::Ping { t0 } => {
                 let frac = (self.tick_at.elapsed().as_secs_f32() / DT).min(0.999);
                 if let Some(s) = &self.slots[i] {
-                    s.peer.send(&enc(&ServerMsg::Pong {
+                    s.peer.send_fast(&enc(&ServerMsg::Pong {
                         t0,
                         tick: self.world.tick,
                         frac,
@@ -688,15 +795,16 @@ impl Lobby {
                 first_new = Some(k);
             }
         }
-        if let Some(k) = first_new {
+        let tail = s.inbuf.tail(4);
+        if first_new.is_some() {
             let msg = enc(&ServerMsg::Relay {
                 slot: i as u8,
-                first: first.wrapping_add(k as u32),
-                inputs: inputs[k..n].to_vec(),
+                first: tail.0,
+                inputs: tail.1,
             });
             for (j, o) in self.players() {
                 if j != i {
-                    o.peer.send(&msg);
+                    o.peer.send_fast(&msg);
                 }
             }
         }

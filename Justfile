@@ -7,7 +7,7 @@ run:
     cargo run --bin wrum_app --features debug-renderer
 
 server:
-    cargo run --bin wrum_server
+    WT_CERT=localhost+2.pem WT_KEY=localhost+2-key.pem cargo run --bin wrum_server
 
 web:
     cp target/wasm32-unknown-emscripten/debug/wrum_app.{wasm,js} web/

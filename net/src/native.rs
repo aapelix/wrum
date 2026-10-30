@@ -3,11 +3,11 @@ use std::sync::{
     atomic::{AtomicU8, Ordering},
 };
 
-use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use futures_util::{SinkExt, StreamExt};
-use tokio_tungstenite::tungstenite::Message;
+use futures_channel::mpsc::{TryRecvError, UnboundedReceiver, UnboundedSender, unbounded};
+use futures_util::StreamExt;
+use wtransport::{ClientConfig, Connection, Endpoint, RecvStream, VarInt};
 
-use crate::{ConnState, Transport};
+use crate::{Channel, MAX_PACKET_SIZE, Transport};
 
 const CONNECTING: u8 = 0;
 const OPEN: u8 = 1;
@@ -16,11 +16,21 @@ const CLOSED: u8 = 2;
 struct Shared {
     state: AtomicU8,
     error: Mutex<Option<String>>,
+    conn: OnceLock<Connection>,
+}
+impl Shared {
+    fn close(&self, reason: Option<String>) {
+        let mut e = self.error.lock().unwrap();
+        if e.is_none() {
+            *e = reason;
+        }
+        self.state.store(CLOSED, Ordering::Release);
+    }
 }
 
 pub struct NativeTransport {
     shared: Arc<Shared>,
-    out: UnboundedSender<Vec<u8>>,
+    reliable_tx: UnboundedSender<Vec<u8>>,
     incoming: UnboundedReceiver<Vec<u8>>,
 }
 
@@ -31,7 +41,7 @@ fn runtime() -> &'static tokio::runtime::Runtime {
             .worker_threads(1)
             .enable_all()
             .build()
-            .unwrap()
+            .expect("tokio runtime")
     })
 }
 
@@ -40,76 +50,196 @@ impl NativeTransport {
         let shared = Arc::new(Shared {
             state: AtomicU8::new(CONNECTING),
             error: Mutex::new(None),
+            conn: OnceLock::new(),
         });
-        let (out, out_rx) = unbounded::<Vec<u8>>();
-        let (in_tx, incoming) = unbounded::<Vec<u8>>();
+        let (reliable_tx, reliable_rx) = unbounded::<Vec<u8>>();
+        let (incoming_tx, incoming) = unbounded::<Vec<u8>>();
+
         let (url, sh) = (url.to_string(), shared.clone());
         runtime().spawn(async move {
-            if let Err(e) = run(&url, &sh, out_rx, in_tx).await {
-                *sh.error.lock().unwrap() = Some(e.to_string());
+            if let Err(e) = run(url, sh.clone(), reliable_rx, incoming_tx).await {
+                sh.close(Some(e.to_string()));
             }
-            sh.state.store(CLOSED, Ordering::Release);
         });
         Ok(Self {
             shared,
-            out,
+            reliable_tx,
             incoming,
         })
     }
 }
 
 async fn run(
-    url: &str,
-    shared: &Shared,
-    mut out_rx: UnboundedReceiver<Vec<u8>>,
-    in_tx: UnboundedSender<Vec<u8>>,
+    url: String,
+    shared: Arc<Shared>,
+    mut reliable_rx: UnboundedReceiver<Vec<u8>>,
+    incoming_tx: UnboundedSender<Vec<u8>>,
 ) -> anyhow::Result<()> {
-    let (ws, _) = tokio_tungstenite::connect_async_with_config(url, None, true).await?;
-    shared.state.store(OPEN, Ordering::Release);
-    let (mut sink, mut stream) = ws.split();
-    let writer = tokio::spawn(async move {
-        while let Some(b) = out_rx.next().await {
-            if sink.send(Message::Binary(b.into())).await.is_err() {
-                break;
-            }
-        }
-    });
-    while let Some(m) = stream.next().await {
-        match m? {
-            Message::Binary(b) => {
-                if in_tx.unbounded_send(b.to_vec()).is_err() {
+    let config = ClientConfig::default();
+    let conn = Endpoint::client(config)?.connect(&url).await?;
+
+    if shared.state.load(Ordering::Acquire) == CLOSED {
+        conn.close(VarInt::from_u32(0), b"cancelled");
+        return Ok(());
+    }
+
+    let mut send = conn.open_uni().await?.await?;
+    let _ = shared.conn.set(conn.clone());
+
+    // reliable send
+    {
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            while let Some(bytes) = reliable_rx.next().await {
+                let mut framed = Vec::with_capacity(4 + bytes.len());
+                framed.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+                framed.extend_from_slice(&bytes);
+                if send.write_all(&framed).await.is_err() {
+                    shared.close(None);
                     break;
                 }
             }
-            Message::Close(_) => break,
-            _ => {}
-        }
+        });
     }
-    writer.abort();
+
+    // unreliable recv
+    {
+        let conn = conn.clone();
+        let tx = incoming_tx.clone();
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            loop {
+                match conn.receive_datagram().await {
+                    Ok(dg) => {
+                        if tx.unbounded_send(dg.payload().to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        shared.close(None);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    // reliable recv
+    {
+        let conn = conn.clone();
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            loop {
+                match conn.accept_uni().await {
+                    Ok(stream) => {
+                        let tx = incoming_tx.clone();
+                        let shared = shared.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = read_reliable_stream(stream, tx).await {
+                                eprintln!("reliable stream error: {e}");
+                                shared.close(None);
+                            }
+                        });
+                    }
+                    Err(_) => {
+                        shared.close(None);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    // closed watcher
+    {
+        let conn = conn.clone();
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            let _ = conn.closed().await;
+            shared.close(Some(conn.closed().await.to_string()))
+        });
+    }
+
+    shared.state.store(OPEN, Ordering::Release);
     Ok(())
 }
 
 impl Transport for NativeTransport {
-    fn send(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
+    fn send(&mut self, ch: Channel, bytes: &[u8]) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.shared.state.load(Ordering::Acquire) == OPEN,
             "not connected"
         );
-        self.out
-            .unbounded_send(bytes.to_vec())
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        match ch {
+            Channel::Reliable => self
+                .reliable_tx
+                .unbounded_send(bytes.to_vec())
+                .map_err(|e| anyhow::anyhow!("send queue closed: {e}")),
+            Channel::Unreliable => {
+                let conn = self
+                    .shared
+                    .conn
+                    .get()
+                    .ok_or_else(|| anyhow::anyhow!("not connected"))?;
+                let max = conn.max_datagram_size().unwrap_or(0);
+                anyhow::ensure!(
+                    bytes.len() <= max,
+                    "datagram too large: {} > {max}",
+                    bytes.len()
+                );
+                conn.send_datagram(bytes)?;
+                Ok(())
+            }
+        }
     }
     fn poll(&mut self) -> Option<Vec<u8>> {
-        self.incoming.try_recv().ok()
+        match self.incoming.try_recv() {
+            Ok(p) => Some(p),
+            Err(TryRecvError::Empty) => None,
+            Err(e) => {
+                eprintln!("recv queue error: {e}");
+                None
+            }
+        }
     }
-    fn state(&self) -> ConnState {
+    fn state(&self) -> crate::ConnState {
         match self.shared.state.load(Ordering::Acquire) {
-            CONNECTING => ConnState::Connecting,
-            OPEN => ConnState::Open,
-            _ => ConnState::Closed,
+            CONNECTING => crate::ConnState::Connecting,
+            OPEN => crate::ConnState::Open,
+            _ => crate::ConnState::Closed,
         }
     }
     fn error(&self) -> Option<String> {
         self.shared.error.lock().unwrap().clone()
+    }
+}
+
+impl Drop for NativeTransport {
+    fn drop(&mut self) {
+        self.shared.close(None);
+        if let Some(c) = self.shared.conn.get() {
+            c.close(VarInt::from_u32(0), b"client closed");
+        }
+    }
+}
+
+async fn read_reliable_stream(
+    mut stream: RecvStream,
+    tx: UnboundedSender<Vec<u8>>,
+) -> anyhow::Result<()> {
+    loop {
+        let mut hdr = [0u8; 4];
+        match stream.read_exact(&mut hdr).await {
+            Ok(_) => {}
+            Err(wtransport::error::StreamReadExactError::FinishedEarly(_)) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        }
+        let len = u32::from_le_bytes(hdr) as usize;
+        anyhow::ensure!(len <= MAX_PACKET_SIZE, "reliable packet too large");
+
+        let mut buf = vec![0u8; len];
+        stream.read_exact(&mut buf).await?;
+        tx.unbounded_send(buf)
+            .map_err(|_| anyhow::anyhow!("recv queue closed"))?;
     }
 }

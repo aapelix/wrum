@@ -616,4 +616,11 @@ impl InputBuf {
             self.ring[(n & 127) as usize]
         }
     }
+    pub fn tail(&self, n: u32) -> (u32, Vec<Input>) {
+        let first = self.max.wrapping_sub(n - 1);
+        (
+            first,
+            (0..n).map(|k| self.at(first.wrapping_add(k))).collect(),
+        )
+    }
 }

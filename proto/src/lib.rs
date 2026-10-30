@@ -122,6 +122,12 @@ pub enum ServerMsg {
     },
 }
 
+impl ClientMsg {
+    pub fn is_fast(&self) -> bool {
+        matches!(self, ClientMsg::Inputs { .. } | ClientMsg::Ping { .. })
+    }
+}
+
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub struct PlayerResult {
     pub id: PlayerId,

@@ -6,9 +6,10 @@ use wrum_core::{
 };
 use wrum_proto::ClientMsg;
 
-pub const MARGIN: f32 = 3.0;
+pub const MARGIN: f32 = 2.0;
 const ERR_DECAY_ME: f32 = 12.0;
 const ERR_DECAY_REMOTE: f32 = 7.0;
+const REDUNDANCY: u32 = 4;
 
 pub struct NetSim {
     pub me: usize,
@@ -23,12 +24,14 @@ pub struct NetSim {
     pings: u32,
     pongs: u32,
     last_ping: f64,
+    last_snap: u32,
+    got_snap: bool,
     sync_start: f64,
     best_rtt: f32,
     best_srv: f64,
     best_at: f64,
     freeze_until: f64,
-    win: [i8; 20],
+    win: [i8; 40],
     win_n: usize,
     win_i: usize,
     pub rtt: f32,
@@ -66,12 +69,14 @@ impl NetSim {
             pings: 0,
             pongs: 0,
             last_ping: -1.0,
+            last_snap: 0,
+            got_snap: false,
             sync_start: 0.0,
             best_rtt: 0.0,
             best_srv: 0.0,
             best_at: 0.0,
             freeze_until: 0.0,
-            win: [0; 20],
+            win: [0; 40],
             win_n: 0,
             win_i: 0,
             rtt: 0.0,
@@ -97,12 +102,15 @@ impl NetSim {
     pub fn tick(&self) -> u32 {
         self.cur
     }
+    #[cfg(feature = "debug-renderer")]
     pub fn rate(&self) -> f32 {
         self.rate
     }
+    #[cfg(feature = "debug-renderer")]
     pub fn lead_ticks(&self) -> i32 {
         self.cur.wrapping_sub(self.w.tick.min(self.cur)) as i32
     }
+    #[cfg(feature = "debug-renderer")]
     pub fn syncing(&self) -> bool {
         !self.playing
     }
@@ -114,7 +122,7 @@ impl NetSim {
         self.t0.elapsed().as_micros() as u32
     }
 
-    // ------------------------------------------------------------ per frame
+    // ------------------------------------------------------------ update
 
     pub fn update(&mut self, dt: f32, input: Input, tx: &mut Vec<ClientMsg>) {
         let now = self.now();
@@ -135,7 +143,6 @@ impl NetSim {
         }
 
         self.acc = (self.acc + dt * self.rate).min(12.0 * DT);
-        let first = self.cur;
         self.out.clear();
         while self.acc >= DT {
             self.acc -= DT;
@@ -143,10 +150,11 @@ impl NetSim {
         }
         self.alpha = (self.acc / DT).clamp(0.0, 1.0);
         if !self.out.is_empty() {
-            tx.push(ClientMsg::Inputs {
-                first,
-                inputs: self.out.clone(),
-            });
+            let first = self.cur.wrapping_sub(REDUNDANCY);
+            let inputs = (0..REDUNDANCY)
+                .map(|k| self.my_in.at(first.wrapping_add(k)))
+                .collect();
+            tx.push(ClientMsg::Inputs { first, inputs });
         }
 
         let k_me = (-ERR_DECAY_ME * dt).exp();
@@ -185,7 +193,7 @@ impl NetSim {
         self.w.step(&self.map, &ins, true, &mut |_, _| {});
     }
 
-    // ------------------------------------------------------------ clock sync
+    // ------------------------------------------------------------ clock
 
     fn ping(&mut self, now: f64, tx: &mut Vec<ClientMsg>) {
         self.pings += 1;
@@ -244,7 +252,7 @@ impl NetSim {
         }
     }
 
-    // ------------------------------------------------------------ network input
+    // ------------------------------------------------------------ net
 
     pub fn on_relay(&mut self, slot: usize, first: u32, inputs: &[Input]) {
         if slot >= MAX_CARS || slot == self.me {
@@ -260,6 +268,11 @@ impl NetSim {
         }
     }
     pub fn on_snapshot(&mut self, s: &World, early: i8) {
+        if self.got_snap && (s.tick.wrapping_sub(self.last_snap) as i32) <= 0 {
+            return;
+        }
+        self.got_snap = true;
+        self.last_snap = s.tick;
         self.on_early(early);
         self.pending = Some(*s);
     }
@@ -322,7 +335,7 @@ impl NetSim {
         }
     }
 
-    // ------------------------------------------------------------ rendering
+    // ------------------------------------------------------------ render
 
     pub fn view(&self, i: usize) -> (V2, f32, f32) {
         let (a, b) = (&self.prev.cars[i], &self.w.cars[i]);
@@ -335,6 +348,7 @@ impl NetSim {
         }
         (p + self.err_pos[i], r + self.err_rot[i], z)
     }
+    #[cfg(feature = "debug-renderer")]
     pub fn map(&self) -> &wrum_core::sim::grid::Map {
         &self.map
     }

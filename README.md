@@ -5,9 +5,9 @@ multiplayer racing game made with raylib
 todo:
 - 9 slice, better menus
 - trees, flags (+ rocks)
-- better net (wt?)
 - yaw pitch roll
 - random shapes for flame particles too
+- bots & menu bg where bots drive
 - water splashes not on top of tiles
 - prerotated stacks (not for map, i tried and bad things happened trust me)
 - tp back to last checkpoint on fall to water

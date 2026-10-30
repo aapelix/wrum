@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use wrum_net::{ConnState, PlatformTransport, Transport, connect};
+use wrum_net::{Channel, ConnState, PlatformTransport, Transport, connect};
 use wrum_proto::{ClientMsg, ServerMsg, decode_server, encode_client};
 
 pub enum NetEvent {
@@ -39,7 +39,12 @@ impl Net {
         self.t.state()
     }
     pub fn send(&mut self, msg: &ClientMsg) -> anyhow::Result<()> {
-        self.t.send(&encode_client(msg)?)
+        let ch = if msg.is_fast() {
+            Channel::Unreliable
+        } else {
+            Channel::Reliable
+        };
+        self.t.send(ch, &encode_client(msg)?)
     }
     pub fn pump(&mut self, out: &mut Vec<NetEvent>) -> anyhow::Result<()> {
         let s = self.state();
