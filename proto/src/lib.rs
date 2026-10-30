@@ -173,7 +173,7 @@ pub fn valid_name(raw: &str) -> Option<String> {
     let n = raw.trim();
     let ok = (3..=16).contains(&n.chars().count())
         && n.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ' '))
+            .all(|c| c.is_alphabetic() || c.is_ascii_digit() || matches!(c, '_' | '-' | ' '))
         && !n.contains("  ");
     let lower = n.to_lowercase();
     (ok && !lower.is_inappropriate()).then(|| n.to_string())
