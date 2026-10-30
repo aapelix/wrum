@@ -382,6 +382,7 @@ impl Scene for GameScene {
             tm.draw_text(name, x, y, text_size, Color::WHITE);
         }
 
+        self.fx.draw_flames(&mut tm, &self.camera);
         self.fx.draw_bits(&mut tm, &self.camera);
         self.fx.draw_puffs(&mut tm, &self.camera);
 

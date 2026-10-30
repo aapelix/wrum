@@ -6,8 +6,9 @@ use wrum_core::{
 };
 use wrum_proto::ClientMsg;
 
-pub const MARGIN: f32 = 4.0;
-const ERR_DECAY: f32 = 12.0;
+pub const MARGIN: f32 = 3.0;
+const ERR_DECAY_ME: f32 = 12.0;
+const ERR_DECAY_REMOTE: f32 = 7.0;
 
 pub struct NetSim {
     pub me: usize,
@@ -148,8 +149,10 @@ impl NetSim {
             });
         }
 
-        let k = (-ERR_DECAY * dt).exp();
+        let k_me = (-ERR_DECAY_ME * dt).exp();
+        let k_rem = (-ERR_DECAY_REMOTE * dt).exp();
         for i in 0..MAX_CARS {
+            let k = if i == self.me { k_me } else { k_rem };
             self.err_pos[i] *= k;
             self.err_rot[i] *= k;
         }
@@ -222,6 +225,9 @@ impl NetSim {
         self.win_n = (self.win_n + 1).min(20);
         let m = self.win[..self.win_n].iter().copied().min().unwrap() as f32;
         self.early = m as i32;
+        if m < 1.0 {
+            eprintln!("LATE early={m} rtt {:.0}ms", self.rtt * 1000.0);
+        }
         let e = m - MARGIN;
         if e < -6.0 || e > 12.0 {
             self.acc += -e * DT;
@@ -297,6 +303,22 @@ impl NetSim {
             self.err_pos[i] = d;
             self.err_rot[i] = dr;
             self.max_err = self.max_err.max(d.length());
+        }
+        let own = self.err_pos[self.me].length();
+        let rem = (0..MAX_CARS)
+            .filter(|&i| i != self.me)
+            .map(|i| self.err_pos[i].length())
+            .fold(0.0f32, f32::max);
+        if own > 2.0 || rem > 4.0 {
+            eprintln!(
+                "CORR own {:.1}px remote {:.1}px | replay {} | early {} | rtt {:.0}ms | rate {:.3}",
+                own,
+                rem,
+                self.cur.wrapping_sub(s.tick),
+                self.early,
+                self.rtt * 1000.0,
+                self.rate,
+            );
         }
     }
 

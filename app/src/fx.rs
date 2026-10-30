@@ -190,6 +190,9 @@ impl Fx {
                 }
                 Kind::Flame => {
                     b.v *= (-3.0 * dt).exp();
+                    let n = Vector2::new(-b.dir.y, b.dir.x);
+                    let sway = (b.age * 28.0 + b.vz * 40.0).sin() * 45.0 * (b.age / b.life);
+                    b.p += n * sway * dt;
                 }
             }
         }
@@ -309,22 +312,20 @@ impl Fx {
                     });
                 }
             }
-            tr.flame += (90.0 + 30.0 * car.boost_lvl as f32) * dt;
-            while tr.flame >= 1.0 && self.bits.len() < 700 {
+            tr.flame += (140.0 + 40.0 * car.boost_lvl as f32) * dt;
+            while tr.flame >= 1.0 && self.bits.len() < 900 {
                 tr.flame -= 1.0;
                 let r = &mut self.rng;
                 self.bits.push(Bit {
                     kind: Kind::Flame,
-                    p: car.p - fwd_v * 9.0 + right_v * r.range(-2.0, 2.0),
-                    v: -fwd_v * r.range(70.0, 130.0)
-                        + right_v * r.range(-20.0, 20.0)
-                        + tr.vel * 0.3,
+                    p: car.p - fwd_v * (8.0 + r.range(0.0, 4.0)) + right_v * r.range(-2.5, 2.5),
+                    v: -fwd_v * r.range(70.0, 130.0) + right_v * r.range(-6.0, 6.0) + tr.vel * 0.3,
                     dir: fwd_v,
                     z: car.z + 2.0,
-                    vz: 0.0,
+                    vz: r.next(),
                     age: 0.0,
-                    life: r.range(0.25, 0.45),
-                    len: r.range(0.45, 1.6),
+                    life: r.range(0.2, 0.4),
+                    len: r.range(0.5, 1.6),
                 });
             }
         } else {
@@ -513,23 +514,7 @@ impl Fx {
                     );
                     tm.draw_line_ex(a, e, 1.0, Color::new(hr, hg, hb, al));
                 }
-                Kind::Flame => {
-                    let (r, g, bl) = if t < 0.15 {
-                        (255, 250, 200)
-                    } else if t < 0.4 {
-                        (255, 214, 64)
-                    } else if t < 0.7 {
-                        (255, 140, 30)
-                    } else {
-                        (200, 50, 30)
-                    };
-                    let al = if t > 0.8 { 150 } else { 255 };
-                    let sp = b.v.length().max(1.0);
-                    let vn = b.v * (1.0 / sp);
-                    let l = (sp * 0.08 + 3.0) * b.len * (1.0 - t * 0.5);
-                    let th = (3.0 * (1.0 - t) + 1.0).round();
-                    tm.draw_line_ex(proj(b.p), proj(b.p - vn * l), th, Color::new(r, g, bl, al));
-                }
+                Kind::Flame => continue,
             }
         }
     }
@@ -573,6 +558,63 @@ impl Fx {
                     tm.draw_line_ex(pr(b.p), pr(b.p + d * (l * 0.35)), 2.0, col);
                     tm.draw_line_ex(pr(b.p + d * (l * 0.35)), pr(b.p + d * l), 1.0, col);
                 }
+            }
+        }
+    }
+    pub fn draw_flames(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
+        for layer in 0..3 {
+            for b in &self.bits {
+                if !matches!(b.kind, Kind::Flame) {
+                    continue;
+                }
+                let t = b.age / b.life;
+
+                if t > 0.55 && (b.vz * 97.0).fract() < (t - 0.55) * 2.2 {
+                    continue;
+                }
+
+                let (scale, col) = match layer {
+                    0 => (
+                        1.0,
+                        if t < 0.5 {
+                            (255, 120, 25)
+                        } else {
+                            (200, 45, 30)
+                        },
+                    ),
+                    1 if t < 0.7 => (
+                        0.7,
+                        if t < 0.3 {
+                            (255, 190, 50)
+                        } else {
+                            (255, 150, 35)
+                        },
+                    ),
+                    2 if t < 0.4 => (
+                        0.4,
+                        if t < 0.12 {
+                            (255, 250, 215)
+                        } else {
+                            (255, 224, 90)
+                        },
+                    ),
+                    _ => continue,
+                };
+
+                let r = (b.len * 2.6 * (1.0 - t).powf(0.7) * scale).round();
+                if r < 1.0 {
+                    continue;
+                }
+
+                let (s, _) = camera.apply(b.p, 0.0);
+                let (x, y) = (s.x.round(), (s.y - b.z).round());
+                let c = Color::new(col.0, col.1, col.2, 255);
+
+                let sp = b.v.length().max(1.0);
+                let vn = b.v * (1.0 / sp);
+                let tip = Vector2::new((x + vn.x * r * 1.1).round(), (y + vn.y * r * 1.1).round());
+                tm.draw_circle(x as i32, y as i32, r, c);
+                tm.draw_circle(tip.x as i32, tip.y as i32, (r * 0.6).round().max(1.0), c);
             }
         }
     }

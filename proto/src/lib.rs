@@ -8,7 +8,7 @@ use wrum_core::{
 pub const PROTO_VERSION: usize = 4;
 
 pub const TICK_RATE: u32 = 60;
-pub const SNAPSHOT_EVERY: u32 = 2;
+pub const SNAPSHOT_EVERY: u32 = 1;
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub enum ClientMsg {

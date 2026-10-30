@@ -3,15 +3,17 @@
 multiplayer racing game made with raylib
 
 todo:
-- water splashes not on top of tiles
+- 9 slice, better menus
+- trees, flags (+ rocks)
 - better net (wt?)
-- walls, grass, trees, rocks, stacked tires
+- yaw pitch roll
+- random shapes for flame particles too
+- water splashes not on top of tiles
 - prerotated stacks (not for map, i tried and bad things happened trust me)
 - tp back to last checkpoint on fall to water
 - culling
 - more props
 - particles
-- yaw pitch roll
 - beach map
 - snow map with slippy ice
 - music
