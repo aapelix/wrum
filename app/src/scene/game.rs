@@ -498,7 +498,6 @@ impl Scene for GameScene {
                 self.sim.on_player_changed(*slot as usize)
             }
             ServerMsg::PlayerLeft { slot } => {
-                self.names.remove(slot);
                 self.sim.on_player_changed(*slot as usize);
                 self.cars.remove(slot);
             }
