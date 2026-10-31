@@ -332,11 +332,11 @@ impl Scene for MenuScene {
                 }
                 Some((rows, _)) => {
                     for (i, (name, t, country)) in rows.iter().take(10).enumerate() {
-                        let y = 49 + i as i32 * 10;
+                        let y = 49 + i as i32 * 11;
                         let me = name.eq_ignore_ascii_case(&self.auth.name);
                         if i % 2 == 0 {
                             tm.draw_rectangle(16, y, 300, 11, Color::new(0, 0, 0, 180));
-                        } else if i % 2 == 0 {
+                        } else {
                             tm.draw_rectangle(16, y, 300, 11, Color::new(0, 0, 0, 160));
                         }
                         let rc = match i {
@@ -370,8 +370,10 @@ impl Scene for MenuScene {
                     let w = tm.measure_text(&ts, 8);
                     tm.draw_text(&ts, 296 - w, 167, 8, Color::WHITE);
                 }
-                None if self.is_guest() => tm.draw_text("Sign up to get ranked", 21, 167, 8, DIM),
-                None => tm.draw_text("Finish a race to get ranked", 21, 167, 8, DIM),
+                None if self.is_guest() => {
+                    tm.draw_text("Sign up to get ranked", 21, 167, 8, Color::WHITE)
+                }
+                None => tm.draw_text("Finish a race to get ranked", 21, 167, 8, Color::WHITE),
             }
         }
     }
