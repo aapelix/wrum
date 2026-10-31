@@ -1,3 +1,4 @@
+pub mod bot;
 pub mod level;
 pub mod map;
 pub mod race;

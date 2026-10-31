@@ -214,7 +214,8 @@ impl Level {
             }
         }
 
-        let (surf_px, surf_w, surf_h) = load_mask("assets/maps/untitled_mask.png")?;
+        let mask_path = path.replace(".json", "_mask.png");
+        let (surf_px, surf_w, surf_h) = load_mask(&mask_path)?;
 
         let checkpoint_count = checkpoints
             .iter()

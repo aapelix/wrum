@@ -6,11 +6,16 @@ use raylib::{
 };
 use wrum_proto::{BoardKind, ClientMsg, ServerMsg};
 
-use crate::scene::{
-    Scene,
-    auth::{Auth, AuthScene},
-    game::{GameScene, format_time},
+use crate::{
+    backdrop::Backdrop,
+    scene::{
+        Scene,
+        auth::{Auth, AuthScene},
+        game::{GameScene, format_time},
+    },
 };
+
+const MAPS: &[&str] = &["assets/maps/untitled_bot.json"];
 
 type R = (i32, i32, i32, i32);
 
@@ -28,7 +33,6 @@ const EDIT: R = (110, 137, 26, 15);
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color { r, g, b, a: 255 }
 }
-const BG: Color = rgb(0, 0, 0);
 const CARD: Color = rgb(20, 24, 36);
 const STRIPE: Color = rgb(25, 30, 46);
 const BORDER: Color = rgb(48, 56, 80);
@@ -67,10 +71,17 @@ pub struct MenuScene {
     want_fetch: bool,
     next_fetch: f32,
     refresh_at: f32,
+    backdrop: Backdrop,
 }
 
 impl MenuScene {
     pub fn new(status: &str, ctx: &mut crate::ctx::Context, auth: Auth) -> Self {
+        let pick = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos() as usize)
+            .unwrap_or(0)
+            % MAPS.len();
+
         Self {
             logo: ctx.rl.load_texture(ctx.thread, "assets/logo.png").unwrap(),
             status: status.into(),
@@ -83,6 +94,7 @@ impl MenuScene {
             want_fetch: true,
             next_fetch: 0.0,
             refresh_at: 20.0,
+            backdrop: Backdrop::new(ctx, MAPS[pick]),
         }
     }
 
@@ -102,6 +114,7 @@ impl MenuScene {
 impl Scene for MenuScene {
     fn update(&mut self, ctx: &mut crate::ctx::Context, dt: f32, _alpha: f32) -> super::Transition {
         self.clock += dt;
+        self.backdrop.update(ctx, dt);
         let m = ctx.rl.get_mouse_position();
         self.mouse = (m.x / SCALE, m.y / SCALE);
 
@@ -155,8 +168,9 @@ impl Scene for MenuScene {
     }
 
     fn draw(&mut self, ctx: &mut crate::ctx::Context) {
+        self.backdrop.prepare(ctx);
         let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut ctx.canvas);
-        tm.clear_background(BG);
+        self.backdrop.draw(ctx.assets, &mut tm);
         let mp = self.mouse;
 
         tm.draw_texture(&self.logo, LOGO_POS.0, LOGO_POS.1, Color::WHITE);

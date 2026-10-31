@@ -173,7 +173,7 @@ impl Default for World {
     }
 }
 
-fn axes(rot: f32) -> (Vec2, Vec2) {
+pub fn axes(rot: f32) -> (Vec2, Vec2) {
     let (s, c) = libm::sincosf(rot);
     (Vec2::new(s, -c), Vec2::new(c, s))
 }

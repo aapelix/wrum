@@ -1,8 +1,10 @@
 mod app;
 mod assets;
+mod backdrop;
 mod camera;
 mod car;
 mod ctx;
+mod demo;
 mod fx;
 mod game_loop;
 mod map;
