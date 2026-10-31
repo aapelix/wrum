@@ -211,6 +211,21 @@ impl Level {
                         shape: Shape::Circle { r: 11. },
                     });
                 }
+                PropKind::Tree => {
+                    obstacles.push(Obstacle {
+                        pos: Vec2 { x: p.x, y: p.y },
+                        rot: p.rotation.to_radians(),
+                        shape: Shape::Circle { r: 17. },
+                    });
+                }
+                PropKind::Rock => {
+                    obstacles.push(Obstacle {
+                        pos: Vec2 { x: p.x, y: p.y },
+                        rot: p.rotation.to_radians(),
+                        shape: Shape::Circle { r: 5. },
+                    });
+                }
+                PropKind::Fern => {}
             }
         }
 

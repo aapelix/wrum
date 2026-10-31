@@ -69,6 +69,9 @@ impl Map {
                             Stack::new(ctx, "assets/fence_end.png", 4.)
                         }
                         wrum_core::map::PropKind::Tires => Stack::new(ctx, "assets/tires.png", 24.),
+                        wrum_core::map::PropKind::Tree => Stack::new(ctx, "assets/tree.png", 42.),
+                        wrum_core::map::PropKind::Rock => Stack::new(ctx, "assets/rock.png", 16.),
+                        wrum_core::map::PropKind::Fern => Stack::new(ctx, "assets/fern.png", 17.),
                     },
                 });
                 index

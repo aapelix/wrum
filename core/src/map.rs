@@ -49,6 +49,9 @@ pub enum PropKind {
     Fence,
     FenceEnd,
     Tires,
+    Tree,
+    Rock,
+    Fern,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -337,7 +337,7 @@ impl Scene for MenuScene {
                         if i % 2 == 0 {
                             tm.draw_rectangle(16, y, 300, 11, Color::new(0, 0, 0, 180));
                         } else {
-                            tm.draw_rectangle(16, y, 300, 11, Color::new(0, 0, 0, 160));
+                            tm.draw_rectangle(16, y, 300, 11, Color::new(0, 0, 0, 120));
                         }
                         let rc = match i {
                             0 => GOLD,
