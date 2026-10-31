@@ -321,7 +321,7 @@ impl Scene for GameScene {
             self.shadow_canvas.texture(),
             Rectangle::new(0., 0., 320., -180.),
             Vector2::zero(),
-            Color::new(255, 255, 255, 180),
+            Color::new(255, 255, 255, 140),
         );
         self.fx.draw_trails(&mut tm, &self.camera);
 
