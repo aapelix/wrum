@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-#[cfg(feature = "debug-renderer")]
-use crate::sim::MARGIN;
 use raylib::{
     RaylibHandle,
     drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},

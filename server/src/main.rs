@@ -455,6 +455,7 @@ struct Slot {
     early: i8,
     ready: bool,
     account: Option<i64>,
+    recorded: bool,
 }
 
 struct Lobby {
@@ -551,6 +552,10 @@ impl Lobby {
             }
             Cmd::Leave { slot } => {
                 let i = slot as usize;
+                if self.phase == Phase::Racing {
+                    let of = self.count() as u32;
+                    self.record_slot(i, of, of);
+                }
                 if self.slots[i].take().is_none() {
                     return false;
                 }
@@ -606,6 +611,7 @@ impl Lobby {
             last_control: Instant::now(),
             early: 127,
             ready: false,
+            recorded: false,
         });
         self.h.count.store(self.count(), Relaxed);
         self.waiting_since = Instant::now();
@@ -755,6 +761,8 @@ impl Lobby {
             let n_cp = self.app.level.checkpoint_count;
             let mut msgs = Vec::new();
             let mut finished_now = false;
+            let mut finished_slots: Vec<usize> = Vec::new();
+
             for (i, s) in self
                 .slots
                 .iter_mut()
@@ -765,6 +773,9 @@ impl Lobby {
                 let Some(ev) = s.progress.update(&touching, n_cp, now) else {
                     continue;
                 };
+                if matches!(ev, RaceEvent::Finished { .. }) {
+                    finished_slots.push(i);
+                }
                 finished_now |= matches!(ev, RaceEvent::Finished { .. });
                 let lap_time = match ev {
                     RaceEvent::Lap { lap_time } | RaceEvent::Finished { lap_time } => {
@@ -782,6 +793,11 @@ impl Lobby {
             }
             for m in &msgs {
                 self.broadcast(m);
+            }
+            for i in finished_slots {
+                let of = self.count() as u32;
+                let pos = self.players().filter(|(_, s)| s.recorded).count() as u32 + 1;
+                self.record_slot(i, pos, of);
             }
             if finished_now && self.everyone_finished() {
                 self.finish_race();
@@ -860,21 +876,7 @@ impl Lobby {
 
         let of = order.len() as u32;
         for (i, &id) in order.iter().enumerate() {
-            let Some(s) = &self.slots[id as usize] else {
-                continue;
-            };
-            let Some(account) = s.account else { continue };
-            let p = &s.progress;
-            let best_lap = p.lap_times.iter().copied().reduce(f32::min);
-            let total = p.finished.then(|| p.lap_times.iter().sum::<f32>());
-            self.app.db.record(
-                account,
-                self.app.level_id.clone(),
-                i as u32 + 1,
-                of,
-                total,
-                best_lap,
-            );
+            self.record_slot(id as usize, i as u32 + 1, of);
         }
     }
     fn reset_race(&mut self) {
@@ -921,5 +923,22 @@ impl Lobby {
             }
         });
         v.into_iter().map(|t| t.0).collect()
+    }
+    fn record_slot(&mut self, i: usize, pos: u32, of: u32) {
+        let Some(s) = self.slots[i].as_mut() else {
+            return;
+        };
+        if s.recorded {
+            return;
+        }
+        s.recorded = true;
+        let Some(account) = s.account else { return };
+        let p = &s.progress;
+        let best_lap = p.lap_times.iter().copied().reduce(f32::min);
+        let total = p.finished.then(|| p.lap_times.iter().sum::<f32>());
+        eprintln!("record: account {account} pos {pos}/{of} total {total:?} lap {best_lap:?}");
+        self.app
+            .db
+            .record(account, self.app.level_id.clone(), pos, of, total, best_lap);
     }
 }
