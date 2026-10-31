@@ -459,7 +459,7 @@ impl Scene for GameScene {
             let labels = ["RTT", "Marg", "Clock", "Lead", "Corr"];
             let values = [
                 format!("{:>4.0} ms", self.sim.rtt * 1000.),
-                format!("{:>3} (target {MARGIN})", self.sim.early),
+                format!("{:>3} (target {:.1})", self.sim.early, self.sim.margin()),
                 format!("x{:.3}", self.sim.rate()),
                 format!("{:>3} ticks", self.sim.lead_ticks()),
                 format!("{:.2} px", self.sim.max_err),

@@ -55,9 +55,5 @@ COPY --from=build /src/assets /app/assets
 ENV WEB=/app/web
 ENV LEVEL=/app/assets/maps/untitled.json
 ENV ADDR=0.0.0.0:8080
-ENV DB=/data/wrum.db
-
-EXPOSE 8080/tcp
-EXPOSE 4433/udp
 
 CMD ["/app/server"]

@@ -16,11 +16,6 @@ pub fn connect(url: &str) -> anyhow::Result<PlatformTransport> {
 pub const MAX_PACKET_SIZE: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Channel {
-    Unreliable,
-    Reliable,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnState {
     Connecting,
     Open,
@@ -28,7 +23,7 @@ pub enum ConnState {
 }
 
 pub trait Transport {
-    fn send(&mut self, ch: Channel, bytes: &[u8]) -> anyhow::Result<()>;
+    fn send(&mut self, bytes: &[u8]) -> anyhow::Result<()>;
     fn poll(&mut self) -> Option<Vec<u8>>;
     fn state(&self) -> ConnState;
     fn error(&self) -> Option<String>;

@@ -6,7 +6,6 @@ use wrum_core::{
 };
 use wrum_proto::ClientMsg;
 
-pub const MARGIN: f32 = 2.0;
 const ERR_DECAY_ME: f32 = 12.0;
 const ERR_DECAY_REMOTE: f32 = 7.0;
 const REDUNDANCY: u32 = 4;
@@ -49,6 +48,10 @@ pub struct NetSim {
     err_rot: [f32; MAX_CARS],
     alpha: f32,
     out: Vec<Input>,
+
+    margin: f32,
+    last_late: f64,
+    last_adj: f64,
 }
 
 fn wrap_pi(a: f32) -> f32 {
@@ -93,6 +96,9 @@ impl NetSim {
             err_rot: [0.0; MAX_CARS],
             alpha: 0.0,
             out: Vec::new(),
+            margin: 3.0,
+            last_late: 0.0,
+            last_adj: 0.0,
         }
     }
 
@@ -113,6 +119,10 @@ impl NetSim {
     #[cfg(feature = "debug-renderer")]
     pub fn syncing(&self) -> bool {
         !self.playing
+    }
+    #[cfg(feature = "debug-renderer")]
+    pub fn margin(&self) -> f32 {
+        self.margin
     }
 
     fn now(&self) -> f64 {
@@ -217,7 +227,7 @@ impl NetSim {
     }
     fn start_playing(&mut self, now: f64) {
         let srv = self.best_srv + (now - self.best_at) / DT as f64;
-        self.cur = (srv + (self.best_rtt / 2.0 / DT) as f64 + MARGIN as f64 + 1.0) as u32;
+        self.cur = (srv + (self.best_rtt / 2.0 / DT) as f64 + self.margin as f64 + 1.0) as u32;
         self.acc = 0.0;
         self.rate = 1.0;
         self.my_in.reset(self.cur);
@@ -228,23 +238,38 @@ impl NetSim {
         if !self.playing || early == 127 || now < self.freeze_until {
             return;
         }
+        if early < 1 {
+            eprintln!(
+                "LATE early={early} margin={} rtt {:.0}ms",
+                self.margin,
+                self.rtt * 1000.0
+            );
+            if now - self.last_adj > 0.5 {
+                self.margin = (self.margin + 1.0).min(8.0);
+                self.last_adj = now;
+                self.win_n = 0;
+                self.win_i = 0;
+            }
+            self.last_late = now;
+        } else if now - self.last_late > 15.0 && now - self.last_adj > 15.0 && self.margin > 3.0 {
+            self.margin -= 1.0;
+            self.last_adj = now;
+        }
+
         self.win[self.win_i % 20] = early;
         self.win_i += 1;
         self.win_n = (self.win_n + 1).min(20);
         let m = self.win[..self.win_n].iter().copied().min().unwrap() as f32;
         self.early = m as i32;
-        if m < 1.0 {
-            eprintln!("LATE early={m} rtt {:.0}ms", self.rtt * 1000.0);
-        }
-        let e = m - MARGIN;
-        if e < -6.0 || e > 12.0 {
+        let e = m - self.margin;
+        if e < -12.0 || e > 20.0 {
             self.acc += -e * DT;
             self.win_n = 0;
             self.win_i = 0;
             self.freeze_until = now + (self.rtt * 1.5 + 0.1) as f64;
             self.rate = 1.0;
         } else if e < 0.0 {
-            self.rate = 1.0 + (-e * 0.02).min(0.05);
+            self.rate = 1.0 + (-e * 0.03).min(0.10);
         } else if e > 2.0 {
             self.rate = 1.0 - ((e - 2.0) * 0.01 + 0.01).min(0.05);
         } else {

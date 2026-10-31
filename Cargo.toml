@@ -9,7 +9,7 @@ anyhow = "1.0.104"
 futures-channel = "0.3.34"
 futures-util = "0.3.34"
 libm = "0.2.16"
-wtransport = "0.7.2"
+
 
 [profile.release]
 lto = true
