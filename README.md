@@ -3,7 +3,6 @@
 multiplayer racing game made with raylib
 
 todo:
-- 9 slice, better menus
 - trees, flags (+ rocks)
 - yaw pitch roll
 - water splashes not on top of tiles
