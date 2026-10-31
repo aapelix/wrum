@@ -1,10 +1,9 @@
 use raylib::{
-    RaylibHandle,
-    drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
-    ffi::{Color, KeyboardKey, MouseButton},
+    drawing::{RaylibDraw, RaylibTextureModeExt},
+    ffi::{Color, KeyboardKey, MouseButton, Vector2},
     texture::Texture2D,
 };
-use wrum_proto::{BoardKind, ClientMsg, ServerMsg};
+use wrum_proto::{BoardKind, ClientMsg, RejectReason, ServerMsg};
 
 use crate::{
     backdrop::Backdrop,
@@ -13,41 +12,39 @@ use crate::{
         auth::{Auth, AuthScene},
         game::{GameScene, format_time},
     },
+    ui::Button,
 };
 
 const MAPS: &[&str] = &["assets/maps/untitled_bot.json"];
 
-type R = (i32, i32, i32, i32);
+type R = (f32, f32, f32, f32);
 
 const SCALE: f32 = 4.0;
-const LOGO_POS: (i32, i32) = (16, 10);
-const QUICK: R = (16, 48, 120, 20);
-const CREATE: R = (16, 72, 120, 20);
-const FIELD: R = (16, 96, 70, 20);
-const JOIN: R = (90, 95, 46, 20);
-const PANEL: R = (148, 12, 160, 156);
-const TAB_TOTAL: R = (156, 30, 44, 13);
-const TAB_LAP: R = (204, 30, 52, 13);
-const EDIT: R = (110, 137, 26, 15);
+const LOGO_POS: (i32, i32) = (16, 24);
+const QUICK: R = (16., 59., 100., 0.);
+const CREATE: R = (16., 75., 100., 0.);
+const JOIN: R = (16., 91., 100., 0.);
+const EDIT: R = (268., 41., 36., 15.);
+
+const LEADERBOARD: R = (16., 120., 100., 0.);
+const SETTINGS: R = (16., 136., 100., 0.);
+
+const JOIN2: R = (109., 83., 50., 0.);
+const CANCEL: R = (161., 83., 50., 0.);
+
+const LCANCEL: R = (16., 16., 55., 0.);
+const TOTAL: R = (190., 16., 58., 0.);
+const LAP: R = (250., 16., 58., 0.);
+
+const GOLD: Color = Color::new(255, 215, 64, 255);
+const SILVER: Color = Color::new(200, 205, 215, 255);
+const BRONZE: Color = Color::new(205, 127, 80, 255);
+const DIM: Color = rgb(122, 132, 154);
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color { r, g, b, a: 255 }
 }
-const CARD: Color = rgb(20, 24, 36);
-const STRIPE: Color = rgb(25, 30, 46);
-const BORDER: Color = rgb(48, 56, 80);
-const TEXT: Color = rgb(228, 232, 242);
-const DIM: Color = rgb(122, 132, 154);
-const ACCENT: Color = rgb(255, 255, 255);
-const ACCENT_HI: Color = rgb(255, 255, 255);
-const ACCENT_LO: Color = rgb(200, 200, 200);
-const DARK: Color = rgb(22, 18, 6);
-const BTN: Color = rgb(34, 42, 64);
-const BTN_HI: Color = rgb(46, 58, 88);
-const ME: Color = rgb(42, 60, 104);
-const GOLD: Color = rgb(255, 205, 70);
-const SILVER: Color = rgb(205, 212, 224);
-const BRONZE: Color = rgb(216, 140, 84);
+
 const RED: Color = rgb(240, 90, 90);
 
 type Board = (Vec<(String, f32, [char; 2])>, Option<(u32, f32)>);
@@ -62,6 +59,8 @@ fn idx(k: BoardKind) -> usize {
 pub struct MenuScene {
     logo: Texture2D,
     status: String,
+    join_open: bool,
+    leaderboard_open: bool,
     code: String,
     auth: Auth,
     boards: [Option<Board>; 2],
@@ -72,6 +71,7 @@ pub struct MenuScene {
     next_fetch: f32,
     refresh_at: f32,
     backdrop: Backdrop,
+    button: Button,
 }
 
 impl MenuScene {
@@ -85,16 +85,19 @@ impl MenuScene {
         Self {
             logo: ctx.rl.load_texture(ctx.thread, "assets/logo.png").unwrap(),
             status: status.into(),
+            join_open: false,
+            leaderboard_open: false,
             code: String::new(),
             auth,
             boards: [None, None],
             kind: BoardKind::Total,
             mouse: (-1.0, -1.0),
             clock: 0.0,
-            want_fetch: true,
+            want_fetch: false,
             next_fetch: 0.0,
             refresh_at: 20.0,
             backdrop: Backdrop::new(ctx, MAPS[pick]),
+            button: Button::new(ctx),
         }
     }
 
@@ -104,10 +107,12 @@ impl MenuScene {
     fn can_join(&self) -> bool {
         self.code.len() == 6
     }
-    fn join_code(&self, ctx: &mut crate::ctx::Context) {
+    fn join_code(&mut self, ctx: &mut crate::ctx::Context) {
+        self.join_open = false;
         let _ = ctx.net.send(&ClientMsg::JoinLobby {
             code: self.code.clone(),
         });
+        self.code = String::new();
     }
 }
 
@@ -122,24 +127,47 @@ impl Scene for MenuScene {
             .rl
             .is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
         {
-            let mp = self.mouse;
-            if hit(QUICK, mp) {
-                let _ = ctx.net.send(&ClientMsg::JoinPublic);
-            } else if hit(CREATE, mp) {
-                let _ = ctx.net.send(&ClientMsg::CreateLobby);
-            } else if hit(JOIN, mp) && self.can_join() {
-                self.join_code(ctx);
-            } else if hit(TAB_TOTAL, mp) && self.kind != BoardKind::Total {
-                self.kind = BoardKind::Total;
-                self.want_fetch = true;
-            } else if hit(TAB_LAP, mp) && self.kind != BoardKind::Lap {
-                self.kind = BoardKind::Lap;
-                self.want_fetch = true;
-            } else if hit(EDIT, mp) && !self.is_guest() {
-                return super::Transition::Switch(Box::new(AuthScene::update_mode(
-                    self.auth.name.clone(),
-                    self.auth.country,
-                )));
+            let mp = self.mouse.into();
+            if !self.join_open && !self.leaderboard_open {
+                if self.button.inside(QUICK.0, QUICK.1, QUICK.2, mp) {
+                    let _ = ctx.net.send(&ClientMsg::JoinPublic);
+                } else if self.button.inside(CREATE.0, CREATE.1, CREATE.2, mp) {
+                    let _ = ctx.net.send(&ClientMsg::CreateLobby);
+                } else if self.button.inside(JOIN.0, JOIN.1, JOIN.2, mp) {
+                    self.join_open = true;
+                } else if self
+                    .button
+                    .inside(LEADERBOARD.0, LEADERBOARD.1, LEADERBOARD.2, mp)
+                {
+                    self.leaderboard_open = true;
+                    self.want_fetch = true;
+                } else if self.button.inside(SETTINGS.0, SETTINGS.1, SETTINGS.2, mp) {
+                    // todo: settings scene
+                } else if self.button.inside(EDIT.0, EDIT.1, EDIT.2, mp) && !self.is_guest() {
+                    return super::Transition::Switch(Box::new(AuthScene::update_mode(
+                        ctx,
+                        self.auth.name.clone(),
+                        self.auth.country,
+                    )));
+                }
+            } else if self.join_open {
+                if self.button.inside(JOIN2.0, JOIN2.1, JOIN2.2, mp) && self.can_join() {
+                    self.join_code(ctx);
+                } else if self.button.inside(CANCEL.0, CANCEL.1, CANCEL.2, mp) {
+                    self.join_open = false;
+                    self.code = String::new();
+                }
+            } else if self.leaderboard_open {
+                if self.button.inside(LCANCEL.0, LCANCEL.1, LCANCEL.2, mp) {
+                    self.leaderboard_open = false;
+                    self.want_fetch = true;
+                } else if self.button.inside(TOTAL.0, TOTAL.1, TOTAL.2, mp) {
+                    self.kind = BoardKind::Total;
+                    self.want_fetch = true;
+                } else if self.button.inside(LAP.0, LAP.1, LAP.2, mp) {
+                    self.kind = BoardKind::Lap;
+                    self.want_fetch = true;
+                }
             }
         }
 
@@ -168,136 +196,183 @@ impl Scene for MenuScene {
     }
 
     fn draw(&mut self, ctx: &mut crate::ctx::Context) {
+        let pressed = ctx.rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT);
+
         self.backdrop.prepare(ctx);
         let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut ctx.canvas);
         self.backdrop.draw(ctx.assets, &mut tm);
-        let mp = self.mouse;
+        let mp = self.mouse.into();
 
-        tm.draw_texture(&self.logo, LOGO_POS.0, LOGO_POS.1, Color::WHITE);
-        if !self.status.is_empty() {
-            tm.draw_text(&self.status, 16, 37, 8, RED);
-        }
+        if !self.leaderboard_open {
+            tm.draw_texture(&self.logo, LOGO_POS.0, LOGO_POS.1, Color::WHITE);
+            if !self.status.is_empty() {
+                tm.draw_text(&self.status, 16, 45, 8, RED);
+            }
 
-        button(&mut tm, QUICK, "Quickplay", hit(QUICK, mp), true, true);
-        button(
-            &mut tm,
-            CREATE,
-            "Create private",
-            hit(CREATE, mp),
-            false,
-            true,
-        );
+            {
+                let mp = if self.join_open { Vector2::zero() } else { mp };
 
-        fill(&mut tm, FIELD, CARD);
-        frame(
-            &mut tm,
-            FIELD,
-            if self.code.is_empty() { BORDER } else { ACCENT },
-        );
-        if self.code.is_empty() {
-            tm.draw_text("6-digit code", FIELD.0 + 6, FIELD.1 + 6, 8, DIM);
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    QUICK.0,
+                    QUICK.1,
+                    QUICK.2,
+                    mp,
+                    pressed,
+                    "Quickplay",
+                    false,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    CREATE.0,
+                    CREATE.1,
+                    CREATE.2,
+                    mp,
+                    pressed,
+                    "Create private",
+                    false,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    JOIN.0,
+                    JOIN.1,
+                    JOIN.2,
+                    mp,
+                    pressed,
+                    "Join private",
+                    false,
+                    false,
+                );
+
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    LEADERBOARD.0,
+                    LEADERBOARD.1,
+                    LEADERBOARD.2,
+                    mp,
+                    pressed,
+                    "Leaderboard",
+                    false,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets, &mut tm, SETTINGS.0, SETTINGS.1, SETTINGS.2, mp, pressed,
+                    "Settings", false, false,
+                );
+
+                let w = tm.measure_text(&self.auth.name, 8);
+                tm.draw_text(&self.auth.name, 300 - w, 31, 8, Color::WHITE);
+                self.button.draw(
+                    ctx.assets, &mut tm, EDIT.0, EDIT.1, EDIT.2, mp, pressed, "edit", true, false,
+                );
+            }
+
+            if self.join_open {
+                tm.draw_rectangle(0, 0, 320, 180, Color::new(0, 0, 0, 150));
+
+                let w = tm.measure_text("Enter 6 digit code", 8);
+                tm.draw_text("Enter 6 digit code", 160 - w / 2, 50, 8, Color::WHITE);
+                let w = tm.measure_text(&self.code, 20);
+                tm.draw_text(&self.code, 160 - w / 2, 60, 20, Color::WHITE);
+
+                self.button.draw(
+                    ctx.assets, &mut tm, JOIN2.0, JOIN2.1, JOIN2.2, mp, pressed, "Join", true,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets, &mut tm, CANCEL.0, CANCEL.1, CANCEL.2, mp, pressed, "Cancel", true,
+                    false,
+                );
+            }
         } else {
-            tm.draw_text(&self.code, FIELD.0 + 6, FIELD.1 + 5, 10, TEXT);
-            if (self.clock * 2.0) as i32 % 2 == 0 && self.code.len() < 6 {
-                let w = tm.measure_text(&self.code, 10);
-                tm.draw_rectangle(FIELD.0 + 7 + w, FIELD.1 + 4, 1, 12, ACCENT);
-            }
-        }
-        button(&mut tm, JOIN, "Join", hit(JOIN, mp), true, self.can_join());
+            self.button.draw(
+                ctx.assets, &mut tm, LCANCEL.0, LCANCEL.1, LCANCEL.2, mp, pressed, "Go back", true,
+                false,
+            );
+            self.button.draw(
+                ctx.assets,
+                &mut tm,
+                TOTAL.0,
+                TOTAL.1,
+                TOTAL.2,
+                mp,
+                pressed,
+                "Total",
+                true,
+                self.kind == BoardKind::Total,
+            );
+            self.button.draw(
+                ctx.assets,
+                &mut tm,
+                LAP.0,
+                LAP.1,
+                LAP.2,
+                mp,
+                pressed,
+                "Best lap",
+                true,
+                self.kind == BoardKind::Lap,
+            );
 
-        tm.draw_text("PLAYING AS", 16, 138, 8, DIM);
-        let who = fit(&tm, &self.auth.name, 118, 10);
-        tm.draw_text(&who, 16, 148, 10, TEXT);
-        if self.is_guest() {
-            tm.draw_text("Guest: not ranked", 16, 161, 8, ACCENT);
-        }
-        button(
-            &mut tm,
-            EDIT,
-            "edit",
-            hit(EDIT, mp),
-            false,
-            !self.is_guest(),
-        );
+            let board = self.boards[idx(self.kind)].as_ref();
+            match board {
+                None => {
+                    let w = tm.measure_text("Loading...", 8);
+                    tm.draw_text("Loading...", 160 - w / 2, 86, 8, Color::WHITE);
+                }
+                Some((rows, _)) if rows.is_empty() => {
+                    let w = tm.measure_text("No times yet", 8);
+                    tm.draw_text("No times yet", 160 - w / 2, 86, 8, Color::WHITE);
+                }
+                Some((rows, _)) => {
+                    for (i, (name, t, country)) in rows.iter().take(10).enumerate() {
+                        let y = 49 + i as i32 * 10;
+                        let me = name.eq_ignore_ascii_case(&self.auth.name);
+                        if i % 2 == 0 {
+                            tm.draw_rectangle(16, y, 300, 11, Color::new(0, 0, 0, 180));
+                        } else if i % 2 == 0 {
+                            tm.draw_rectangle(16, y, 300, 11, Color::new(0, 0, 0, 160));
+                        }
+                        let rc = match i {
+                            0 => GOLD,
+                            1 => SILVER,
+                            2 => BRONZE,
+                            _ => DIM,
+                        };
 
-        fill(&mut tm, PANEL, CARD);
-        frame(&mut tm, PANEL, BORDER);
-        tm.draw_text("LEADERBOARD", PANEL.0 + 8, PANEL.1 + 5, 8, DIM);
-        tab(
-            &mut tm,
-            TAB_TOTAL,
-            "Total",
-            self.kind == BoardKind::Total,
-            hit(TAB_TOTAL, mp),
-        );
-        tab(
-            &mut tm,
-            TAB_LAP,
-            "Best lap",
-            self.kind == BoardKind::Lap,
-            hit(TAB_LAP, mp),
-        );
-        tm.draw_line(PANEL.0 + 4, 46, PANEL.0 + PANEL.2 - 5, 46, BORDER);
-
-        let right = PANEL.0 + PANEL.2 - 8;
-        let board = self.boards[idx(self.kind)].as_ref();
-        match board {
-            None => centered(&mut tm, "Loading...", 98, DIM),
-            Some((rows, _)) if rows.is_empty() => {
-                centered(&mut tm, "No times yet", 92, DIM);
-                centered(&mut tm, "Finish a race!", 104, DIM);
-            }
-            Some((rows, _)) => {
-                for (i, (name, t, country)) in rows.iter().take(10).enumerate() {
-                    let y = 49 + i as i32 * 10;
-                    let me = name.eq_ignore_ascii_case(&self.auth.name);
-                    if me {
-                        tm.draw_rectangle(PANEL.0 + 3, y, PANEL.2 - 6, 10, ME);
-                    } else if i % 2 == 0 {
-                        tm.draw_rectangle(PANEL.0 + 3, y, PANEL.2 - 6, 10, STRIPE);
+                        tm.draw_text(&format!("{}", i + 1), 21, y + 1, 8, rc);
+                        tm.draw_text(&format!("{}{}", country[0], country[1]), 56, y + 1, 8, DIM);
+                        tm.draw_text(&name, 73, y + 1, 8, if me { RED } else { Color::WHITE });
+                        let ts = format_time(*t);
+                        let w = tm.measure_text(&ts, 8);
+                        tm.draw_text(
+                            &ts,
+                            296 - w,
+                            y + 1,
+                            8,
+                            if i == 0 { GOLD } else { Color::WHITE },
+                        );
                     }
-                    let rc = match i {
-                        0 => GOLD,
-                        1 => SILVER,
-                        2 => BRONZE,
-                        _ => DIM,
-                    };
-                    tm.draw_text(&format!("{}", i + 1), PANEL.0 + 8, y + 1, 8, rc);
-                    tm.draw_text(
-                        &format!("{}{}", country[0], country[1]),
-                        PANEL.0 + 26,
-                        y + 1,
-                        8,
-                        DIM,
-                    );
-                    let n = fit(&tm, name, 62, 8);
-                    tm.draw_text(
-                        &n,
-                        PANEL.0 + 44,
-                        y + 1,
-                        8,
-                        if me { ACCENT_HI } else { TEXT },
-                    );
-                    let ts = format_time(*t);
-                    let w = tm.measure_text(&ts, 8);
-                    tm.draw_text(&ts, right - w, y + 1, 8, if i == 0 { GOLD } else { TEXT });
                 }
             }
-        }
 
-        let fy = PANEL.1 + PANEL.3 - 14;
-        tm.draw_line(PANEL.0 + 4, fy - 3, PANEL.0 + PANEL.2 - 5, fy - 3, BORDER);
-        match board.and_then(|b| b.1) {
-            Some((rank, t)) => {
-                tm.draw_text(&format!("You  #{rank}"), PANEL.0 + 8, fy, 8, ACCENT);
-                let ts = format_time(t);
-                let w = tm.measure_text(&ts, 8);
-                tm.draw_text(&ts, right - w, fy, 8, ACCENT);
+            tm.draw_line(16, 164, 300, 164, Color::WHITE);
+            match board.and_then(|b| b.1) {
+                Some((rank, t)) => {
+                    tm.draw_text(&format!("You  #{rank}"), 21, 167, 8, Color::WHITE);
+                    let ts = format_time(t);
+                    let w = tm.measure_text(&ts, 8);
+                    tm.draw_text(&ts, 296 - w, 167, 8, Color::WHITE);
+                }
+                None if self.is_guest() => tm.draw_text("Sign up to get ranked", 21, 167, 8, DIM),
+                None => tm.draw_text("Finish a race to get ranked", 21, 167, 8, DIM),
             }
-            None if self.is_guest() => {
-                tm.draw_text("Sign up to get ranked", PANEL.0 + 8, fy, 8, DIM)
-            }
-            None => tm.draw_text("Finish a race to get ranked", PANEL.0 + 8, fy, 8, DIM),
         }
     }
 
@@ -316,6 +391,16 @@ impl Scene for MenuScene {
                 self.boards[idx(*kind)] = Some((rows.clone(), *mine));
                 super::Transition::None
             }
+            ServerMsg::Reject(reason) => {
+                match reason {
+                    RejectReason::LobbyFull => self.status = "lobby full".into(),
+                    RejectReason::LobbyGone => self.status = "lobby gone".into(),
+                    RejectReason::LobbyNotFound => self.status = "lobby not found".into(),
+                    RejectReason::RaceStarted => self.status = "race already started".into(),
+                    _ => {}
+                }
+                super::Transition::None
+            }
             _ => super::Transition::None,
         }
     }
@@ -326,82 +411,4 @@ impl Scene for MenuScene {
     fn blocks_update(&self) -> bool {
         true
     }
-}
-
-// ---------------------------------------------------------------- helpers
-
-fn hit(r: R, m: (f32, f32)) -> bool {
-    m.0 >= r.0 as f32 && m.0 < (r.0 + r.2) as f32 && m.1 >= r.1 as f32 && m.1 < (r.1 + r.3) as f32
-}
-fn fill(tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, r: R, c: Color) {
-    tm.draw_rectangle(r.0, r.1, r.2, r.3, c);
-}
-fn frame(tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, r: R, c: Color) {
-    tm.draw_rectangle_lines(r.0, r.1, r.2, r.3, c);
-}
-fn centered(tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, s: &str, y: i32, c: Color) {
-    let w = tm.measure_text(s, 8);
-    tm.draw_text(s, PANEL.0 + (PANEL.2 - w) / 2, y, 8, c);
-}
-fn fit(tm: &RaylibTextureMode<'_, '_, RaylibHandle>, s: &str, max: i32, size: i32) -> String {
-    if tm.measure_text(s, size) <= max {
-        return s.to_string();
-    }
-    let mut v: Vec<char> = s.chars().collect();
-    while !v.is_empty() {
-        v.pop();
-        let t: String = v.iter().collect::<String>() + "..";
-        if tm.measure_text(&t, size) <= max {
-            return t;
-        }
-    }
-    String::new()
-}
-fn button(
-    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
-    r: R,
-    label: &str,
-    hover: bool,
-    primary: bool,
-    enabled: bool,
-) {
-    let (face, edge, ink) = match (primary, enabled) {
-        (_, false) => (BTN, BORDER, DIM),
-        (true, true) => (if hover { ACCENT_HI } else { ACCENT }, ACCENT_LO, DARK),
-        (false, true) => (if hover { BTN_HI } else { BTN }, BORDER, TEXT),
-    };
-    let lift = if hover && enabled { 0 } else { 1 };
-    tm.draw_rectangle(r.0, r.1 + 2, r.2, r.3 - 1, edge);
-    tm.draw_rectangle(r.0, r.1 + 2 - lift * 2 + lift, r.2, r.3 - 2, face);
-    let w = tm.measure_text(label, 8);
-    tm.draw_text(
-        label,
-        r.0 + (r.2 - w) / 2,
-        r.1 + (r.3 - 8) / 2 + 1 - lift + 1,
-        8,
-        ink,
-    );
-}
-fn tab(
-    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
-    r: R,
-    label: &str,
-    active: bool,
-    hover: bool,
-) {
-    if active {
-        fill(tm, r, ACCENT);
-    } else if hover {
-        fill(tm, r, BTN_HI);
-    } else {
-        fill(tm, r, BTN);
-    }
-    let w = tm.measure_text(label, 8);
-    tm.draw_text(
-        label,
-        r.0 + (r.2 - w) / 2,
-        r.1 + 3,
-        8,
-        if active { DARK } else { TEXT },
-    );
 }

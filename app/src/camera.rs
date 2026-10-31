@@ -1,4 +1,4 @@
-use raylib::math::Vector2;
+use raylib::math::{Rectangle, Vector2};
 
 #[derive(Default)]
 pub struct Camera {
@@ -138,5 +138,36 @@ impl Camera {
             (hash(step * 2) * amp).round(),
             (hash(step * 2 + 1) * amp).round(),
         );
+    }
+
+    pub fn visible_bounds(&self, margin: f32) -> Rectangle {
+        let corners = [
+            Vector2::new(0.0, 0.0),
+            Vector2::new(320.0, 0.0),
+            Vector2::new(320.0, 180.0),
+            Vector2::new(0.0, 180.0),
+        ];
+
+        let (origin, inv) = self.inverse();
+
+        let mut min = Vector2::new(f32::INFINITY, f32::INFINITY);
+        let mut max = Vector2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
+
+        for c in corners {
+            let d = c - origin;
+            let p = Vector2::new(inv[0] * d.x + inv[1] * d.y, inv[2] * d.x + inv[3] * d.y);
+
+            min.x = min.x.min(p.x);
+            min.y = min.y.min(p.y);
+            max.x = max.x.max(p.x);
+            max.y = max.y.max(p.y);
+        }
+
+        Rectangle {
+            x: min.x - margin,
+            y: min.y - margin,
+            width: max.x - min.x + margin * 2.0,
+            height: max.y - min.y + margin * 2.0,
+        }
     }
 }

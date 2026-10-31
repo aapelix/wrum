@@ -12,6 +12,7 @@ mod net;
 mod scene;
 mod sim;
 mod stack;
+mod ui;
 
 #[cfg(target_family = "wasm")]
 pub const GLSL_VERSION: i32 = 100;

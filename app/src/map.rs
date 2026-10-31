@@ -129,6 +129,13 @@ impl Map {
         }
     }
 
+    pub fn visible(prop: &Prop, bounds: Rectangle) -> bool {
+        prop.pos.x >= bounds.x
+            && prop.pos.x <= bounds.x + bounds.width
+            && prop.pos.y >= bounds.y
+            && prop.pos.y <= bounds.y + bounds.height
+    }
+
     pub fn draw_layers(
         &mut self,
         assets: &Assets,
@@ -156,12 +163,29 @@ impl Map {
         if self.water.is_empty() {
             return;
         }
+        let bounds = camera.visible_bounds(0.0);
+
+        let visible: Vec<Rectangle> = self
+            .water
+            .iter()
+            .filter(|w| {
+                w.x < bounds.x + bounds.width
+                    && w.x + w.width > bounds.x
+                    && w.y < bounds.y + bounds.height
+                    && w.y + w.height > bounds.y
+            })
+            .cloned()
+            .collect();
+
+        if visible.is_empty() {
+            return;
+        }
+
         self.upload_view(tm, camera);
         self.water_shader
             .set_shader_value(self.loc_clip, Vector3::new(0., 0., 0.));
         self.water_shader.set_shader_value(self.loc_alpha, 1.0f32);
-        let rects = self.water.clone();
-        self.draw_rects(tm, camera, &rects);
+        self.draw_rects(tm, camera, &visible);
     }
     pub fn draw_water_overlay(
         &mut self,
@@ -204,7 +228,13 @@ impl Map {
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         camera: &Camera,
     ) {
+        let bounds = camera.visible_bounds(32.0);
+
         for prop in &self.props {
+            if !Self::visible(prop, bounds) {
+                continue;
+            }
+
             let kind = &self.kinds[prop.kind];
             kind.stack
                 .draw_shadow(tm, prop.pos, prop.a, camera, SHADOW_OFFSET, 255);

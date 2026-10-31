@@ -1,30 +1,30 @@
 use wrum_net::store;
 use wrum_proto::{ClientMsg, NameError, ServerMsg};
 
-use crate::scene::{Scene, menu::MenuScene};
+use crate::{
+    ctx,
+    scene::{Scene, menu::MenuScene},
+    ui::Button,
+};
 
 use raylib::{
     RaylibHandle,
     consts::{KeyboardKey, MouseButton},
     drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
     ffi::Color,
-    texture::Texture2D,
 };
 
 const CANVAS_W: i32 = 320;
 const CANVAS_H: i32 = 180;
 
-const LOGO_POS: (i32, i32) = (16, 10);
-const PANEL: (i32, i32, i32, i32) = (48, 32, 224, 142);
-
 const BOX_W: i32 = 200;
 const BOX_H: i32 = 22;
 const BOX_X: i32 = (CANVAS_W - BOX_W) / 2;
 
-const NAME_Y: i32 = 64;
-const COUNTRY_Y: i32 = 108;
+const NAME_Y: i32 = 44;
+const COUNTRY_Y: i32 = 88;
 
-const BTN_Y: i32 = 138;
+const BTN_Y: i32 = 118;
 const BTN_H: i32 = 18;
 const BTN_W: i32 = 96;
 
@@ -44,20 +44,12 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color { r, g, b, a: 255 }
 }
 
-const BG: Color = rgb(0, 0, 0);
-const CARD: Color = rgb(20, 24, 36);
-const BORDER: Color = rgb(48, 56, 80);
+const CARD: Color = rgb(0, 0, 0);
+const BORDER: Color = rgb(255, 255, 255);
 const TEXT: Color = rgb(228, 232, 242);
-const DIM: Color = rgb(122, 132, 154);
-const ACCENT: Color = rgb(255, 255, 255);
-const ACCENT_HI: Color = rgb(255, 255, 255);
-const ACCENT_LO: Color = rgb(200, 200, 200);
+const DIM: Color = rgb(170, 170, 170);
 const DARK: Color = rgb(22, 18, 6);
-const BTN: Color = rgb(34, 42, 64);
-const BTN_HI: Color = rgb(46, 58, 88);
 const RED: Color = rgb(240, 90, 90);
-
-const WHITE: Color = ACCENT;
 
 const COUNTRIES: &str = "FI";
 
@@ -91,11 +83,10 @@ pub struct Auth {
     pub country: [char; 2],
 }
 
-#[derive(Default)]
 pub struct AuthScene {
     state: State,
-    logo: Option<Texture2D>,
     mode: Mode,
+    button: Button,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -104,9 +95,7 @@ enum Field {
     Country,
 }
 
-#[derive(Default)]
 enum State {
-    #[default]
     Unknown,
     NeedName {
         input: String,
@@ -127,7 +116,7 @@ fn valid_name(s: &str) -> Option<String> {
     ((MIN_LEN..=MAX_LEN).contains(&n) && wrum_proto::valid_name(t).is_some()).then(|| t.to_string())
 }
 fn allowed(c: char) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ' ')
+    c.is_alphabetic() || c.is_ascii_digit() || matches!(c, '_' | '-' | ' ')
 }
 
 /// (text, is_problem)
@@ -174,7 +163,14 @@ fn centered(
 }
 
 impl AuthScene {
-    pub fn update_mode(name: String, country: [char; 2]) -> AuthScene {
+    pub fn new(ctx: &mut ctx::Context) -> AuthScene {
+        Self {
+            state: State::Unknown,
+            mode: Mode::Register,
+            button: Button::new(ctx),
+        }
+    }
+    pub fn update_mode(ctx: &mut ctx::Context, name: String, country: [char; 2]) -> AuthScene {
         Self {
             state: State::NeedName {
                 input: name.clone(),
@@ -187,8 +183,8 @@ impl AuthScene {
                 guest_name: name,
                 guest_country: country,
             },
-            logo: None,
             mode: Mode::Update,
+            button: Button::new(ctx),
         }
     }
 }
@@ -360,19 +356,12 @@ impl Scene for AuthScene {
     fn draw(&mut self, ctx: &mut crate::ctx::Context) {
         let t = ctx.rl.get_time() as f32;
 
-        if self.logo.is_none() {
-            self.logo = ctx.rl.load_texture(ctx.thread, "assets/logo.png").ok();
-        }
-
         let n = country_count();
         let mouse = mouse_canvas(&ctx.rl);
+        let pressed = ctx.rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT);
         let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut ctx.canvas);
 
-        tm.clear_background(BG);
-
-        if let Some(logo) = &self.logo {
-            tm.draw_texture(logo, LOGO_POS.0, LOGO_POS.1, WHITE);
-        }
+        tm.clear_background(Color::new(15, 15, 15, 255));
 
         match &self.state {
             State::Unknown => {
@@ -389,18 +378,15 @@ impl Scene for AuthScene {
                 pending,
                 ..
             } => {
-                tm.draw_rectangle(PANEL.0, PANEL.1, PANEL.2, PANEL.3, CARD);
-                tm.draw_rectangle_lines(PANEL.0, PANEL.1, PANEL.2, PANEL.3, BORDER);
-
                 tm.draw_text(
                     match self.mode {
-                        Mode::Register => "CREATE ACCOUNT",
-                        Mode::Update => "UPDATE ACCOUNT",
+                        Mode::Register => "Create account",
+                        Mode::Update => "Update account",
                     },
                     BOX_X,
-                    40,
+                    22,
                     8,
-                    DIM,
+                    Color::WHITE,
                 );
 
                 tm.draw_rectangle(BOX_X, 50, BOX_W, 1, BORDER);
@@ -433,10 +419,10 @@ impl Scene for AuthScene {
 
                 if name_focus && !*pending && (t * 2.0) as i32 % 2 == 0 {
                     let cx = bx + 8 + tm.measure_text(input, 10) + 1;
-                    tm.draw_rectangle(cx, ty - 1, 1, 12, ACCENT);
+                    tm.draw_rectangle(cx, ty - 1, 1, 12, Color::WHITE);
                 }
 
-                let line_y = NAME_Y + BOX_H + 5;
+                let line_y = NAME_Y + BOX_H + 3;
 
                 match error {
                     Some(e) => tm.draw_text(e, bx, line_y, 8, RED),
@@ -466,7 +452,7 @@ impl Scene for AuthScene {
                         let w = tm.measure_text(code, 10);
 
                         if k == 0 {
-                            tm.draw_rectangle(x, COUNTRY_Y + 3, CELL, BOX_H - 6, ACCENT);
+                            tm.draw_rectangle(x, COUNTRY_Y + 3, CELL, BOX_H - 6, Color::WHITE);
                             tm.draw_text(code, x + (CELL - w) / 2, cy, 10, DARK);
                         } else {
                             tm.draw_text(code, x + (CELL - w) / 2, cy, 10, DIM);
@@ -479,11 +465,14 @@ impl Scene for AuthScene {
                     tm.draw_text(country_code(*idx), BOX_X + 8, cy, 10, TEXT);
                 }
 
-                let ready = valid_name(input).is_some() && !*pending;
-
-                button(
+                self.button.draw(
+                    ctx.assets,
                     &mut tm,
-                    REGISTER_BTN,
+                    REGISTER_BTN.0 as f32,
+                    REGISTER_BTN.1 as f32,
+                    REGISTER_BTN.2 as f32,
+                    mouse.into(),
+                    pressed,
                     match self.mode {
                         Mode::Register => {
                             if *pending {
@@ -500,20 +489,23 @@ impl Scene for AuthScene {
                             }
                         }
                     },
-                    ready,
-                    hit(REGISTER_BTN, mouse),
                     true,
+                    false,
                 );
 
-                button(
+                self.button.draw(
+                    ctx.assets,
                     &mut tm,
-                    GUEST_BTN,
+                    GUEST_BTN.0 as f32,
+                    GUEST_BTN.1 as f32,
+                    GUEST_BTN.2 as f32,
+                    mouse.into(),
+                    pressed,
                     match self.mode {
                         Mode::Register => "PLAY AS GUEST",
                         Mode::Update => "CANCEL",
                     },
-                    !*pending,
-                    hit(GUEST_BTN, mouse),
+                    true,
                     false,
                 );
             }
@@ -620,37 +612,7 @@ fn frame(
 ) {
     tm.draw_rectangle(x, y, BOX_W, BOX_H, CARD);
 
-    let border = color.unwrap_or(if focused { ACCENT } else { BORDER });
+    let border = color.unwrap_or(if focused { Color::WHITE } else { BORDER });
 
     tm.draw_rectangle_lines(x, y, BOX_W, BOX_H, border);
-}
-fn button(
-    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
-    r: (i32, i32, i32, i32),
-    label: &str,
-    enabled: bool,
-    hovered: bool,
-    primary: bool,
-) {
-    let (x, y, w, h) = r;
-
-    let (face, edge, ink) = match (primary, enabled) {
-        (_, false) => (BTN, BORDER, DIM),
-        (true, true) => (if hovered { ACCENT_HI } else { ACCENT }, ACCENT_LO, DARK),
-        (false, true) => (if hovered { BTN_HI } else { BTN }, BORDER, TEXT),
-    };
-
-    let lift = if hovered && enabled { 0 } else { 1 };
-
-    tm.draw_rectangle(x, y + 2, w, h - 1, edge);
-    tm.draw_rectangle(x, y + 2 - lift, w, h - 2, face);
-
-    let text_w = tm.measure_text(label, 8);
-    tm.draw_text(
-        label,
-        x + (w - text_w) / 2,
-        y + (h - 8) / 2 + 2 - lift,
-        8,
-        ink,
-    );
 }

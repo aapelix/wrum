@@ -326,11 +326,17 @@ impl Scene for GameScene {
         self.fx.draw_trails(&mut tm, &self.camera);
 
         let mut drawables: Vec<(f32, usize, Drawable)> = Vec::new();
+        let bounds = self.camera.visible_bounds(32.0);
+
         for (i, (id, car)) in self.cars.iter().enumerate() {
             let (pos, _) = self.camera.apply(car.p, car.a);
             drawables.push((pos.y, i, Drawable::Car(*id)));
         }
         for (i, prop) in self.map.props.iter().enumerate() {
+            if !Map::visible(prop, bounds) {
+                continue;
+            }
+
             let (pos, _) = self.camera.apply(prop.pos, prop.a);
             drawables.push((pos.y, i, Drawable::Prop));
         }

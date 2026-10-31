@@ -14,8 +14,8 @@ impl Scene for ConnectingScene {
         tm.draw_text("connecting", 130, 80, 10, Color::WHITE);
     }
 
-    fn on_connect(&mut self, _ctx: &mut crate::ctx::Context) -> super::Transition {
-        super::Transition::Switch(Box::new(AuthScene::default()))
+    fn on_connect(&mut self, ctx: &mut crate::ctx::Context) -> super::Transition {
+        super::Transition::Switch(Box::new(AuthScene::new(ctx)))
     }
 
     fn blocks_draw(&self) -> bool {
@@ -39,8 +39,8 @@ impl Scene for DisconnectedScene {
         tm.draw_text("disconnected, refresh", 130, 80, 10, Color::RED);
     }
 
-    fn on_connect(&mut self, _ctx: &mut crate::ctx::Context) -> super::Transition {
-        super::Transition::Switch(Box::new(AuthScene::default()))
+    fn on_connect(&mut self, ctx: &mut crate::ctx::Context) -> super::Transition {
+        super::Transition::Switch(Box::new(AuthScene::new(ctx)))
     }
 
     fn blocks_draw(&self) -> bool {
