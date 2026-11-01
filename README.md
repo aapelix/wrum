@@ -6,7 +6,6 @@ todo:
 - flags
 - yaw pitch roll?
 - water splashes not on top of tiles
-- actual accounts
 - prerotated stacks? (not for map, i tried and bad things happened trust me)
 - culling
 - more props
