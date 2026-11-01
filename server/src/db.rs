@@ -1,95 +1,80 @@
-use rusqlite::{Connection, ErrorCode, OptionalExtension, params};
-use tokio::sync::{mpsc, oneshot};
-use wrum_proto::{BoardKind, NameError, ServerMsg};
+use std::time::Duration;
 
-const SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS players (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    country TEXT NOT NULL,
-    token_hash BLOB NOT NULL UNIQUE,
-    created_at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS results (
-    id INTEGER PRIMARY KEY,
-    player_id INTEGER NOT NULL REFERENCES players(id),
-    level TEXT NOT NULL, position INTEGER NOT NULL, players_in_race INTEGER NOT NULL,
-    total_time REAL, best_lap REAL, at INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS records (
-    player_id INTEGER NOT NULL, level TEXT NOT NULL,
-    best_lap REAL, best_total REAL,
-    PRIMARY KEY (player_id, level)
-);
-CREATE INDEX IF NOT EXISTS rec_lap ON records(level, best_lap);
-CREATE INDEX IF NOT EXISTS rec_total ON records(level, best_total);
-";
+use sqlx::{AssertSqlSafe, PgPool, postgres::PgPoolOptions};
+use wrum_proto::{BoardKind, DeviceInfo, NameError, ServerMsg};
 
-enum Cmd {
-    Register {
-        name: String,
-        country: [char; 2],
-        hash: [u8; 32],
-        reply: oneshot::Sender<Result<i64, NameError>>,
-    },
-    Update {
-        player: i64,
-        name: String,
-        country: [char; 2],
-        reply: oneshot::Sender<Result<(), NameError>>,
-    },
-    Auth {
-        hash: [u8; 32],
-        reply: oneshot::Sender<Option<(i64, String, [char; 2])>>,
-    },
-    Record {
-        player: i64,
-        level: String,
-        pos: u32,
-        of: u32,
-        total: Option<f32>,
-        best_lap: Option<f32>,
-    },
-    Board {
-        level: String,
-        kind: BoardKind,
-        player: Option<i64>,
-        reply: oneshot::Sender<ServerMsg>,
-    },
+#[derive(Clone, Debug)]
+pub struct Account {
+    pub id: i64,
+    pub name: String,
+    pub country: [char; 2],
+    pub email: Option<String>,
+}
+
+type Row = (i64, String, String, Option<String>);
+const ACCOUNT_COLS: &str = "id, name, country, email";
+
+pub enum EmailOutcome {
+    Attached,
+    LoggedInto(Account),
+    NeedName,
+}
+fn account(r: Row) -> Account {
+    Account {
+        id: r.0,
+        name: r.1,
+        country: country_arr(&r.2),
+        email: r.3,
+    }
 }
 
 #[derive(Clone)]
-pub struct Db(mpsc::UnboundedSender<Cmd>);
+pub struct Db(PgPool);
 
 impl Db {
-    pub fn open(path: &str) -> anyhow::Result<Db> {
-        let conn = Connection::open(path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
-        conn.execute_batch(SCHEMA)?;
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        std::thread::spawn(move || {
-            while let Some(c) = rx.blocking_recv() {
-                run(&conn, c);
-            }
-        });
-        Ok(Db(tx))
+    pub async fn open(url: &str) -> anyhow::Result<Db> {
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .acquire_timeout(Duration::from_secs(3))
+            .connect(url)
+            .await?;
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        Ok(Db(pool))
     }
 
     pub async fn register(
         &self,
         name: String,
         country: [char; 2],
+        email: Option<String>,
         hash: [u8; 32],
     ) -> Result<i64, NameError> {
-        let (reply, rx) = oneshot::channel();
-        let _ = self.0.send(Cmd::Register {
-            name,
-            country,
-            hash,
-            reply,
-        });
-        rx.await.unwrap_or(Err(NameError::Busy))
+        let country: String = country.iter().collect();
+        let res: sqlx::Result<i64> = async {
+                    let mut tx = self.0.begin().await?;
+                    let id: i64 = sqlx::query_scalar(
+                        "INSERT INTO players(name, country, email, created_at) VALUES($1, $2, $3, $4) RETURNING id",
+                    )
+                    .bind(name).bind(country).bind(email).bind(now())
+                    .fetch_one(&mut *tx).await?;
+                    insert_device(&mut tx, id, hash).await?;
+                    tx.commit().await?;
+                    Ok(id)
+                }.await;
+        match res {
+            Ok(id) => Ok(id),
+            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+                if e.constraint() == Some("players_email") {
+                    Err(NameError::Busy)
+                } else {
+                    Err(NameError::Taken)
+                }
+            }
+            Err(e) => {
+                eprintln!("db register: {e}");
+                Err(NameError::Busy)
+            }
+        }
     }
     pub async fn update(
         &self,
@@ -97,21 +82,38 @@ impl Db {
         name: String,
         country: [char; 2],
     ) -> Result<(), NameError> {
-        let (reply, rx) = oneshot::channel();
+        let country: String = country.iter().collect();
 
-        let _ = self.0.send(Cmd::Update {
-            player,
-            name,
-            country,
-            reply,
-        });
-
-        rx.await.unwrap_or(Err(NameError::Busy))
+        match sqlx::query("UPDATE players SET name = $1, country = $2 WHERE id = $3")
+            .bind(name)
+            .bind(country)
+            .bind(player)
+            .execute(&self.0)
+            .await
+        {
+            Ok(result) if result.rows_affected() == 1 => Ok(()),
+            Ok(_) => Err(NameError::Busy),
+            Err(sqlx::Error::Database(e)) if e.is_unique_violation() => Err(NameError::Taken),
+            Err(e) => {
+                eprintln!("db update: {e}");
+                Err(NameError::Busy)
+            }
+        }
     }
-    pub async fn auth(&self, hash: [u8; 32]) -> Option<(i64, String, [char; 2])> {
-        let (reply, rx) = oneshot::channel();
-        let _ = self.0.send(Cmd::Auth { hash, reply });
-        rx.await.ok().flatten()
+    pub async fn auth(&self, hash: [u8; 32]) -> Option<Account> {
+        sqlx::query_as::<_, Row>(
+            "UPDATE devices d SET last_seen = $2 FROM players p
+                     WHERE d.token_hash = $1 AND p.id = d.player_id
+                     RETURNING p.id, p.name, p.country, p.email",
+        )
+        .bind(&hash[..])
+        .bind(now())
+        .fetch_optional(&self.0)
+        .await
+        .map_err(|e| eprintln!("db auth: {e}"))
+        .ok()
+        .flatten()
+        .map(account)
     }
     pub fn record(
         &self,
@@ -122,28 +124,124 @@ impl Db {
         total: Option<f32>,
         best_lap: Option<f32>,
     ) {
-        let _ = self.0.send(Cmd::Record {
-            player,
-            level,
-            pos,
-            of,
-            total,
-            best_lap,
+        let pool = self.0.clone();
+        tokio::spawn(async move {
+            if let Err(e) = record(&pool, player, &level, pos, of, total, best_lap).await {
+                eprintln!("db record: {e}");
+            }
         });
     }
     pub async fn board(&self, level: String, kind: BoardKind, player: Option<i64>) -> ServerMsg {
-        let (reply, rx) = oneshot::channel();
-        let _ = self.0.send(Cmd::Board {
-            level,
-            kind,
-            player,
-            reply,
-        });
-        rx.await.unwrap_or(ServerMsg::Leaderboard {
-            kind,
-            rows: vec![],
-            mine: None,
+        board(&self.0, &level, kind, player)
+            .await
+            .unwrap_or_else(|e| {
+                eprintln!("db board: {e}");
+                ServerMsg::Leaderboard {
+                    kind,
+                    rows: vec![],
+                    mine: None,
+                }
+            })
+    }
+
+    pub async fn email_verified(
+        &self,
+        email: &str,
+        current: Option<i64>,
+        hash: [u8; 32],
+    ) -> sqlx::Result<EmailOutcome> {
+        let mut tx = self.0.begin().await?;
+        let owner: Option<Row> = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {ACCOUNT_COLS} FROM players WHERE email = $1"
+        )))
+        .bind(email)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let out = match (owner, current) {
+            (Some(o), Some(c)) if o.0 == c => EmailOutcome::Attached,
+            (Some(o), _) => {
+                insert_device(&mut tx, o.0, hash).await?;
+                EmailOutcome::LoggedInto(account(o))
+            }
+            (None, Some(c)) => {
+                sqlx::query("UPDATE players SET email = $1 WHERE id = $2")
+                    .bind(email)
+                    .bind(c)
+                    .execute(&mut *tx)
+                    .await?;
+                EmailOutcome::Attached
+            }
+            (None, None) => EmailOutcome::NeedName,
+        };
+        tx.commit().await?;
+        Ok(out)
+    }
+    pub async fn add_device(&self, id: i64, hash: [u8; 32]) -> Option<Account> {
+        let r: sqlx::Result<Option<Row>> = async {
+            let mut tx = self.0.begin().await?;
+            let row: Option<Row> = sqlx::query_as(AssertSqlSafe(format!(
+                "SELECT {ACCOUNT_COLS} FROM players WHERE id = $1"
+            )))
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if row.is_some() {
+                insert_device(&mut tx, id, hash).await?;
+            }
+            tx.commit().await?;
+            Ok(row)
+        }
+        .await;
+        r.map_err(|e| eprintln!("db add_device: {e}"))
+            .ok()
+            .flatten()
+            .map(account)
+    }
+    pub async fn devices(&self, player: i64, current: Option<[u8; 32]>) -> Vec<DeviceInfo> {
+        let cur = current.map(|h| hex::encode(&h[..6]));
+        sqlx::query_as::<_, (String, i64, i64)>(
+            "SELECT encode(substring(token_hash from 1 for 6), 'hex'), created_at, last_seen
+                 FROM devices WHERE player_id = $1 ORDER BY last_seen DESC",
+        )
+        .bind(player)
+        .fetch_all(&self.0)
+        .await
+        .map_err(|e| eprintln!("db devices: {e}"))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(id, created_at, last_seen)| DeviceInfo {
+            current: cur.as_deref() == Some(&id),
+            id,
+            created_at,
+            last_seen,
         })
+        .collect()
+    }
+    pub async fn revoke_device(&self, player: i64, id: &str) {
+        let _ = sqlx::query(
+                "DELETE FROM devices WHERE player_id = $1 AND encode(substring(token_hash from 1 for 6), 'hex') = $2",
+            )
+            .bind(player).bind(id).execute(&self.0).await
+            .map_err(|e| eprintln!("db revoke: {e}"));
+    }
+    pub async fn logout_device(&self, hash: [u8; 32]) {
+        let _ = sqlx::query("DELETE FROM devices WHERE token_hash = $1")
+            .bind(&hash[..])
+            .execute(&self.0)
+            .await;
+    }
+    pub async fn logout_all(&self, player: i64) {
+        let _ = sqlx::query("DELETE FROM devices WHERE player_id = $1")
+            .bind(player)
+            .execute(&self.0)
+            .await;
+    }
+    pub async fn delete_account(&self, player: i64) {
+        let _ = sqlx::query("DELETE FROM players WHERE id = $1")
+            .bind(player)
+            .execute(&self.0)
+            .await
+            .map_err(|e| eprintln!("db delete_account: {e}"));
     }
 }
 
@@ -152,185 +250,151 @@ fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64)
 }
-fn upsert_min(col: &str) -> String {
-    format!(
-        "{col} = CASE WHEN excluded.{col} IS NULL THEN {col} WHEN {col} IS NULL THEN excluded.{col} ELSE MIN({col}, excluded.{col}) END"
+fn country_arr(s: &str) -> [char; 2] {
+    let mut c = s.chars();
+    [c.next().unwrap_or('?'), c.next().unwrap_or('?')]
+}
+
+async fn record(
+    pool: &PgPool,
+    player: i64,
+    level: &str,
+    pos: u32,
+    of: u32,
+    total: Option<f32>,
+    best_lap: Option<f32>,
+) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO results(player_id, level, position, players_in_race, total_time, best_lap, at)
+         VALUES($1, $2, $3, $4, $5, $6, $7)",
     )
+    .bind(player)
+    .bind(level)
+    .bind(pos as i32)
+    .bind(of as i32)
+    .bind(total)
+    .bind(best_lap)
+    .bind(now())
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO records(player_id, level, best_lap, best_total) VALUES($1, $2, $3, $4)
+         ON CONFLICT (player_id, level) DO UPDATE SET
+           best_lap   = LEAST(records.best_lap,   EXCLUDED.best_lap),
+           best_total = LEAST(records.best_total, EXCLUDED.best_total)",
+    )
+    .bind(player)
+    .bind(level)
+    .bind(best_lap)
+    .bind(total)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await
 }
-
-fn run(conn: &Connection, cmd: Cmd) {
-    match cmd {
-        Cmd::Register {
-            name,
-            country,
-            hash,
-            reply,
-        } => {
-            let r = conn.execute(
-                "INSERT INTO players(name, country, token_hash, created_at) VALUES(?1, ?2, ?3, ?4)",
-                params![
-                    name,
-                    country.iter().collect::<String>(),
-                    hash.as_slice(),
-                    now()
-                ],
-            );
-            let _ = reply.send(match r {
-                Ok(_) => Ok(conn.last_insert_rowid()),
-                Err(rusqlite::Error::SqliteFailure(e, _))
-                    if e.code == ErrorCode::ConstraintViolation =>
-                {
-                    Err(NameError::Taken)
-                }
-                Err(e) => {
-                    eprintln!("db register: {e}");
-                    Err(NameError::Busy)
-                }
-            });
-        }
-        Cmd::Update {
-            player,
-            name,
-            country,
-            reply,
-        } => {
-            let r = conn.execute(
-                "UPDATE players SET name = ?1, country = ?2 WHERE id = ?3",
-                params![name, country.iter().collect::<String>(), player],
-            );
-
-            let result = match r {
-                Ok(1) => Ok(()),
-                Ok(0) => Err(NameError::Busy),
-                Ok(_) => Err(NameError::Busy),
-                Err(rusqlite::Error::SqliteFailure(e, _))
-                    if e.code == ErrorCode::ConstraintViolation =>
-                {
-                    Err(NameError::Taken)
-                }
-                Err(e) => {
-                    eprintln!("db update profile: {e}");
-                    Err(NameError::Busy)
-                }
-            };
-
-            let _ = reply.send(result);
-        }
-        Cmd::Auth { hash, reply } => {
-            let r = conn
-                .query_row(
-                    "SELECT id, name, country FROM players WHERE token_hash = ?1",
-                    [hash.as_slice()],
-                    |r| {
-                        Ok((
-                            r.get::<_, i64>(0)?,
-                            r.get::<_, String>(1)?,
-                            r.get::<_, String>(2)?
-                                .chars()
-                                .collect::<Vec<_>>()
-                                .try_into()
-                                .map_err(|_| rusqlite::Error::InvalidQuery)?,
-                        ))
-                    },
-                )
-                .optional();
-            let _ = reply.send(r.unwrap_or(None));
-        }
-        Cmd::Record {
-            player,
-            level,
-            pos,
-            of,
-            total,
-            best_lap,
-        } => {
-            let r = (|| -> rusqlite::Result<()> {
-                let tx = conn.unchecked_transaction()?;
-                tx.execute(
-                    "INSERT INTO results(player_id, level, position, players_in_race, total_time, best_lap, at)
-                    VALUES(?1,?2,?3,?4,?5,?6,?7)",
-                    params![player, level, pos, of, total, best_lap, now()],
-                )?;
-                tx.execute(
-                    &format!(
-                        "INSERT INTO records(player_id, level, best_lap, best_total) VALUES(?1,?2,?3,?4)
-                         ON CONFLICT(player_id, level) DO UPDATE SET {}, {}",
-                        upsert_min("best_lap"),
-                        upsert_min("best_total")
-                    ),
-                    params![player, level, best_lap, total],
-                )?;
-                tx.commit()
-            })();
-            if let Err(e) = r {
-                eprintln!("db record: {e}");
-            }
-        }
-        Cmd::Board {
-            level,
-            kind,
-            player,
-            reply,
-        } => {
-            let msg = board(conn, level, kind, player).unwrap_or(ServerMsg::Leaderboard {
-                kind,
-                rows: vec![],
-                mine: None,
-            });
-            let _ = reply.send(msg);
-        }
-    }
-}
-
-fn board(
-    conn: &Connection,
-    level: String,
+async fn board(
+    pool: &PgPool,
+    level: &str,
     kind: BoardKind,
     player: Option<i64>,
-) -> rusqlite::Result<ServerMsg> {
-    let col = match kind {
-        BoardKind::Lap => "best_lap",
-        BoardKind::Total => "best_total",
+) -> sqlx::Result<ServerMsg> {
+    let rows: Vec<(String, f32, String)> = match kind {
+        BoardKind::Lap => {
+            sqlx::query_as(
+                "SELECT p.name, r.best_lap, p.country
+                 FROM records r
+                 JOIN players p ON p.id = r.player_id
+                 WHERE r.level = $1 AND r.best_lap IS NOT NULL
+                 ORDER BY r.best_lap
+                 LIMIT 10",
+            )
+            .bind(level)
+            .fetch_all(pool)
+            .await?
+        }
+        BoardKind::Total => {
+            sqlx::query_as(
+                "SELECT p.name, r.best_total, p.country
+                 FROM records r
+                 JOIN players p ON p.id = r.player_id
+                 WHERE r.level = $1 AND r.best_total IS NOT NULL
+                 ORDER BY r.best_total
+                 LIMIT 10",
+            )
+            .bind(level)
+            .fetch_all(pool)
+            .await?
+        }
     };
-    let mut st = conn.prepare(&format!(
-        "SELECT p.name, p.country, r.{col}
-         FROM records r
-         JOIN players p ON p.id = r.player_id
-         WHERE r.level = ?1 AND r.{col} IS NOT NULL
-         ORDER BY r.{col}
-         LIMIT 10"
-    ))?;
-    let rows = st
-        .query_map([&level], |r| {
-            let country: String = r.get(1)?;
-            let country: [char; 2] = country
-                .chars()
-                .collect::<Vec<_>>()
-                .try_into()
-                .map_err(|_| rusqlite::Error::InvalidQuery)?;
-
-            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(2)? as f32, country))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
+    let rows = rows
+        .into_iter()
+        .map(|(n, t, c)| (n, t, country_arr(&c)))
+        .collect();
 
     let mut mine = None;
     if let Some(id) = player {
-        let v: Option<f64> = conn
-            .query_row(
-                &format!("SELECT {col} FROM records WHERE player_id = ?1 AND level = ?2"),
-                params![id, level],
-                |r| r.get(0),
+        let v: Option<f32> = match kind {
+            BoardKind::Lap => sqlx::query_scalar(
+                "SELECT best_lap FROM records
+                     WHERE player_id = $1 AND level = $2",
             )
-            .optional()?
-            .flatten();
+            .bind(id)
+            .bind(level)
+            .fetch_optional(pool)
+            .await?
+            .flatten(),
+            BoardKind::Total => sqlx::query_scalar(
+                "SELECT best_total FROM records
+                     WHERE player_id = $1 AND level = $2",
+            )
+            .bind(id)
+            .bind(level)
+            .fetch_optional(pool)
+            .await?
+            .flatten(),
+        };
+
         if let Some(v) = v {
-            let better: u32 = conn.query_row(
-                &format!("SELECT COUNT(*) FROM records WHERE level = ?1 AND {col} < ?2"),
-                params![level, v],
-                |r| r.get(0),
-            )?;
-            mine = Some((better + 1, v as f32));
+            let better: i64 = match kind {
+                BoardKind::Lap => {
+                    sqlx::query_scalar(
+                        "SELECT COUNT(*) FROM records
+                         WHERE level = $1 AND best_lap < $2",
+                    )
+                    .bind(level)
+                    .bind(v)
+                    .fetch_one(pool)
+                    .await?
+                }
+                BoardKind::Total => {
+                    sqlx::query_scalar(
+                        "SELECT COUNT(*) FROM records
+                         WHERE level = $1 AND best_total < $2",
+                    )
+                    .bind(level)
+                    .bind(v)
+                    .fetch_one(pool)
+                    .await?
+                }
+            };
+            mine = Some((better as u32 + 1, v));
         }
     }
     Ok(ServerMsg::Leaderboard { kind, rows, mine })
+}
+
+async fn insert_device(
+    c: &mut sqlx::PgConnection,
+    player: i64,
+    hash: [u8; 32],
+) -> sqlx::Result<()> {
+    sqlx::query(
+        "INSERT INTO devices(token_hash, player_id, created_at, last_seen) VALUES($1, $2, $3, $3)",
+    )
+    .bind(&hash[..])
+    .bind(player)
+    .bind(now())
+    .execute(c)
+    .await?;
+    Ok(())
 }

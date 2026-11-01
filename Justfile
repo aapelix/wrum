@@ -10,11 +10,13 @@ server:
     cargo run --bin wrum_server
 
 web:
+    rm -rf web/wrum_app.{wasm,js,data}
     cp target/wasm32-unknown-emscripten/debug/wrum_app.{wasm,js} web/
     cp target/wasm32-unknown-emscripten/debug/deps/wrum_app.data web/
     BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$EMSDK/upstream/emscripten/cache/sysroot" cargo build --target wasm32-unknown-emscripten --bin wrum_app
 
 web-release:
+    rm -rf web/wrum_app.{wasm,js,data}
     cp target/wasm32-unknown-emscripten/release/wrum_app.{wasm,js} web/
     cp target/wasm32-unknown-emscripten/release/deps/wrum_app.data web/
     BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$EMSDK/upstream/emscripten/cache/sysroot" cargo build --release --target wasm32-unknown-emscripten --bin wrum_app

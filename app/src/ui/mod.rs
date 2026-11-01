@@ -10,6 +10,8 @@ use crate::{
     ctx,
 };
 
+pub mod input;
+
 const BOX_HEIGHT: f32 = 12.;
 const BOX_LEFT: Rectangle = Rectangle {
     x: 0.,

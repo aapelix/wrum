@@ -24,7 +24,17 @@ const LOGO_POS: (i32, i32) = (16, 24);
 const QUICK: R = (16., 59., 100., 0.);
 const CREATE: R = (16., 75., 100., 0.);
 const JOIN: R = (16., 91., 100., 0.);
-const EDIT: R = (268., 41., 36., 15.);
+const EDIT: R = (268., 41., 36., 0.);
+
+const LOG_IN: R = (268., 41., 36., 0.);
+const LINK_IN: R = (230., 41., 36., 0.);
+
+const UPDATE: R = (236., 57., 68., 0.);
+const ADD_EMAIL: R = (236., 73., 68., 0.);
+const LINK: R = (236., 89., 68., 0.);
+const DEVICES: R = (236., 105., 68., 0.);
+const LOG_OUT: R = (236., 125., 68., 0.);
+// const DELETE: R = (236., 141., 68., 0.);
 
 const LEADERBOARD: R = (16., 120., 100., 0.);
 const SETTINGS: R = (16., 136., 100., 0.);
@@ -61,6 +71,7 @@ pub struct MenuScene {
     status: String,
     join_open: bool,
     leaderboard_open: bool,
+    auth_open: bool,
     code: String,
     auth: Auth,
     boards: [Option<Board>; 2],
@@ -87,6 +98,7 @@ impl MenuScene {
             status: status.into(),
             join_open: false,
             leaderboard_open: false,
+            auth_open: false,
             code: String::new(),
             auth,
             boards: [None, None],
@@ -144,11 +156,59 @@ impl Scene for MenuScene {
                 } else if self.button.inside(SETTINGS.0, SETTINGS.1, SETTINGS.2, mp) {
                     // todo: settings scene
                 } else if self.button.inside(EDIT.0, EDIT.1, EDIT.2, mp) && !self.is_guest() {
-                    return super::Transition::Switch(Box::new(AuthScene::update_mode(
-                        ctx,
-                        self.auth.name.clone(),
-                        self.auth.country,
-                    )));
+                    self.auth_open = !self.auth_open;
+                }
+
+                if self.is_guest() {
+                    if self.button.inside(LOG_IN.0, LOG_IN.1, LOG_IN.2, mp) {
+                        return super::Transition::Switch(Box::new(AuthScene::email_mode(
+                            ctx,
+                            self.auth.clone(),
+                            false,
+                        )));
+                    } else if self.button.inside(LINK_IN.0, LINK_IN.1, LINK_IN.2, mp) {
+                        return super::Transition::Switch(Box::new(AuthScene::link_entry_mode(
+                            ctx,
+                            self.auth.clone(),
+                        )));
+                    }
+                }
+
+                if self.auth_open {
+                    if self.button.inside(UPDATE.0, UPDATE.1, UPDATE.2, mp) {
+                        return super::Transition::Switch(Box::new(AuthScene::update_mode(
+                            ctx,
+                            self.auth.clone(),
+                        )));
+                    } else if self
+                        .button
+                        .inside(ADD_EMAIL.0, ADD_EMAIL.1, ADD_EMAIL.2, mp)
+                    {
+                        return super::Transition::Switch(Box::new(AuthScene::email_mode(
+                            ctx,
+                            self.auth.clone(),
+                            true,
+                        )));
+                    } else if self.button.inside(LINK.0, LINK.1, LINK.2, mp) {
+                        return super::Transition::Switch(Box::new(AuthScene::link_mode(
+                            ctx,
+                            self.auth.clone(),
+                        )));
+                    } else if self.button.inside(DEVICES.0, DEVICES.1, DEVICES.2, mp) {
+                        return super::Transition::Switch(Box::new(AuthScene::devices_mode(
+                            ctx,
+                            self.auth.clone(),
+                        )));
+                    } else if self.button.inside(LOG_OUT.0, LOG_OUT.1, LOG_OUT.2, mp) {
+                        // todo: logout everywhere
+                        ctx.net
+                            .send(&ClientMsg::Logout { everywhere: false })
+                            .unwrap();
+                    } // else if self.button.inside(DELETE.0, DELETE.1, DELETE.2, mp) {
+                    //     ctx.net
+                    //         .send(&ClientMsg::Logout { everywhere: false })
+                    //         .unwrap();
+                    // }
                 }
             } else if self.join_open {
                 if self.button.inside(JOIN2.0, JOIN2.1, JOIN2.2, mp) && self.can_join() {
@@ -194,7 +254,6 @@ impl Scene for MenuScene {
         }
         super::Transition::None
     }
-
     fn draw(&mut self, ctx: &mut crate::ctx::Context) {
         let pressed = ctx.rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT);
 
@@ -268,8 +327,65 @@ impl Scene for MenuScene {
 
                 let w = tm.measure_text(&self.auth.name, 8);
                 tm.draw_text(&self.auth.name, 300 - w, 31, 8, Color::WHITE);
+
+                if !self.is_guest() {
+                    self.button.draw(
+                        ctx.assets,
+                        &mut tm,
+                        EDIT.0,
+                        EDIT.1,
+                        EDIT.2,
+                        mp,
+                        pressed,
+                        "edit",
+                        true,
+                        self.auth_open,
+                    );
+                } else {
+                    self.button.draw(
+                        ctx.assets, &mut tm, LOG_IN.0, LOG_IN.1, LOG_IN.2, mp, pressed, "log in",
+                        true, false,
+                    );
+                    self.button.draw(
+                        ctx.assets, &mut tm, LINK_IN.0, LINK_IN.1, LINK_IN.2, mp, pressed, "link",
+                        true, false,
+                    );
+                }
+            }
+
+            if self.auth_open {
+                const UPDATE: R = (236., 57., 68., 0.);
+                const ADD_EMAIL: R = (236., 73., 68., 0.);
+                const LINK: R = (236., 89., 68., 0.);
+                const DEVICES: R = (236., 105., 68., 0.);
+                const LOG_OUT: R = (236., 125., 68., 0.);
+
                 self.button.draw(
-                    ctx.assets, &mut tm, EDIT.0, EDIT.1, EDIT.2, mp, pressed, "edit", true, false,
+                    ctx.assets, &mut tm, UPDATE.0, UPDATE.1, UPDATE.2, mp, pressed, "update", true,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    ADD_EMAIL.0,
+                    ADD_EMAIL.1,
+                    ADD_EMAIL.2,
+                    mp,
+                    pressed,
+                    "add email",
+                    true,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets, &mut tm, LINK.0, LINK.1, LINK.2, mp, pressed, "link", true, false,
+                );
+                self.button.draw(
+                    ctx.assets, &mut tm, DEVICES.0, DEVICES.1, DEVICES.2, mp, pressed, "devices",
+                    true, false,
+                );
+                self.button.draw(
+                    ctx.assets, &mut tm, LOG_OUT.0, LOG_OUT.1, LOG_OUT.2, mp, pressed, "log out",
+                    true, false,
                 );
             }
 
@@ -402,6 +518,11 @@ impl Scene for MenuScene {
                     _ => {}
                 }
                 super::Transition::None
+            }
+            ServerMsg::LoggedOut => {
+                wrum_net::store::save("token", "");
+                let _ = ctx.net.reconnect();
+                return super::Transition::Switch(Box::new(AuthScene::new(ctx)));
             }
             _ => super::Transition::None,
         }

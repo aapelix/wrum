@@ -22,6 +22,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use rand::RngExt;
+use resend_rs::{Resend, types::CreateEmailBaseOptions};
 use tokio::sync::{Notify, mpsc, oneshot};
 use tower_http::{services::ServeDir, set_header::SetResponseHeaderLayer};
 use wrum_core::{
@@ -33,7 +34,7 @@ use wrum_core::{
 };
 use wrum_proto::*;
 
-use crate::db::Db;
+use crate::db::{Account, Db, EmailOutcome};
 
 mod db;
 
@@ -46,6 +47,13 @@ const MIN_PLAYERS_PUBLIC: usize = 1;
 
 // ---------------------------------------------------------------- shared state
 
+struct Otp {
+    hash: [u8; 32],
+    expires: Instant,
+    tries: u8,
+    sent: Instant,
+}
+
 struct Shared {
     level: Level,
     level_id: String,
@@ -53,7 +61,11 @@ struct Shared {
     db: Db,
     lobbies: Mutex<HashMap<String, LobbyHandle>>,
     online: Mutex<HashMap<i64, Arc<Notify>>>,
-    reg_limit: Mutex<HashMap<IpAddr, (Instant, u32)>>,
+    otps: Mutex<HashMap<String, Otp>>,
+    links: Mutex<HashMap<String, (i64, Instant)>>,
+    limits: Mutex<HashMap<(IpAddr, &'static str), (Instant, u32)>>,
+    resend: Resend,
+    mail_from: String,
 }
 
 #[derive(Clone)]
@@ -105,10 +117,14 @@ async fn main() -> anyhow::Result<()> {
     let level_path = std::env::var("LEVEL").unwrap_or("assets/maps/untitled.json".into());
     let web = std::env::var("WEB").unwrap_or("web".into());
     let addr = std::env::var("ADDR").unwrap_or("0.0.0.0:8080".into());
+    let key = std::env::var("RESEND_KEY")?;
 
     let level = Level::load(&level_path)?;
     let map = Map::from_level(&level);
-    let db = Db::open(&std::env::var("DB").unwrap_or("game.db".into()))?;
+    let db = Db::open(&std::env::var("DATABASE_URL")?).await?;
+    let resend = Resend::new(&key);
+    let mail_from = std::env::var("MAIL_FROM")?;
+
     let app = Arc::new(Shared {
         level,
         level_id: level_path.clone(),
@@ -116,7 +132,11 @@ async fn main() -> anyhow::Result<()> {
         db,
         lobbies: Default::default(),
         online: Default::default(),
-        reg_limit: Default::default(),
+        otps: Default::default(),
+        links: Default::default(),
+        limits: Default::default(),
+        resend,
+        mail_from,
     });
 
     let hdr = |k: &'static str, v: &'static str| {
@@ -166,18 +186,75 @@ fn new_token() -> (String, [u8; 32]) {
 fn hash_token(t: &str) -> [u8; 32] {
     *blake3::hash(t.as_bytes()).as_bytes()
 }
-fn reg_allowed(app: &Shared, ip: IpAddr) -> bool {
-    let mut m = app.reg_limit.lock().unwrap();
-    let e = m.entry(ip).or_insert((Instant::now(), 0));
-    if e.0.elapsed() > Duration::from_secs(3600) {
+fn allow(app: &Shared, ip: IpAddr, kind: &'static str, max: u32, secs: u64) -> bool {
+    let mut m = app.limits.lock().unwrap();
+    if m.len() > 50_000 {
+        m.retain(|_, v| v.0.elapsed() < Duration::from_secs(3600));
+    }
+    let e = m.entry((ip, kind)).or_insert((Instant::now(), 0));
+    if e.0.elapsed() > Duration::from_secs(secs) {
         *e = (Instant::now(), 0);
     }
     e.1 += 1;
-    e.1 <= 5
+    e.1 <= max
 }
 fn login(app: &Shared, id: i64, kick: &Arc<Notify>) {
     if let Some(old) = app.online.lock().unwrap().insert(id, kick.clone()) {
         old.notify_one();
+    }
+}
+
+fn norm_email(e: &str) -> Option<String> {
+    let e = e.trim().to_lowercase();
+    let (l, d) = e.split_once('@')?;
+    (e.len() <= 120
+        && !l.is_empty()
+        && d.contains('.')
+        && !d.starts_with('.')
+        && !d.ends_with('.')
+        && !e.contains(char::is_whitespace)
+        && e.matches('@').count() == 1)
+        .then_some(e)
+}
+fn rand_code(n: usize, digits: bool) -> String {
+    let al: &[u8] = if digits {
+        b"0123456789"
+    } else {
+        b"ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    };
+    let mut r = rand::rng();
+    (0..n)
+        .map(|_| al[r.random_range(0..al.len())] as char)
+        .collect()
+}
+fn check_otp(app: &Shared, email: &str, code: &str) -> Result<(), CodeError> {
+    let mut o = app.otps.lock().unwrap();
+    let Some(x) = o.get_mut(email) else {
+        return Err(CodeError::Expired);
+    };
+    if x.expires < Instant::now() {
+        o.remove(email);
+        return Err(CodeError::Expired);
+    }
+    x.tries += 1;
+    if x.tries > 5 {
+        o.remove(email);
+        return Err(CodeError::Expired);
+    }
+    if x.hash == hash_token(code.trim()) {
+        o.remove(email);
+        Ok(())
+    } else {
+        Err(CodeError::Wrong)
+    }
+}
+
+async fn send_mail(app: Arc<Shared>, to: String, code: String) {
+    let email = CreateEmailBaseOptions::new(&app.mail_from, [to], "wrum login code")
+        .with_text(&format!("Your code is {code}. Expires in 10 minutes"));
+    match app.resend.emails.send(email).await {
+        Err(e) => eprintln!("mail: {e}"),
+        _ => {}
     }
 }
 
@@ -190,6 +267,28 @@ async fn session(mut inbox: mpsc::Receiver<Bytes>, me: Peer, app: Arc<Shared>, i
     let mut hello = false;
     let mut last_board = Instant::now() - Duration::from_secs(1);
     let mut cur: Option<(mpsc::UnboundedSender<Cmd>, u8)> = None;
+    let mut cur_hash: Option<[u8; 32]> = None;
+    let mut verified_email: Option<String> = None;
+    let reply = |m: ServerMsg| me.send(&enc(&m));
+
+    macro_rules! logged_in {
+        ($a:expr, $token:expr, $hash:expr) => {{
+            let a: Account = $a;
+            leave(&mut cur);
+            login(&app, a.id, &kick);
+            acct = Some(a.id);
+            name = a.name.clone();
+            country = a.country;
+            cur_hash = Some($hash);
+            verified_email = None;
+            reply(ServerMsg::LoggedIn {
+                token: $token,
+                name: a.name,
+                country: a.country,
+                email: a.email,
+            });
+        }};
+    }
 
     loop {
         let limit = if hello {
@@ -209,52 +308,63 @@ async fn session(mut inbox: mpsc::Receiver<Bytes>, me: Peer, app: Arc<Shared>, i
         match msg {
             ClientMsg::Hello { version, token } => {
                 if version != PROTO_VERSION {
-                    me.send(&enc(&ServerMsg::Reject(RejectReason::VersionMismatch)));
+                    reply(ServerMsg::Reject(RejectReason::VersionMismatch));
                     break;
                 }
                 hello = true;
+                let mut email = None;
                 if let Some(t) = token {
-                    if let Some((id, n, c)) = app.db.auth(hash_token(&t)).await {
-                        login(&app, id, &kick);
-                        acct = Some(id);
-                        name = n;
-                        country = c;
+                    let h = hash_token(&t);
+                    if let Some(a) = app.db.auth(h).await {
+                        login(&app, a.id, &kick);
+                        acct = Some(a.id);
+                        name = a.name;
+                        country = a.country;
+                        email = a.email;
+                        cur_hash = Some(h);
                     }
                 }
-                me.send(&enc(&ServerMsg::HelloOk {
+                reply(ServerMsg::HelloOk {
                     name: name.clone(),
                     country,
                     guest: acct.is_none(),
-                }));
+                    email,
+                });
             }
             _ if !hello => {}
+
             ClientMsg::Heartbeat => {}
             ClientMsg::Register {
                 country: wanted_country,
                 name: wanted,
             } if acct.is_none() => {
-                if !reg_allowed(&app, ip) {
-                    me.send(&enc(&ServerMsg::NameRejected(NameError::Busy)));
+                if !allow(&app, ip, "reg", 5, 3600) {
+                    reply(ServerMsg::NameRejected(NameError::Busy));
                     continue;
                 }
                 let Some(n) = valid_name(&wanted) else {
-                    me.send(&enc(&ServerMsg::NameRejected(NameError::Invalid)));
+                    reply(ServerMsg::NameRejected(NameError::Invalid));
                     continue;
                 };
                 let (token, hash) = new_token();
-                match app.db.register(n.clone(), wanted_country, hash).await {
+                match app
+                    .db
+                    .register(n.clone(), wanted_country, verified_email.clone(), hash)
+                    .await
+                {
                     Ok(id) => {
                         login(&app, id, &kick);
                         acct = Some(id);
                         name = n.clone();
                         country = wanted_country;
-                        me.send(&enc(&ServerMsg::Registered {
+                        reply(ServerMsg::Registered {
                             token,
                             name: n,
                             country,
-                        }));
+                        });
+                        verified_email = None;
                     }
-                    Err(e) => me.send(&enc(&ServerMsg::NameRejected(e))),
+                    Err(e) => reply(ServerMsg::NameRejected(e)),
                 }
             }
             ClientMsg::Update {
@@ -281,6 +391,128 @@ async fn session(mut inbox: mpsc::Receiver<Bytes>, me: Peer, app: Arc<Shared>, i
                 last_board = Instant::now();
                 me.send(&enc(&app.db.board(app.level_id.clone(), kind, acct).await));
             }
+
+            ClientMsg::RequestCode { email } => {
+                let Some(e) = norm_email(&email) else {
+                    reply(ServerMsg::CodeRejected(CodeError::BadEmail));
+                    continue;
+                };
+                if !allow(&app, ip, "mail", 8, 3600) {
+                    reply(ServerMsg::CodeRejected(CodeError::Busy));
+                    continue;
+                }
+                let code = rand_code(6, true);
+                {
+                    let mut o = app.otps.lock().unwrap();
+                    o.retain(|_, x| x.expires > Instant::now());
+                    if o.get(&e)
+                        .is_some_and(|x| x.sent.elapsed() < Duration::from_secs(60))
+                    {
+                        drop(o);
+                        reply(ServerMsg::CodeRejected(CodeError::TooSoon));
+                        continue;
+                    }
+                    o.insert(
+                        e.clone(),
+                        Otp {
+                            hash: hash_token(&code),
+                            expires: Instant::now() + Duration::from_secs(600),
+                            tries: 0,
+                            sent: Instant::now(),
+                        },
+                    );
+                }
+                tokio::spawn(send_mail(app.clone(), e, code));
+                reply(ServerMsg::CodeSent);
+            }
+            ClientMsg::VerifyCode { email, code } => {
+                let Some(e) = norm_email(&email) else {
+                    reply(ServerMsg::CodeRejected(CodeError::BadEmail));
+                    continue;
+                };
+                if !allow(&app, ip, "verify", 30, 3600) {
+                    reply(ServerMsg::CodeRejected(CodeError::Busy));
+                    continue;
+                }
+                if let Err(er) = check_otp(&app, &e, &code) {
+                    reply(ServerMsg::CodeRejected(er));
+                    continue;
+                }
+                let (token, hash) = new_token();
+                match app.db.email_verified(&e, acct, hash).await {
+                    Ok(EmailOutcome::Attached) => reply(ServerMsg::EmailLinked { email: e }),
+                    Ok(EmailOutcome::LoggedInto(a)) => logged_in!(a, token, hash),
+                    Ok(EmailOutcome::NeedName) => {
+                        verified_email = Some(e);
+                        reply(ServerMsg::NeedName);
+                    }
+                    Err(er) => {
+                        eprintln!("email_verified: {er}");
+                        reply(ServerMsg::CodeRejected(CodeError::Busy));
+                    }
+                }
+            }
+            ClientMsg::MakeLinkCode if acct.is_some() => {
+                let code = rand_code(8, false);
+                {
+                    let mut l = app.links.lock().unwrap();
+                    l.retain(|_, (_, exp)| *exp > Instant::now());
+                    l.insert(
+                        code.clone(),
+                        (acct.unwrap(), Instant::now() + Duration::from_secs(300)),
+                    );
+                }
+                reply(ServerMsg::LinkCode { code });
+            }
+            ClientMsg::RedeemLinkCode { code } => {
+                if !allow(&app, ip, "link", 20, 3600) {
+                    reply(ServerMsg::CodeRejected(CodeError::Busy));
+                    continue;
+                }
+                let hit = app
+                    .links
+                    .lock()
+                    .unwrap()
+                    .remove(&code.trim().to_uppercase());
+                let Some((id, _)) = hit.filter(|&(_, exp)| exp > Instant::now()) else {
+                    reply(ServerMsg::CodeRejected(CodeError::Wrong));
+                    continue;
+                };
+                let (token, hash) = new_token();
+                match app.db.add_device(id, hash).await {
+                    Some(a) => logged_in!(a, token, hash),
+                    None => reply(ServerMsg::CodeRejected(CodeError::Busy)),
+                }
+            }
+
+            ClientMsg::ListDevices if acct.is_some() => {
+                reply(ServerMsg::Devices {
+                    list: app.db.devices(acct.unwrap(), cur_hash).await,
+                });
+            }
+            ClientMsg::RevokeDevice { id } if acct.is_some() => {
+                app.db.revoke_device(acct.unwrap(), &id).await;
+                reply(ServerMsg::Devices {
+                    list: app.db.devices(acct.unwrap(), cur_hash).await,
+                });
+            }
+            ClientMsg::Logout { everywhere } if acct.is_some() => {
+                if everywhere {
+                    app.db.logout_all(acct.unwrap()).await;
+                } else if let Some(h) = cur_hash {
+                    app.db.logout_device(h).await;
+                }
+                reply(ServerMsg::LoggedOut);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                break;
+            }
+            ClientMsg::DeleteAccount if acct.is_some() => {
+                app.db.delete_account(acct.unwrap()).await;
+                reply(ServerMsg::LoggedOut);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                break;
+            }
+
             // lobby
             ClientMsg::CreateLobby => {
                 leave(&mut cur);

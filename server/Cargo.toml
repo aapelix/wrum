@@ -13,6 +13,7 @@ futures-util.workspace = true
 rand = "0.10.3"
 axum = { version = "0.8.9", features = ["ws"] }
 tower-http = { version = "0.7.1", features = ["fs", "set-header"] }
-rusqlite = { version = "0.41.0", features = ["bundled"]}
 blake3 = "1.8.7"
 hex = "0.4.3"
+sqlx = { version = "0.9.0", features = ["runtime-tokio", "postgres", "migrate"] }
+resend-rs = "0.35.1"

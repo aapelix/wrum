@@ -3,12 +3,11 @@
 multiplayer racing game made with raylib
 
 todo:
-- trees, flags (+ rocks)
-- yaw pitch roll
+- flags
+- yaw pitch roll?
 - water splashes not on top of tiles
 - actual accounts
-- prerotated stacks (not for map, i tried and bad things happened trust me)
-- tp back to last checkpoint on fall to water
+- prerotated stacks? (not for map, i tried and bad things happened trust me)
 - culling
 - more props
 - particles

@@ -1,126 +1,82 @@
 use wrum_net::store;
-use wrum_proto::{ClientMsg, NameError, ServerMsg};
+use wrum_proto::{ClientMsg, CodeError, DeviceInfo, NameError, ServerMsg};
 
 use crate::{
     ctx,
-    scene::{Scene, menu::MenuScene},
-    ui::Button,
+    scene::{Scene, Transition, menu::MenuScene},
+    ui::{
+        Button,
+        input::{
+            BOX_H, BOX_W, BOX_X, CountryPicker, DIM, Focus, Rect, SHAKE_TIME, TEXT, TextField,
+            centered, enter_pressed, header, hit, mouse_canvas,
+        },
+    },
 };
 
 use raylib::{
-    RaylibHandle,
-    consts::{KeyboardKey, MouseButton},
-    drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
+    consts::MouseButton,
+    drawing::{RaylibDraw, RaylibTextureModeExt},
     ffi::Color,
 };
 
-const CANVAS_W: i32 = 320;
-const CANVAS_H: i32 = 180;
-
-const BOX_W: i32 = 200;
-const BOX_H: i32 = 22;
-const BOX_X: i32 = (CANVAS_W - BOX_W) / 2;
-
 const NAME_Y: i32 = 44;
 const COUNTRY_Y: i32 = 88;
+const ALT_Y: i32 = 162;
+const ALT_LEFT: Rect = (BOX_X, ALT_Y, BTN_W, BTN_H);
+const ALT_RIGHT: Rect = (BOX_X + BOX_W - BTN_W, ALT_Y, BTN_W, BTN_H);
+const RESEND: Rect = (BOX_X, NAME_Y + BOX_H + 12, 110, 12);
+
+const DEV_Y: i32 = 40;
+const DEV_ROW: i32 = 14;
+const MAX_DEV: usize = 5;
 
 const BTN_Y: i32 = 118;
 const BTN_H: i32 = 18;
 const BTN_W: i32 = 96;
 
-const REGISTER_BTN: (i32, i32, i32, i32) = (BOX_X, BTN_Y, BTN_W, BTN_H);
-const GUEST_BTN: (i32, i32, i32, i32) = (BOX_X + BOX_W - BTN_W, BTN_Y, BTN_W, BTN_H);
-
-const NAME_BOX: (i32, i32, i32, i32) = (BOX_X, NAME_Y, BOX_W, BOX_H);
-const COUNTRY_BOX: (i32, i32, i32, i32) = (BOX_X, COUNTRY_Y, BOX_W, BOX_H);
-
-const CELL: i32 = 32;
-const STRIP_X: i32 = BOX_X + (BOX_W - CELL * 5) / 2;
+const PRIMARY_BTN: Rect = (BOX_X, BTN_Y, BTN_W, BTN_H);
+const SECONDARY_BTN: Rect = (BOX_X + BOX_W - BTN_W, BTN_Y, BTN_W, BTN_H);
 
 const MIN_LEN: usize = 3;
 const MAX_LEN: usize = 16;
 
-const fn rgb(r: u8, g: u8, b: u8) -> Color {
-    Color { r, g, b, a: 255 }
-}
+const NAME_RULES: &str = "3-16 letters, digits, _ - or space";
 
-const CARD: Color = rgb(0, 0, 0);
-const BORDER: Color = rgb(255, 255, 255);
-const TEXT: Color = rgb(228, 232, 242);
-const DIM: Color = rgb(170, 170, 170);
-const DARK: Color = rgb(22, 18, 6);
-const RED: Color = rgb(240, 90, 90);
+const F_NAME: usize = 0;
+const F_COUNTRY: usize = 1;
 
-const COUNTRIES: &str = "FI";
-
-fn country_count() -> usize {
-    COUNTRIES.split_whitespace().count()
-}
-fn country_code(i: usize) -> &'static str {
-    COUNTRIES.split_whitespace().nth(i).unwrap_or("??")
-}
-fn country_index(c: [char; 2]) -> usize {
-    let s: String = c.iter().map(|c| c.to_ascii_uppercase()).collect();
-    COUNTRIES
-        .split_whitespace()
-        .position(|x| x == s)
-        .unwrap_or(0)
-}
-fn country_chars(i: usize) -> [char; 2] {
-    let mut it = country_code(i).chars();
-    [it.next().unwrap_or('?'), it.next().unwrap_or('?')]
-}
-
-#[derive(Default, PartialEq)]
-enum Mode {
-    #[default]
-    Register,
-    Update,
-}
-
-pub struct Auth {
-    pub name: String,
-    pub country: [char; 2],
-}
-
-pub struct AuthScene {
-    state: State,
-    mode: Mode,
-    button: Button,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Field {
-    Name,
-    Country,
-}
-
-enum State {
-    Unknown,
-    NeedName {
-        input: String,
-        field: Field,
-        idx: usize,
-        buf: String,
-        error: Option<&'static str>,
-        shake: f32,
-        pending: bool,
-        guest_name: String,
-        guest_country: [char; 2],
-    },
-}
+const RED: Color = Color {
+    r: 240,
+    g: 90,
+    b: 90,
+    a: 255,
+};
 
 fn valid_name(s: &str) -> Option<String> {
     let t = s.trim();
     let n = t.chars().count();
     ((MIN_LEN..=MAX_LEN).contains(&n) && wrum_proto::valid_name(t).is_some()).then(|| t.to_string())
 }
-fn allowed(c: char) -> bool {
+
+fn name_char(c: char) -> bool {
     c.is_alphabetic() || c.is_ascii_digit() || matches!(c, '_' | '-' | ' ')
 }
+fn email_char(c: char) -> bool {
+    c.is_ascii_graphic()
+}
+fn code_char(c: char) -> bool {
+    c.is_ascii_digit()
+}
 
-/// (text, is_problem)
-fn hint(input: &str) -> (String, bool) {
+fn valid_email(s: &str) -> bool {
+    let t = s.trim();
+    match t.split_once('@') {
+        Some((user, host)) => !user.is_empty() && host.contains('.') && !host.ends_with('.'),
+        None => false,
+    }
+}
+
+fn name_hint(input: &str) -> (String, bool) {
     let t = input.trim();
     let n = t.chars().count();
     if input.is_empty() {
@@ -141,458 +97,731 @@ fn hint(input: &str) -> (String, bool) {
     }
 }
 
-fn mouse_canvas(rl: &RaylibHandle) -> (f32, f32) {
-    let m = rl.get_mouse_position();
-    (
-        m.x * CANVAS_W as f32 / rl.get_screen_width().max(1) as f32,
-        m.y * CANVAS_H as f32 / rl.get_screen_height().max(1) as f32,
-    )
+#[derive(Clone)]
+pub struct Auth {
+    pub name: String,
+    pub country: [char; 2],
+    pub email: Option<String>,
 }
-fn hit(r: (i32, i32, i32, i32), p: (f32, f32)) -> bool {
-    p.0 >= r.0 as f32 && p.0 < (r.0 + r.2) as f32 && p.1 >= r.1 as f32 && p.1 < (r.1 + r.3) as f32
+
+pub struct AuthScene {
+    state: State,
+    button: Button,
+    clock: f32,
+    auth: Auth,
+    logged_in: bool,
+    verified: Option<String>,
+    started: bool,
 }
-fn centered(
-    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
-    text: &str,
-    y: i32,
-    size: i32,
-    color: Color,
-) {
-    let w = tm.measure_text(text, size);
-    tm.draw_text(text, (CANVAS_W - w) / 2, y, size, color);
+
+#[derive(Clone, Copy, PartialEq)]
+enum AccountMode {
+    Create,
+    Update,
+}
+impl AccountMode {
+    fn title(self) -> &'static str {
+        match self {
+            Self::Create => "Create account",
+            Self::Update => "Update account",
+        }
+    }
+    fn button_labels(self, pending: bool) -> (&'static str, &'static str) {
+        match (self, pending) {
+            (Self::Create, false) => ("REGISTER", "PLAY AS GUEST"),
+            (Self::Create, true) => ("REGISTERING...", "PLAY AS GUEST"),
+            (Self::Update, false) => ("UPDATE", "CANCEL"),
+            (Self::Update, true) => ("UPDATING...", "CANCEL"),
+        }
+    }
+    fn message(self, name: String, country: [char; 2]) -> ClientMsg {
+        match self {
+            Self::Create => ClientMsg::Register { name, country },
+            Self::Update => ClientMsg::Update { name, country },
+        }
+    }
+}
+
+struct AccountState {
+    name: TextField,
+    country: CountryPicker,
+    focus: Focus,
+    shake: f32,
+    pending: bool,
+    mode: AccountMode,
+}
+impl AccountState {
+    fn create(country: [char; 2]) -> Self {
+        Self {
+            name: TextField::new("name", NAME_Y, MAX_LEN, name_char)
+                .with_placeholder("your name")
+                .with_hint(name_hint),
+            country: CountryPicker::new("country", COUNTRY_Y, country),
+            focus: Focus::default(),
+            shake: 0.0,
+            pending: false,
+            mode: AccountMode::Create,
+        }
+    }
+    fn update(old_name: String, old_country: [char; 2]) -> Self {
+        Self {
+            name: TextField::new("name", NAME_Y, MAX_LEN, name_char)
+                .with_value(old_name.clone())
+                .with_placeholder(old_name)
+                .with_hint(name_hint),
+            country: CountryPicker::new("country", COUNTRY_Y, old_country),
+            focus: Focus::default(),
+            shake: 0.0,
+            pending: false,
+            mode: AccountMode::Update,
+        }
+    }
+    fn reject(&mut self, msg: &'static str) {
+        self.pending = false;
+        self.shake = SHAKE_TIME;
+        self.focus.set(F_NAME);
+        self.name.error = Some(msg);
+    }
+}
+
+enum State {
+    Idle,
+    Email {
+        field: TextField,
+        pending: bool,
+    },
+    Code {
+        email: String,
+        field: TextField,
+        resend_at: f32,
+        pending: bool,
+    },
+    Account(AccountState),
+    Link {
+        code: Option<String>,
+        expires: f32,
+    },
+    LinkEntry {
+        field: TextField,
+        pending: bool,
+    },
+    Devices {
+        list: Option<Vec<DeviceInfo>>,
+    },
+}
+impl State {
+    fn email() -> State {
+        State::Email {
+            field: TextField::new("", NAME_Y + 3, 64, email_char)
+                .with_placeholder("you@example.com"),
+            pending: false,
+        }
+    }
+    fn code(email: String, resend_at: f32) -> State {
+        State::Code {
+            email,
+            field: TextField::new("", NAME_Y, 6, code_char).with_placeholder("000000"),
+            resend_at,
+            pending: false,
+        }
+    }
+    fn link_entry() -> State {
+        State::LinkEntry {
+            field: TextField::new("link code", NAME_Y, 8, |c| c.is_ascii_alphanumeric())
+                .with_placeholder("code from your other device"),
+            pending: false,
+        }
+    }
+}
+
+fn to_menu(
+    ctx: &mut ctx::Context,
+    name: String,
+    country: [char; 2],
+    email: Option<String>,
+) -> Transition {
+    Transition::Switch(Box::new(MenuScene::new(
+        "",
+        ctx,
+        Auth {
+            name,
+            country,
+            email,
+        },
+    )))
+}
+fn single_update(rl: &mut raylib::RaylibHandle, field: &mut TextField) -> bool {
+    field.update(rl, true);
+    enter_pressed(rl)
+}
+
+fn ago(ts: i64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    match (now - ts).max(0) {
+        0..=59 => "just now".into(),
+        s @ 60..=3599 => format!("{}m ago", s / 60),
+        s @ 3600..=86399 => format!("{}h ago", s / 3600),
+        s => format!("{}d ago", s / 86400),
+    }
+}
+
+fn code_error_text(e: &CodeError, link: bool) -> &'static str {
+    match e {
+        CodeError::BadEmail => "invalid email",
+        CodeError::Busy => "try again later",
+        CodeError::Expired => "code expired, request a new one",
+        CodeError::TooSoon => "wait a minute before requesting",
+        CodeError::Wrong if link => "invalid or expired code",
+        CodeError::Wrong => "wrong code",
+    }
 }
 
 impl AuthScene {
-    pub fn new(ctx: &mut ctx::Context) -> AuthScene {
+    fn make(ctx: &mut ctx::Context, state: State, auth: Auth, logged_in: bool) -> Self {
         Self {
-            state: State::Unknown,
-            mode: Mode::Register,
+            state,
             button: Button::new(ctx),
+            clock: 0.0,
+            auth,
+            logged_in,
+            verified: None,
+            started: false,
         }
     }
-    pub fn update_mode(ctx: &mut ctx::Context, name: String, country: [char; 2]) -> AuthScene {
-        Self {
-            state: State::NeedName {
-                input: name.clone(),
-                field: Field::Name,
-                idx: country_index(country),
-                buf: String::new(),
-                error: None,
-                shake: 0.,
-                pending: false,
-                guest_name: name,
-                guest_country: country,
+    pub fn new(ctx: &mut ctx::Context) -> Self {
+        Self::make(
+            ctx,
+            State::Idle,
+            Auth {
+                name: String::new(),
+                country: ['F', 'I'],
+                email: None,
             },
-            mode: Mode::Update,
-            button: Button::new(ctx),
+            false,
+        )
+    }
+    pub fn update_mode(ctx: &mut ctx::Context, auth: Auth) -> Self {
+        let s = State::Account(AccountState::update(auth.name.clone(), auth.country));
+        Self::make(ctx, s, auth, true)
+    }
+    pub fn email_mode(ctx: &mut ctx::Context, auth: Auth, logged_in: bool) -> Self {
+        Self::make(ctx, State::email(), auth, logged_in)
+    }
+    pub fn link_entry_mode(ctx: &mut ctx::Context, auth: Auth) -> Self {
+        Self::make(ctx, State::link_entry(), auth, false)
+    }
+    pub fn link_mode(ctx: &mut ctx::Context, auth: Auth) -> Self {
+        Self::make(
+            ctx,
+            State::Link {
+                code: None,
+                expires: 0.0,
+            },
+            auth,
+            true,
+        )
+    }
+    pub fn devices_mode(ctx: &mut ctx::Context, auth: Auth) -> Self {
+        Self::make(ctx, State::Devices { list: None }, auth, true)
+    }
+
+    fn back(&mut self, ctx: &mut ctx::Context) -> Transition {
+        if self.logged_in {
+            to_menu(
+                ctx,
+                self.auth.name.clone(),
+                self.auth.country,
+                self.auth.email.clone(),
+            )
+        } else {
+            self.state = State::Account(AccountState::create(self.auth.country));
+            Transition::None
         }
     }
 }
 
 impl Scene for AuthScene {
-    fn update(&mut self, ctx: &mut crate::ctx::Context, dt: f32, _alpha: f32) -> super::Transition {
-        let n = country_count();
+    fn update(&mut self, ctx: &mut crate::ctx::Context, dt: f32, _alpha: f32) -> Transition {
+        self.clock += dt;
+
+        if !self.started {
+            self.started = true;
+            match &self.state {
+                State::Link { .. } => {
+                    let _ = ctx.net.send(&ClientMsg::MakeLinkCode);
+                }
+                State::Devices { .. } => {
+                    let _ = ctx.net.send(&ClientMsg::ListDevices);
+                }
+                _ => {}
+            }
+        }
+
         let mouse = mouse_canvas(&ctx.rl);
         let clicked = ctx
             .rl
             .is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
-        let mut go_guest = false;
+        let back_hit = clicked && hit(SECONDARY_BTN, mouse);
+        let mut back = false;
+        let mut guest = false;
+        let mut next: Option<State> = None;
 
-        if let State::NeedName {
-            input,
-            field,
-            idx,
-            buf,
-            error,
-            shake,
-            pending,
-            ..
-        } = &mut self.state
-        {
-            *shake = (*shake - dt).max(0.0);
-            let mut submit = false;
+        match &mut self.state {
+            State::Idle => {}
 
-            if !*pending {
-                if clicked {
-                    if hit(NAME_BOX, mouse) {
-                        *field = Field::Name;
-                        buf.clear();
-                    } else if hit(COUNTRY_BOX, mouse) {
-                        if *field == Field::Country {
-                            let k = if mouse.0 < STRIP_X as f32 {
-                                -1
-                            } else if mouse.0 >= (STRIP_X + CELL * 5) as f32 {
-                                1
-                            } else {
-                                (mouse.0 as i32 - STRIP_X) / CELL - 2
-                            };
-                            *idx = (*idx as i32 + k).rem_euclid(n as i32) as usize;
-                        }
-                        *field = Field::Country;
-                        buf.clear();
-                    } else if hit(REGISTER_BTN, mouse) {
-                        submit = true;
-                    } else if hit(GUEST_BTN, mouse) {
-                        go_guest = true;
-                    }
-                }
+            State::Email { field, pending } => {
+                let mut submit = false;
 
-                if ctx.rl.is_key_pressed(KeyboardKey::KEY_TAB)
-                    || ctx.rl.is_key_pressed(KeyboardKey::KEY_DOWN)
-                    || ctx.rl.is_key_pressed(KeyboardKey::KEY_UP)
-                {
-                    *field = match *field {
-                        Field::Name => Field::Country,
-                        Field::Country => Field::Name,
-                    };
-                    buf.clear();
-                }
-
-                match *field {
-                    Field::Name => {
-                        while let Some(c) = ctx.rl.get_char_pressed() {
-                            if allowed(c) && input.chars().count() < MAX_LEN {
-                                input.push(c);
-                                *error = None;
-                            }
-                        }
-                        if ctx.rl.is_key_pressed(KeyboardKey::KEY_BACKSPACE)
-                            || ctx.rl.is_key_pressed_repeat(KeyboardKey::KEY_BACKSPACE)
-                        {
-                            if ctx.rl.is_key_down(KeyboardKey::KEY_LEFT_CONTROL) {
-                                input.clear();
-                            } else {
-                                input.pop();
-                            }
-                            *error = None;
-                        }
-                    }
-                    Field::Country => {
-                        if ctx.rl.is_key_pressed(KeyboardKey::KEY_RIGHT)
-                            || ctx.rl.is_key_pressed_repeat(KeyboardKey::KEY_RIGHT)
-                        {
-                            *idx = (*idx + 1) % n;
-                            buf.clear();
-                        }
-                        if ctx.rl.is_key_pressed(KeyboardKey::KEY_LEFT)
-                            || ctx.rl.is_key_pressed_repeat(KeyboardKey::KEY_LEFT)
-                        {
-                            *idx = (*idx + n - 1) % n;
-                            buf.clear();
-                        }
-
-                        while let Some(c) = ctx.rl.get_char_pressed() {
-                            if !c.is_ascii_alphabetic() {
-                                continue;
-                            }
-                            if buf.len() >= 2 {
-                                buf.clear();
-                            }
-                            buf.push(c.to_ascii_uppercase());
-                            if let Some(p) = COUNTRIES
-                                .split_whitespace()
-                                .position(|x| x.starts_with(buf.as_str()))
-                            {
-                                *idx = p;
-                            }
-                            if buf.len() == 2 {
-                                buf.clear();
-                            }
-                        }
-                    }
-                }
-
-                if ctx.rl.is_key_pressed(KeyboardKey::KEY_ENTER)
-                    || ctx.rl.is_key_pressed(KeyboardKey::KEY_KP_ENTER)
-                {
+                if back_hit {
+                    back = true;
+                } else if !*pending && single_update(&mut ctx.rl, field) {
                     submit = true;
                 }
+
+                if clicked && hit(PRIMARY_BTN, mouse) {
+                    submit = true;
+                }
+
+                if submit {
+                    if valid_email(&field.value) {
+                        let _ = ctx.net.send(&ClientMsg::RequestCode {
+                            email: field.value.trim().into(),
+                        });
+                        field.error = None;
+                        *pending = true;
+                    } else {
+                        field.error = Some("enter a valid email");
+                    }
+                }
             }
 
-            if submit {
-                match valid_name(input) {
-                    Some(name) => {
-                        *pending = true;
-                        *error = None;
-                        let _ = ctx.net.send(&match self.mode {
-                            Mode::Register => ClientMsg::Register {
-                                name,
-                                country: country_chars(*idx),
-                            },
-                            Mode::Update => ClientMsg::Update {
-                                country: country_chars(*idx),
-                                name,
-                            },
+            State::Code {
+                email,
+                field,
+                resend_at,
+                pending,
+            } => {
+                let mut submit = false;
+
+                if back_hit {
+                    back = true;
+                } else if clicked && hit(PRIMARY_BTN, mouse) {
+                    submit = true;
+                } else if clicked && !*pending && self.clock >= *resend_at && hit(RESEND, mouse) {
+                    let _ = ctx.net.send(&ClientMsg::RequestCode {
+                        email: email.clone(),
+                    });
+                    *resend_at = self.clock + 60.0;
+                    field.error = None;
+                } else if !*pending && single_update(&mut ctx.rl, field) {
+                    submit = true;
+                }
+
+                if submit {
+                    if field.value.len() == 6 {
+                        let _ = ctx.net.send(&ClientMsg::VerifyCode {
+                            email: email.clone(),
+                            code: field.value.clone(),
                         });
+                        field.error = None;
+                        *pending = true;
+                    } else {
+                        field.error = Some("6 digits");
                     }
-                    None => {
-                        *error = Some("3-16 letters, digits, _ - or space");
-                        *shake = 0.35;
-                        *field = Field::Name;
+                }
+            }
+
+            State::Account(acc) => {
+                acc.shake = (acc.shake - dt).max(0.0);
+                let mut submit = false;
+                let mut secondary = false;
+
+                if !acc.pending {
+                    if clicked {
+                        if hit(PRIMARY_BTN, mouse) {
+                            submit = true;
+                        } else if hit(SECONDARY_BTN, mouse) {
+                            secondary = true;
+                        } else if acc.mode == AccountMode::Create && hit(ALT_LEFT, mouse) {
+                            next = Some(State::email());
+                        } else if acc.mode == AccountMode::Create && hit(ALT_RIGHT, mouse) {
+                            next = Some(State::link_entry());
+                        }
+                    }
+                    let was = acc.focus;
+                    acc.name.update(&mut ctx.rl, was.is(F_NAME));
+                    acc.country
+                        .update(&mut ctx.rl, was.is(F_COUNTRY), mouse, clicked);
+                    acc.focus.update(
+                        &ctx.rl,
+                        mouse,
+                        clicked,
+                        &[acc.name.rect(), acc.country.rect()],
+                    );
+                    if enter_pressed(&ctx.rl) {
+                        submit = true;
+                    }
+                }
+
+                if submit {
+                    match valid_name(&acc.name.value) {
+                        Some(name) => {
+                            acc.pending = true;
+                            acc.name.error = None;
+                            let _ = ctx.net.send(&acc.mode.message(name, acc.country.code()));
+                        }
+                        None => {
+                            acc.name.error = Some(NAME_RULES);
+                            acc.shake = SHAKE_TIME;
+                            acc.focus.set(F_NAME);
+                        }
+                    }
+                }
+                if secondary {
+                    if acc.mode == AccountMode::Create {
+                        guest = true
+                    } else {
+                        back = true
+                    }
+                }
+            }
+
+            State::Link { code, expires } => {
+                if back_hit {
+                    back = true;
+                } else if code.is_some() && self.clock >= *expires {
+                    *code = None;
+                    let _ = ctx.net.send(&ClientMsg::MakeLinkCode);
+                }
+            }
+
+            State::LinkEntry { field, pending } => {
+                let mut submit = false;
+
+                if back_hit {
+                    back = true;
+                } else if !*pending && single_update(&mut ctx.rl, field) {
+                    submit = true;
+                }
+
+                if clicked && hit(PRIMARY_BTN, mouse) {
+                    submit = true;
+                }
+
+                if submit {
+                    if field.value.len() == 8 {
+                        let _ = ctx.net.send(&ClientMsg::RedeemLinkCode {
+                            code: field.value.clone(),
+                        });
+                        field.error = None;
+                        *pending = true;
+                    } else {
+                        field.error = Some("code has 8 characters");
+                    }
+                }
+            }
+
+            State::Devices { list } => {
+                if back_hit {
+                    back = true;
+                } else if clicked {
+                    if let Some(l) = list {
+                        for (i, d) in l.iter().take(MAX_DEV).enumerate() {
+                            let r: Rect = (
+                                BOX_X + BOX_W - 44,
+                                DEV_Y + i as i32 * DEV_ROW - 2,
+                                44,
+                                DEV_ROW,
+                            );
+                            if !d.current && hit(r, mouse) {
+                                let _ = ctx.net.send(&ClientMsg::RevokeDevice { id: d.id.clone() });
+                                break;
+                            }
+                        }
                     }
                 }
             }
         }
 
-        if go_guest {
-            if let State::NeedName {
-                guest_name,
-                guest_country,
-                ..
-            } = &self.state
-            {
-                return super::Transition::Switch(Box::new(MenuScene::new(
-                    "",
-                    ctx,
-                    Auth {
-                        name: guest_name.clone(),
-                        country: *guest_country,
-                    },
-                )));
-            }
+        if let Some(s) = next {
+            self.state = s;
         }
-        super::Transition::None
+        if guest {
+            return to_menu(ctx, self.auth.name.clone(), self.auth.country, None);
+        }
+        if back {
+            return self.back(ctx);
+        }
+        Transition::None
     }
+
     fn draw(&mut self, ctx: &mut crate::ctx::Context) {
         let t = ctx.rl.get_time() as f32;
-
-        let n = country_count();
         let mouse = mouse_canvas(&ctx.rl);
         let pressed = ctx.rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT);
         let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut ctx.canvas);
-
         tm.clear_background(Color::new(15, 15, 15, 255));
 
+        let mut pair: Option<(&'static str, &'static str)> = None;
+        let mut back_btn = false;
+        let mut alt = false;
+
         match &self.state {
-            State::Unknown => {
+            State::Idle => {
                 let dots = ".".repeat(((t * 3.0) as usize % 3) + 1);
                 centered(&mut tm, &format!("logging in{dots}"), 85, 10, DIM);
             }
-
-            State::NeedName {
-                input,
-                field,
-                idx,
-                error,
-                shake,
-                pending,
-                ..
-            } => {
-                tm.draw_text(
-                    match self.mode {
-                        Mode::Register => "Create account",
-                        Mode::Update => "Update account",
-                    },
-                    BOX_X,
-                    22,
-                    8,
-                    Color::WHITE,
-                );
-
-                tm.draw_rectangle(BOX_X, 50, BOX_W, 1, BORDER);
-
-                let off = if *shake > 0.0 {
-                    ((t * 70.0).sin() * 4.0 * (*shake / 0.35)) as i32
+            State::Email { field, pending } => {
+                let sub = if self.logged_in {
+                    "adds it to your account"
                 } else {
-                    0
+                    "log in or sign up with a code"
                 };
-
-                let bx = BOX_X + off;
-                let name_focus = *field == Field::Name;
-
-                tm.draw_text("name", BOX_X, NAME_Y - 10, 8, DIM);
-                frame(
-                    &mut tm,
-                    bx,
-                    NAME_Y,
-                    name_focus,
-                    error.is_some().then_some(RED),
-                );
-
-                let ty = NAME_Y + (BOX_H - 10) / 2;
-
-                if input.is_empty() {
-                    tm.draw_text("your name", bx + 8, ty, 10, DIM);
-                } else {
-                    tm.draw_text(input, bx + 8, ty, 10, TEXT);
-                }
-
-                if name_focus && !*pending && (t * 2.0) as i32 % 2 == 0 {
-                    let cx = bx + 8 + tm.measure_text(input, 10) + 1;
-                    tm.draw_rectangle(cx, ty - 1, 1, 12, Color::WHITE);
-                }
-
-                let line_y = NAME_Y + BOX_H + 3;
-
-                match error {
-                    Some(e) => tm.draw_text(e, bx, line_y, 8, RED),
-                    None => {
-                        let (h, bad) = hint(input);
-                        tm.draw_text(&h, bx, line_y, 8, if bad { RED } else { DIM });
-                    }
-                }
-
-                let count = format!("{}/{}", input.chars().count(), MAX_LEN);
-                let cw = tm.measure_text(&count, 8);
-
-                tm.draw_text(&count, BOX_X + BOX_W - cw, line_y, 8, DIM);
-
-                let c_focus = *field == Field::Country;
-                tm.draw_text("country", BOX_X, COUNTRY_Y - 10, 8, DIM);
-
-                frame(&mut tm, BOX_X, COUNTRY_Y, c_focus, None);
-
-                let cy = COUNTRY_Y + (BOX_H - 10) / 2;
-
-                if c_focus {
-                    for k in -2i32..=2 {
-                        let i = (*idx as i32 + k).rem_euclid(n as i32) as usize;
-                        let code = country_code(i);
-                        let x = STRIP_X + (k + 2) * CELL;
-                        let w = tm.measure_text(code, 10);
-
-                        if k == 0 {
-                            tm.draw_rectangle(x, COUNTRY_Y + 3, CELL, BOX_H - 6, Color::WHITE);
-                            tm.draw_text(code, x + (CELL - w) / 2, cy, 10, DARK);
-                        } else {
-                            tm.draw_text(code, x + (CELL - w) / 2, cy, 10, DIM);
-                        }
-                    }
-
-                    tm.draw_text("<", BOX_X + 5, cy, 10, TEXT);
-                    tm.draw_text(">", BOX_X + BOX_W - 11, cy, 10, TEXT);
-                } else {
-                    tm.draw_text(country_code(*idx), BOX_X + 8, cy, 10, TEXT);
-                }
-
-                self.button.draw(
-                    ctx.assets,
-                    &mut tm,
-                    REGISTER_BTN.0 as f32,
-                    REGISTER_BTN.1 as f32,
-                    REGISTER_BTN.2 as f32,
-                    mouse.into(),
-                    pressed,
-                    match self.mode {
-                        Mode::Register => {
-                            if *pending {
-                                "REGISTERING..."
-                            } else {
-                                "REGISTER"
-                            }
-                        }
-                        Mode::Update => {
-                            if *pending {
-                                "UPDATING..."
-                            } else {
-                                "UPDATE"
-                            }
-                        }
-                    },
-                    true,
-                    false,
-                );
-
-                self.button.draw(
-                    ctx.assets,
-                    &mut tm,
-                    GUEST_BTN.0 as f32,
-                    GUEST_BTN.1 as f32,
-                    GUEST_BTN.2 as f32,
-                    mouse.into(),
-                    pressed,
-                    match self.mode {
-                        Mode::Register => "PLAY AS GUEST",
-                        Mode::Update => "CANCEL",
-                    },
-                    true,
-                    false,
-                );
+                header(&mut tm, "Email", Some(sub));
+                field.draw(&mut tm, t, true, !*pending, 0.0);
+                pair = Some(("NEXT", "BACK"))
             }
+            State::Code {
+                email,
+                field,
+                resend_at,
+                pending,
+            } => {
+                header(&mut tm, "Enter code", Some(email));
+                field.draw(&mut tm, t, true, !*pending, 0.0);
+                let left = (*resend_at - self.clock).max(0.0).ceil() as i32;
+                if left > 0 {
+                    tm.draw_text(&format!("resend in {left}s"), RESEND.0, RESEND.1, 8, DIM);
+                } else {
+                    let c = if hit(RESEND, mouse) {
+                        Color::WHITE
+                    } else {
+                        TEXT
+                    };
+                    tm.draw_text("resend code", RESEND.0, RESEND.1, 8, c);
+                }
+                pair = Some(("LOG IN", "BACK"))
+            }
+            State::Account(acc) => {
+                header(&mut tm, acc.mode.title(), None);
+                acc.name
+                    .draw(&mut tm, t, acc.focus.is(F_NAME), !acc.pending, acc.shake);
+                acc.country.draw(&mut tm, acc.focus.is(F_COUNTRY));
+                pair = Some(acc.mode.button_labels(acc.pending));
+                alt = acc.mode == AccountMode::Create && !acc.pending;
+                if alt {
+                    centered(&mut tm, "already have an account?", ALT_Y - 10, 8, DIM);
+                }
+            }
+            State::Link { code, expires } => {
+                header(
+                    &mut tm,
+                    "Link device",
+                    Some("enter this code on your other device"),
+                );
+                match code {
+                    Some(c) => {
+                        centered(&mut tm, c, 70, 20, TEXT);
+                        let left = (*expires - self.clock).max(0.0).ceil() as i32;
+                        centered(&mut tm, &format!("{left}s"), 100, 8, DIM);
+                    }
+                    None => centered(&mut tm, "requesting...", 75, 10, DIM),
+                }
+                back_btn = true;
+            }
+            State::LinkEntry { field, pending } => {
+                header(&mut tm, "Link device", None);
+                field.draw(&mut tm, t, true, !*pending, 0.0);
+                pair = Some(("LINK", "BACK"))
+            }
+            State::Devices { list } => {
+                header(&mut tm, "Devices", Some("remove signs a device out"));
+                match list {
+                    None => centered(&mut tm, "loading...", 70, 10, DIM),
+                    Some(l) => {
+                        for (i, d) in l.iter().take(MAX_DEV).enumerate() {
+                            let y = DEV_Y + i as i32 * DEV_ROW;
+                            let label = if d.current {
+                                "this device".to_string()
+                            } else {
+                                format!("device {}", &d.id[..d.id.len().min(4)])
+                            };
+                            tm.draw_text(&label, BOX_X, y, 8, TEXT);
+                            tm.draw_text(&ago(d.last_seen), BOX_X + 76, y, 8, DIM);
+                            if !d.current {
+                                tm.draw_text("remove", BOX_X + BOX_W - 40, y, 8, RED);
+                            }
+                        }
+                    }
+                }
+                back_btn = true;
+            }
+        }
+
+        let mut btn = |r: Rect, label: &'static str| {
+            self.button.draw(
+                ctx.assets,
+                &mut tm,
+                r.0 as f32,
+                r.1 as f32,
+                r.2 as f32,
+                mouse.into(),
+                pressed,
+                label,
+                true,
+                false,
+            );
+        };
+        if let Some((p, s)) = pair {
+            btn(PRIMARY_BTN, p);
+            btn(SECONDARY_BTN, s);
+        }
+        if back_btn {
+            btn(SECONDARY_BTN, "BACK");
+        }
+        if alt {
+            btn(ALT_LEFT, "EMAIL LOGIN");
+            btn(ALT_RIGHT, "LINK CODE");
         }
     }
 
-    fn on_message(
-        &mut self,
-        ctx: &mut crate::ctx::Context,
-        msg: &wrum_proto::ServerMsg,
-    ) -> super::Transition {
+    fn on_message(&mut self, ctx: &mut crate::ctx::Context, msg: &ServerMsg) -> Transition {
         match msg {
             ServerMsg::HelloOk {
                 name,
                 country,
                 guest,
+                email,
             } => {
+                if !matches!(self.state, State::Idle) {
+                    return Transition::None;
+                }
+                self.auth = Auth {
+                    name: name.clone(),
+                    country: *country,
+                    email: email.clone(),
+                };
                 if *guest {
-                    self.state = State::NeedName {
-                        input: String::new(),
-                        field: Field::Name,
-                        idx: country_index(*country),
-                        buf: String::new(),
-                        error: None,
-                        shake: 0.0,
-                        pending: false,
-                        guest_name: name.clone(),
-                        guest_country: *country,
-                    };
+                    self.state = State::Account(AccountState::create(*country));
                 } else {
-                    return super::Transition::Switch(Box::new(MenuScene::new(
-                        "",
-                        ctx,
-                        Auth {
-                            name: name.clone(),
-                            country: *country,
-                        },
-                    )));
+                    self.logged_in = true;
+                    return to_menu(ctx, name.clone(), *country, email.clone());
                 }
             }
+
+            ServerMsg::CodeSent => {
+                let typed = if let State::Email { field, .. } = &self.state {
+                    Some(field.value.trim().to_string())
+                } else {
+                    None
+                };
+                if let Some(email) = typed {
+                    self.state = State::code(email, self.clock + 60.0);
+                } else if let State::Code {
+                    resend_at, field, ..
+                } = &mut self.state
+                {
+                    *resend_at = self.clock + 60.0;
+                    field.error = None;
+                }
+            }
+
+            ServerMsg::CodeRejected(e) => {
+                let mut expired = false;
+                match &mut self.state {
+                    State::Email { field, pending } => {
+                        *pending = false;
+                        field.error = Some(code_error_text(e, false));
+                    }
+                    State::Code { field, pending, .. } => {
+                        *pending = false;
+                        field.error = Some(code_error_text(e, false));
+                        expired = matches!(e, CodeError::Expired);
+                    }
+                    State::LinkEntry { field, pending } => {
+                        *pending = false;
+                        field.error = Some(code_error_text(e, true));
+                    }
+                    _ => {}
+                }
+                if expired {
+                    let mut s = State::email();
+                    if let State::Email { field, .. } = &mut s {
+                        field.error = Some("code expired, request a new one");
+                    }
+                    self.state = s;
+                }
+            }
+
+            ServerMsg::NeedName => {
+                if let State::Code { email, .. } = &self.state {
+                    self.verified = Some(email.clone());
+                }
+                self.state = State::Account(AccountState::create(self.auth.country));
+            }
+
             ServerMsg::Registered {
                 token,
                 name,
                 country,
             } => {
                 store::save("token", token);
-                return super::Transition::Switch(Box::new(MenuScene::new(
-                    "",
+                return to_menu(ctx, name.clone(), *country, self.verified.take());
+            }
+            ServerMsg::LoggedIn {
+                token,
+                name,
+                country,
+                email,
+            } => {
+                store::save("token", token);
+                return to_menu(ctx, name.clone(), *country, email.clone());
+            }
+            ServerMsg::Updated { name, country } => {
+                return to_menu(ctx, name.clone(), *country, self.auth.email.clone());
+            }
+            ServerMsg::EmailLinked { email } => {
+                return to_menu(
                     ctx,
-                    Auth {
-                        name: name.clone(),
-                        country: *country,
-                    },
-                )));
+                    self.auth.name.clone(),
+                    self.auth.country,
+                    Some(email.clone()),
+                );
             }
             ServerMsg::NameRejected(e) => {
-                if let State::NeedName {
-                    error,
-                    shake,
-                    pending,
-                    field,
-                    ..
-                } = &mut self.state
-                {
-                    *pending = false;
-                    *shake = 0.35;
-                    *field = Field::Name;
-                    *error = Some(match e {
+                if let State::Account(acc) = &mut self.state {
+                    acc.reject(match e {
                         NameError::Taken => "name already taken",
-                        NameError::Invalid => "3-16 letters, digits, _, - or space",
+                        NameError::Invalid => NAME_RULES,
                         NameError::Busy => "try again later",
                     });
                 }
             }
-            ServerMsg::Updated { name, country } => {
-                return super::Transition::Switch(Box::new(MenuScene::new(
-                    "",
-                    ctx,
-                    Auth {
-                        name: name.clone(),
-                        country: *country,
-                    },
-                )));
+
+            ServerMsg::LinkCode { code } => {
+                if let State::Link { code: c, expires } = &mut self.state {
+                    *c = Some(code.clone());
+                    *expires = self.clock + 300.0;
+                }
+            }
+            ServerMsg::Devices { list } => {
+                if let State::Devices { list: l } = &mut self.state {
+                    *l = Some(list.clone());
+                }
+            }
+
+            ServerMsg::LoggedOut => {
+                store::save("token", "");
+                let _ = ctx.net.reconnect();
+                self.state = State::Idle;
+                self.logged_in = false;
+                self.verified = None;
             }
             _ => {}
         }
-        super::Transition::None
+        Transition::None
     }
 
     fn blocks_draw(&self) -> bool {
@@ -601,18 +830,4 @@ impl Scene for AuthScene {
     fn blocks_update(&self) -> bool {
         true
     }
-}
-
-fn frame(
-    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
-    x: i32,
-    y: i32,
-    focused: bool,
-    color: Option<Color>,
-) {
-    tm.draw_rectangle(x, y, BOX_W, BOX_H, CARD);
-
-    let border = color.unwrap_or(if focused { Color::WHITE } else { BORDER });
-
-    tm.draw_rectangle_lines(x, y, BOX_W, BOX_H, border);
 }

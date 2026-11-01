@@ -5,7 +5,7 @@ use wrum_core::{
     sim::{Input, World},
 };
 
-pub const PROTO_VERSION: usize = 4;
+pub const PROTO_VERSION: usize = 5;
 
 pub const TICK_RATE: u32 = 60;
 pub const SNAPSHOT_EVERY: u32 = 1;
@@ -44,6 +44,26 @@ pub enum ClientMsg {
     GetLeaderboard {
         kind: BoardKind,
     },
+
+    RequestCode {
+        email: String,
+    },
+    VerifyCode {
+        email: String,
+        code: String,
+    },
+    MakeLinkCode,
+    RedeemLinkCode {
+        code: String,
+    },
+    ListDevices,
+    RevokeDevice {
+        id: String,
+    },
+    Logout {
+        everywhere: bool,
+    },
+    DeleteAccount,
 }
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub enum ServerMsg {
@@ -51,6 +71,7 @@ pub enum ServerMsg {
         name: String,
         country: [char; 2],
         guest: bool,
+        email: Option<String>,
     },
     Welcome {
         slot: PlayerId,
@@ -120,6 +141,26 @@ pub enum ServerMsg {
         rows: Vec<(String, f32, [char; 2])>,
         mine: Option<(u32, f32)>,
     },
+
+    CodeSent,
+    CodeRejected(CodeError),
+    LoggedIn {
+        token: String,
+        name: String,
+        country: [char; 2],
+        email: Option<String>,
+    },
+    EmailLinked {
+        email: String,
+    }, // attached email to current account
+    NeedName, // email verified, send Register next
+    LinkCode {
+        code: String,
+    },
+    Devices {
+        list: Vec<DeviceInfo>,
+    },
+    LoggedOut,
 }
 
 impl ClientMsg {
@@ -136,6 +177,14 @@ pub struct PlayerResult {
     pub finished: bool,
 }
 
+#[derive(Archive, Serialize, Deserialize, Debug, Clone)]
+pub struct DeviceInfo {
+    pub id: String,
+    pub created_at: i64,
+    pub last_seen: i64,
+    pub current: bool,
+}
+
 #[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RejectReason {
     LobbyFull,
@@ -148,6 +197,14 @@ pub enum RejectReason {
 pub enum NameError {
     Taken,
     Invalid,
+    Busy,
+}
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeError {
+    BadEmail,
+    TooSoon,
+    Wrong,
+    Expired,
     Busy,
 }
 

@@ -3,3 +3,4 @@ target/
 game.db*
 node_modules/
 web/wrum*
+.env
