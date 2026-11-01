@@ -12,7 +12,12 @@ use raylib::{
 use wrum_core::map::{PropKind::Fence, load_map};
 
 use crate::{
-    GLSL_VERSION, assets::Assets, camera::Camera, car::SHADOW_OFFSET, ctx::Context, stack::Stack,
+    GLSL_VERSION,
+    assets::{AssetId, Assets},
+    camera::Camera,
+    car::SHADOW_OFFSET,
+    ctx::Context,
+    stack::Stack,
 };
 
 struct PropKind {
@@ -31,6 +36,7 @@ pub struct Map {
     kinds: Vec<PropKind>,
     pub props: Vec<Prop>,
     water: Vec<Rectangle>,
+    map_asset: AssetId,
 
     water_shader: Shader,
     loc_time: i32,
@@ -38,7 +44,14 @@ pub struct Map {
     loc_inv: i32,
     loc_clip: i32,
     loc_alpha: i32,
+    loc_map: i32,
+    loc_map_size: i32,
+    loc_mask: i32,
     pub size: Vector2,
+
+    land: Vec<bool>,
+    land_w: i32,
+    land_h: i32,
 }
 
 impl Map {
@@ -104,11 +117,16 @@ impl Map {
             Some(&format!("{shader_dir}/water.fs")),
         );
 
+        let map_asset = ctx.assets.load(ctx.rl, ctx.thread, path);
+
         let loc_time = water_shader.get_shader_location("uTime");
         let loc_origin = water_shader.get_shader_location("uOrigin");
         let loc_inv = water_shader.get_shader_location("uInv");
         let loc_clip = water_shader.get_shader_location("uClip");
         let loc_alpha = water_shader.get_shader_location("uAlpha");
+        let loc_map = water_shader.get_shader_location("uMap");
+        let loc_map_size = water_shader.get_shader_location("uMapSize");
+        let loc_mask = water_shader.get_shader_location("uMask");
 
         let (w, h) = {
             let tex = ctx.assets.load(ctx.rl, ctx.thread, path);
@@ -117,7 +135,17 @@ impl Map {
         };
         let layers = Stack::new(ctx, path, w / layers as f32);
 
+        let img = raylib::texture::Image::load_image(path).expect("map image");
+        let (land_w, land_h) = (img.width, img.height);
+        let mut land = Vec::with_capacity((land_w * land_h) as usize);
+        for y in 0..land_h {
+            for x in 0..land_w {
+                land.push(img.get_color(x, y).a > 127);
+            }
+        }
+
         Self {
+            map_asset,
             layers,
             kinds,
             props,
@@ -128,7 +156,13 @@ impl Map {
             loc_inv,
             loc_alpha,
             loc_clip,
+            loc_map,
+            loc_map_size,
+            loc_mask,
             size: Vector2 { x: w, y: h },
+            land,
+            land_h,
+            land_w,
         }
     }
 
@@ -137,6 +171,20 @@ impl Map {
             && prop.pos.x <= bounds.x + bounds.width
             && prop.pos.y >= bounds.y
             && prop.pos.y <= bounds.y + bounds.height
+    }
+    pub fn is_water(&self, p: Vector2) -> bool {
+        let in_rect = self
+            .water
+            .iter()
+            .any(|w| p.x >= w.x && p.x < w.x + w.width && p.y >= w.y && p.y < w.y + w.height);
+        if !in_rect {
+            return false;
+        }
+        let (x, y) = (p.x as i32, p.y as i32);
+        if x < 0 || y < 0 || x >= self.land_w || y >= self.land_h {
+            return true;
+        }
+        !self.land[(y * self.land_w + x) as usize]
     }
 
     pub fn draw_layers(
@@ -192,6 +240,7 @@ impl Map {
     }
     pub fn draw_water_overlay(
         &mut self,
+        assets: &Assets,
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         camera: &Camera,
         world: Vector2,
@@ -215,6 +264,13 @@ impl Map {
         }
 
         self.upload_view(tm, camera);
+        let tex = assets.get(&self.map_asset);
+        self.water_shader
+            .set_shader_value_texture(self.loc_map, tex);
+        self.water_shader
+            .set_shader_value(self.loc_map_size, self.size);
+        self.water_shader.set_shader_value(self.loc_mask, 1.0f32);
+
         let (c, _) = camera.apply(world, 0.0);
         let alpha = (0.55 + 0.4 * depth / 24.0).clamp(0.55, 0.95);
         self.water_shader
@@ -225,6 +281,7 @@ impl Map {
         self.water_shader
             .set_shader_value(self.loc_clip, Vector3::new(0., 0., 0.));
         self.water_shader.set_shader_value(self.loc_alpha, 1.0f32);
+        self.water_shader.set_shader_value(self.loc_mask, 0.0f32);
     }
     pub fn draw_shadows(
         &mut self,

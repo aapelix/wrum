@@ -71,7 +71,9 @@ impl Backdrop {
         car.boost_lvl = c.boost_lvl;
         let (cp, ca, cb) = (car.p, car.a, car.boost);
 
-        self.fx.update(dt, &self.cars, self.demo.level());
+        let map = &self.map;
+        self.fx
+            .update(dt, &self.cars, self.demo.level(), &|p| map.is_water(p));
         self.camera.set_boost(cb);
         self.camera.update(cp, ca, dt);
     }
@@ -98,6 +100,8 @@ impl Backdrop {
             Color::new(255, 255, 255, 180),
         );
         self.fx.draw_trails(tm, &self.camera);
+        let map = &self.map;
+        self.fx.draw_ripples(tm, &self.camera, &|p| map.is_water(p));
 
         let mut drawables: Vec<(f32, usize, Drawable)> = Vec::new();
         for (i, (id, car)) in self.cars.iter().enumerate() {
@@ -119,7 +123,7 @@ impl Backdrop {
                     let car = self.cars.get(&id).unwrap();
                     let (map, cam) = (&mut self.map, &self.camera);
                     car.draw(assets, tm, cam, self.clock, |tm, pos, depth| {
-                        map.draw_water_overlay(tm, cam, pos, depth);
+                        map.draw_water_overlay(assets, tm, cam, pos, depth);
                     });
                 }
                 Drawable::Prop => {
@@ -131,6 +135,9 @@ impl Backdrop {
         self.fx.draw_flames(tm, &self.camera);
         self.fx.draw_bits(tm, &self.camera);
         self.fx.draw_puffs(tm, &self.camera);
+        let map = &self.map;
+        self.fx
+            .draw_droplets(tm, &self.camera, &|p| map.is_water(p));
 
         tm.draw_rectangle(0, 0, 320, 180, Color::new(0, 0, 0, 150));
     }

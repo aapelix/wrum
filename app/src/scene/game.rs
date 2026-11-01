@@ -264,7 +264,9 @@ impl Scene for GameScene {
             }
         }
 
-        self.fx.update(dt, &self.cars, &self.level);
+        let map = &self.map;
+        self.fx
+            .update(dt, &self.cars, &self.level, &|p| map.is_water(p));
 
         if !self.game_finished {
             if let Some(c) = self.cars.get(&self.following) {
@@ -324,6 +326,9 @@ impl Scene for GameScene {
             Color::new(255, 255, 255, 140),
         );
         self.fx.draw_trails(&mut tm, &self.camera);
+        let map = &self.map;
+        self.fx
+            .draw_ripples(&mut tm, &self.camera, &|p| map.is_water(p));
 
         let mut drawables: Vec<(f32, usize, Drawable)> = Vec::new();
         let bounds = self.camera.visible_bounds(32.0);
@@ -358,7 +363,7 @@ impl Scene for GameScene {
                         &self.camera,
                         self.clock,
                         |tm, pos, depth| {
-                            map.draw_water_overlay(tm, cam, pos, depth);
+                            map.draw_water_overlay(ctx.assets, tm, cam, pos, depth);
                         },
                     );
                 }
@@ -389,6 +394,9 @@ impl Scene for GameScene {
         self.fx.draw_flames(&mut tm, &self.camera);
         self.fx.draw_bits(&mut tm, &self.camera);
         self.fx.draw_puffs(&mut tm, &self.camera);
+        let map = &self.map;
+        self.fx
+            .draw_droplets(&mut tm, &self.camera, &|p| map.is_water(p));
 
         if !self.game_finished {
             if let Some((place, _total)) = self.my_place() {

@@ -7,6 +7,9 @@ uniform vec2  uOrigin;
 uniform vec4  uInv;
 uniform vec3  uClip;
 uniform float uAlpha;
+uniform sampler2D uMap;
+uniform vec2  uMapSize;
+uniform float uMask;
 
 const vec3 C_FOAM  = vec3(0.93, 0.97, 1.00);
 const vec3 C_LIGHT = vec3(0.35, 0.65, 0.90);
@@ -50,6 +53,10 @@ bool foamRing(vec2 s) {
 
 void main() {
     vec2 w = toWorld(floor(screenPos) + 0.5);
+    if (uMask > 0.5) {
+        float land = texture(uMap, w / uMapSize).a;
+        if (land > 0.5) discard;
+    }
 
     float b = fbm(w * 0.012 + vec2(uTime * 0.02, uTime * 0.01));
     vec3 col = b > 0.5 ? C_LIGHT : C_MID;

@@ -26,6 +26,13 @@ use crate::{
     ctx::Context,
 };
 
+const W_FOAM: Color = Color::new(237, 247, 255, 255);
+const W_LIGHT: Color = Color::new(89, 166, 230, 255);
+const W_DARK: Color = Color::new(20, 51, 115, 255);
+
+const SPLASH_G: f32 = 320.0;
+const IMPACT_MAX: f32 = 140.0;
+
 struct Rng(u32);
 impl Rng {
     fn next(&mut self) -> f32 {
@@ -74,6 +81,20 @@ struct Puff {
     dust: bool,
 }
 
+struct Droplet {
+    p: Vector2,
+    v: Vector2,
+    z: f32,
+    vz: f32,
+    big: bool,
+}
+struct Ripple {
+    p: Vector2,
+    age: f32,
+    life: f32,
+    r1: f32,
+}
+
 #[derive(Default)]
 struct Track {
     prev_p: Option<Vector2>,
@@ -89,6 +110,9 @@ struct Track {
     spark: [f32; 2],
     flame: f32,
     boost_prev: u8,
+    prev_z: f32,
+    fall: f32,
+    was_wet: bool,
 }
 
 pub struct Fx {
@@ -100,6 +124,8 @@ pub struct Fx {
     tracks: HashMap<PlayerId, Track>,
     rng: Rng,
     bits: Vec<Bit>,
+    droplets: Vec<Droplet>,
+    ripples: Vec<Ripple>,
 
     shader: Shader,
     loc_origin: i32,
@@ -145,12 +171,20 @@ impl Fx {
             tracks: HashMap::new(),
             rng: Rng(0x9E3779B9),
             bits: Vec::new(),
+            droplets: Vec::new(),
+            ripples: Vec::new(),
         }
     }
 
     // ---------------------------------------------------------------- update
 
-    pub fn update(&mut self, dt: f32, cars: &HashMap<PlayerId, Car>, level: &Level) {
+    pub fn update(
+        &mut self,
+        dt: f32,
+        cars: &HashMap<PlayerId, Car>,
+        level: &Level,
+        water: &dyn Fn(Vector2) -> bool,
+    ) {
         if dt <= 0.0 {
             return;
         }
@@ -159,7 +193,7 @@ impl Fx {
         for (id, car) in cars {
             let grass = level.on_grass(V2::new(car.p.x, car.p.y));
             let mut tr = self.tracks.remove(id).unwrap_or_default();
-            self.step_car(&mut tr, car, dt, grass);
+            self.step_car(&mut tr, car, dt, grass, water);
             self.tracks.insert(*id, tr);
         }
 
@@ -197,6 +231,32 @@ impl Fx {
             }
         }
         self.bits.retain(|b| b.age < b.life);
+
+        for d in &mut self.droplets {
+            d.p += d.v * dt;
+            d.v *= (-1.0 * dt).exp();
+            d.vz -= SPLASH_G * dt;
+            d.z += d.vz * dt;
+        }
+        let (ripples, rng) = (&mut self.ripples, &mut self.rng);
+        self.droplets.retain(|d| {
+            if d.z >= 0.0 || d.vz > 0.0 {
+                return true;
+            }
+            if water(d.p) && ripples.len() < 80 && rng.next() < if d.big { 0.7 } else { 0.3 } {
+                ripples.push(Ripple {
+                    p: d.p,
+                    age: 0.0,
+                    life: 0.35,
+                    r1: if d.big { 4.0 } else { 3.0 },
+                });
+            }
+            false
+        });
+        for r in &mut self.ripples {
+            r.age += dt;
+        }
+        self.ripples.retain(|r| r.age < r.life);
     }
     pub fn clear(&mut self, ctx: &mut Context) {
         {
@@ -207,9 +267,18 @@ impl Fx {
         self.pending.clear();
         self.tracks.clear();
         self.bits.clear();
+        self.droplets.clear();
+        self.ripples.clear();
     }
 
-    fn step_car(&mut self, tr: &mut Track, car: &Car, dt: f32, grass: bool) {
+    fn step_car(
+        &mut self,
+        tr: &mut Track,
+        car: &Car,
+        dt: f32,
+        grass: bool,
+        water: &dyn Fn(Vector2) -> bool,
+    ) {
         let Some(prev) = tr.prev_p.replace(car.p) else {
             return;
         };
@@ -231,17 +300,39 @@ impl Fx {
         tr.decel += (decel - tr.decel) * (1.0 - (-20.0 * dt).exp());
 
         let up = car.z > 0.5;
+        let vz = (car.z - tr.prev_z) / dt;
+        tr.prev_z = car.z;
+        if up || tr.airborne {
+            tr.fall = tr.fall.max(-vz);
+        }
         if up {
             tr.peak_z = tr.peak_z.max(car.z);
         }
+        let wet = water(car.p);
+        let mut landed = false;
         if tr.airborne && !up {
             if tr.peak_z > 6.0 {
                 tr.land = (tr.peak_z / 25.0).clamp(0.3, 1.0);
-                self.landing_burst(car.p, tr.land, grass);
+                if wet {
+                    let s = (tr.fall / IMPACT_MAX).max(tr.peak_z / 40.0).clamp(0.2, 1.0);
+                    self.splash(car.p, s);
+                    landed = true;
+                } else {
+                    self.landing_burst(car.p, tr.land, grass);
+                }
             }
             tr.peak_z = 0.0;
+            tr.fall = 0.0;
         }
         tr.airborne = up;
+
+        if wet && !tr.was_wet && !landed && !up {
+            let k = smooth(60.0, 260.0, tr.vel.length());
+            if k > 0.1 {
+                self.splash(car.p, k * 0.6);
+            }
+        }
+        tr.was_wet = wet;
 
         let grounded = !up && car.z > -0.01 && car.status != Status::Drowning;
 
@@ -424,6 +515,48 @@ impl Fx {
                 r1: r.range(3.5, 5.5) * strength.max(0.6),
                 a: 0.55,
                 dust: grass,
+            });
+        }
+    }
+    fn splash(&mut self, p: Vector2, s: f32) {
+        let n = (7.0 + 14.0 * s) as usize;
+        for i in 0..n {
+            let ang = i as f32 / n as f32 * std::f32::consts::TAU + self.rng.range(-0.25, 0.25);
+            let dir = Vector2::new(ang.cos(), ang.sin());
+            let r = &mut self.rng;
+            self.droplets.push(Droplet {
+                p: p + dir * 3.0,
+                v: dir * r.range(14.0, 30.0) * (0.5 + s),
+                z: 0.0,
+                vz: r.range(70.0, 105.0) * (0.55 + 0.6 * s),
+                big: r.next() < 0.35 + 0.3 * s,
+            });
+        }
+        if s > 0.35 {
+            for _ in 0..(2.0 + 8.0 * s * s) as usize {
+                let r = &mut self.rng;
+                self.droplets.push(Droplet {
+                    p: p + Vector2::new(r.range(-1.5, 1.5), r.range(-1.5, 1.5)),
+                    v: Vector2::new(r.range(-6.0, 6.0), r.range(-6.0, 6.0)),
+                    z: 0.0,
+                    vz: r.range(100.0, 135.0) * (0.6 + 0.5 * s),
+                    big: r.next() < 0.6,
+                });
+            }
+        }
+        if self.ripples.len() < 60 {
+            let r1 = 7.0 + 14.0 * s;
+            self.ripples.push(Ripple {
+                p,
+                age: 0.0,
+                life: 0.55,
+                r1,
+            });
+            self.ripples.push(Ripple {
+                p,
+                age: -0.12,
+                life: 0.6,
+                r1: r1 * 0.7,
             });
         }
     }
@@ -618,6 +751,68 @@ impl Fx {
             }
         }
     }
+    pub fn draw_ripples(
+        &self,
+        tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+        camera: &Camera,
+        water: &dyn Fn(Vector2) -> bool,
+    ) {
+        for r in &self.ripples {
+            if r.age < 0.0 {
+                continue;
+            }
+            let t = r.age / r.life;
+            let rad = 1.5 + (r.r1 - 1.5) * (1.0 - (1.0 - t).powi(2));
+            let n = ((std::f32::consts::TAU * rad) as usize).max(8);
+            let col = if t < 0.5 { W_FOAM } else { W_LIGHT };
+            for i in 0..n {
+                if t > 0.45 && (i * 7 + (t * 6.0) as usize * 13) % 5 < ((t - 0.45) * 8.0) as usize {
+                    continue;
+                }
+                let ang = i as f32 / n as f32 * std::f32::consts::TAU;
+                let w = r.p + Vector2::new(ang.cos(), ang.sin()) * rad;
+                if !water(w) {
+                    continue;
+                }
+                let (s, _) = camera.apply(w, 0.0);
+                let (x, y) = (s.x.round() as i32, s.y.round() as i32);
+                tm.draw_pixel(x, y + 1, W_DARK);
+                tm.draw_pixel(x, y, col);
+            }
+        }
+    }
+    pub fn draw_droplets(
+        &self,
+        tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+        camera: &Camera,
+        water: &dyn Fn(Vector2) -> bool,
+    ) {
+        for d in &self.droplets {
+            let proj = |p: Vector2, z: f32| {
+                let (s, _) = camera.apply(p, 0.0);
+                Vector2::new(s.x.round(), (s.y - z).round())
+            };
+            let head = proj(d.p, d.z);
+            let rising = d.vz > 0.0;
+
+            if d.z > 2.0 && water(d.p) {
+                let g = proj(d.p, 0.0);
+                tm.draw_pixel(g.x as i32, g.y as i32, W_DARK);
+            }
+            if rising {
+                let tail = proj(d.p - d.v * 0.035, d.z - d.vz * 0.035);
+                tm.draw_line_ex(head, tail, 1.0, W_LIGHT);
+            }
+            let (x, y) = (head.x as i32, head.y as i32);
+            if d.big {
+                tm.draw_rectangle(x, y, 2, 2, if rising { W_FOAM } else { W_LIGHT });
+                tm.draw_pixel(x + 1, y + 1, W_LIGHT);
+            } else {
+                tm.draw_pixel(x, y, if rising { W_FOAM } else { W_LIGHT });
+            }
+        }
+    }
+
     fn tier_cols(t: u8) -> ((u8, u8, u8), (u8, u8, u8)) {
         match t {
             0 => ((255, 240, 210), (255, 255, 255)),
