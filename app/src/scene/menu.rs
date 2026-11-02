@@ -86,7 +86,7 @@ pub struct MenuScene {
 }
 
 impl MenuScene {
-    pub fn new(status: &str, ctx: &mut crate::ctx::Context, auth: Auth) -> Self {
+    pub fn new(status: &str, ctx: &mut crate::ctx::Context) -> Self {
         let pick = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.subsec_nanos() as usize)
@@ -100,7 +100,7 @@ impl MenuScene {
             leaderboard_open: false,
             auth_open: false,
             code: String::new(),
-            auth,
+            auth: ctx.auth.clone().unwrap(),
             boards: [None, None],
             kind: BoardKind::Total,
             mouse: (-1.0, -1.0),

@@ -13,3 +13,4 @@ todo:
 - snow map with slippy ice
 - music
 - more cars
+- minimap

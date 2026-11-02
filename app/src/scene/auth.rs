@@ -240,15 +240,12 @@ fn to_menu(
     country: [char; 2],
     email: Option<String>,
 ) -> Transition {
-    Transition::Switch(Box::new(MenuScene::new(
-        "",
-        ctx,
-        Auth {
-            name,
-            country,
-            email,
-        },
-    )))
+    *ctx.auth = Some(Auth {
+        name,
+        country,
+        email,
+    });
+    Transition::Switch(Box::new(MenuScene::new("", ctx)))
 }
 fn single_update(rl: &mut raylib::RaylibHandle, field: &mut TextField) -> bool {
     field.update(rl, true);

@@ -3,12 +3,13 @@ use raylib::{
     texture::{RaylibTexture2D, RenderTexture2D},
 };
 
-use crate::{assets::Assets, net::Net};
+use crate::{assets::Assets, net::Net, scene::auth::Auth};
 
 pub struct State {
     pub net: Net,
     pub canvas: RenderTexture2D,
     pub assets: Assets,
+    pub auth: Option<Auth>,
 }
 
 pub struct Context<'a> {
@@ -17,6 +18,7 @@ pub struct Context<'a> {
     pub assets: &'a mut Assets,
     pub rl: &'a mut RaylibHandle,
     pub thread: &'a RaylibThread,
+    pub auth: &'a mut Option<Auth>,
 }
 
 impl State {
@@ -27,6 +29,7 @@ impl State {
             net: Net::connect(option_env!("WRUM_SERVER_URL").unwrap_or("ws://localhost:8080/ws"))?,
             canvas,
             assets: Assets::new(),
+            auth: None,
         })
     }
     pub fn ctx<'a>(
@@ -40,6 +43,7 @@ impl State {
             assets: &mut self.assets,
             rl,
             thread,
+            auth: &mut self.auth,
         }
     }
 }

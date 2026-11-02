@@ -16,14 +16,19 @@ use wrum_core::{
 use wrum_proto::{ClientMsg, PlayerResult, ServerMsg};
 
 use crate::{
+    assets::Assets,
     camera::Camera,
     car::Car,
     ctx,
     fx::Fx,
     map::Map,
-    scene::{Scene, Transition, basic::DisconnectedScene},
+    scene::{Scene, Transition, basic::DisconnectedScene, menu::MenuScene},
     sim::NetSim,
+    ui::{Button, input::mouse_canvas},
 };
+
+const MENU: (f32, f32, f32) = (244., 14., 62.);
+const NEW_GAME: (f32, f32, f32) = (182., 14., 62.);
 
 #[derive(Clone, Copy)]
 enum StartPhase {
@@ -89,6 +94,8 @@ pub struct GameScene {
 
     names: HashMap<PlayerId, String>,
 
+    button: Button,
+
     #[cfg(feature = "debug-renderer")]
     show_debug: bool,
 }
@@ -151,6 +158,7 @@ impl GameScene {
                 .iter()
                 .map(|(id, name, _)| (*id, name.clone()))
                 .collect(),
+            button: Button::new(ctx),
             #[cfg(feature = "debug-renderer")]
             show_debug: false,
         };
@@ -280,6 +288,21 @@ impl Scene for GameScene {
                 self.last_tier = c.tier;
                 self.last_status = c.status;
             }
+        } else {
+            let mp = mouse_canvas(ctx.rl).into();
+            let pressed = ctx
+                .rl
+                .is_mouse_button_pressed(raylib::ffi::MouseButton::MOUSE_BUTTON_LEFT);
+
+            if pressed {
+                if self.button.inside(MENU.0, MENU.1, MENU.2, mp) {
+                    return Transition::Switch(Box::new(MenuScene::new("", ctx)));
+                } else if !self.private
+                    && self.button.inside(NEW_GAME.0, NEW_GAME.1, NEW_GAME.2, mp)
+                {
+                    ctx.net.send(&ClientMsg::JoinPublic).unwrap();
+                }
+            }
         }
 
         if self.game_finished {
@@ -301,6 +324,11 @@ impl Scene for GameScene {
         Transition::None
     }
     fn draw(&mut self, ctx: &mut ctx::Context) {
+        let mp = mouse_canvas(ctx.rl);
+        let pressed = ctx
+            .rl
+            .is_mouse_button_down(raylib::ffi::MouseButton::MOUSE_BUTTON_LEFT);
+
         self.fx.flush(ctx);
         {
             let mut tm = ctx
@@ -462,6 +490,11 @@ impl Scene for GameScene {
                 rem,
                 self.results_wait,
                 &self.names,
+                &self.button,
+                self.private,
+                ctx.assets,
+                mp.into(),
+                pressed,
             );
         }
 
@@ -569,6 +602,17 @@ impl Scene for GameScene {
                 self.results = Some((order.clone(), players.clone()));
                 self.game_finished = true;
             }
+            ServerMsg::Welcome {
+                slot,
+                players,
+                code,
+                private,
+                ..
+            } => {
+                return super::Transition::Switch(Box::new(GameScene::new(
+                    ctx, *slot, players, code, *private,
+                )));
+            }
             _ => {}
         }
         super::Transition::None
@@ -620,6 +664,11 @@ fn draw_results(
     rem: f32,
     wait: f32,
     names: &HashMap<PlayerId, String>,
+    button: &Button,
+    private: bool,
+    assets: &Assets,
+    mp: Vector2,
+    pressed: bool,
 ) {
     const GOLD: Color = Color::new(255, 215, 64, 255);
     const SILVER: Color = Color::new(200, 205, 215, 255);
@@ -631,6 +680,15 @@ fn draw_results(
 
     tm.draw_text("RESULTS", 14, 10, 20, fade(Color::WHITE, bg));
     tm.draw_rectangle(14, 32, 292, 1, fade(Color::GRAY, bg));
+
+    button.draw(
+        assets, tm, MENU.0, MENU.1, MENU.2, mp, pressed, "Menu", true, false,
+    );
+    if !private {
+        button.draw(
+            assets, tm, NEW_GAME.0, NEW_GAME.1, NEW_GAME.2, mp, pressed, "New game", true, false,
+        );
+    }
 
     let hc = fade(Color::GRAY, bg);
     tm.draw_text("POS", 14, 37, 8, hc);
