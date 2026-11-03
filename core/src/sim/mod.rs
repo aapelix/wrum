@@ -485,7 +485,7 @@ fn overlaps_wall(c: &Car, map: &Map) -> bool {
     for sgn in [1.0f32, -1.0] {
         let p = c.pos + f * (sgn * OFFSET);
         for &si in map.nearby(p) {
-            let d = p - mag.segs[si as usize].closest(p);
+            let d = p - map.segs[si as usize].closest(p);
             if d.length_squared() < RADIUS * RADIUS {
                 return true;
             }
