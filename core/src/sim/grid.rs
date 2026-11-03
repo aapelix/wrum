@@ -52,6 +52,7 @@ pub struct Map {
     pub gates: Vec<Gate>,
     pub pads: Vec<Pad>,
     pub speed_pads: Vec<SpeedPad>,
+    pub solids: Vec<Vec<Vec2>>,
 }
 
 fn xform(pos: Vec2, rot: f32, pts: &[Vec2]) -> Vec<Vec2> {
@@ -71,6 +72,8 @@ impl Map {
                 hi = hi.max(*p);
             }
         };
+
+        let mut solids = Vec::new();
 
         for o in &level.obstacles {
             let (pts, closed) = match &o.shape {
@@ -103,6 +106,9 @@ impl Map {
                     a: w[i],
                     b: w[i + 1],
                 });
+            }
+            if closed && w.len() >= 3 {
+                solids.push(w.clone());
             }
             if closed && w.len() > 2 {
                 segs.push(Seg {
@@ -169,6 +175,7 @@ impl Map {
             gates,
             pads: level.pads.clone(),
             speed_pads: level.speed_pads.clone(),
+            solids,
         }
     }
     pub fn surface_at(&self, p: Vec2) -> Surface {
