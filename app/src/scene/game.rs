@@ -296,6 +296,7 @@ impl Scene for GameScene {
 
             if pressed {
                 if self.button.inside(MENU.0, MENU.1, MENU.2, mp) {
+                    ctx.net.send(&ClientMsg::LeaveLobby).unwrap();
                     return Transition::Switch(Box::new(MenuScene::new("", ctx)));
                 } else if !self.private
                     && self.button.inside(NEW_GAME.0, NEW_GAME.1, NEW_GAME.2, mp)
