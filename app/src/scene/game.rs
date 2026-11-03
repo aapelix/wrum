@@ -75,6 +75,7 @@ pub struct GameScene {
     host: PlayerId,
     ready: HashSet<PlayerId>,
     go_at: f32,
+    last_lap: f32,
 
     finished: bool,
     remote_finished: HashSet<PlayerId>,
@@ -159,6 +160,7 @@ impl GameScene {
                 .map(|(id, name, _)| (*id, name.clone()))
                 .collect(),
             button: Button::new(ctx),
+            last_lap: 0.,
             #[cfg(feature = "debug-renderer")]
             show_debug: false,
         };
@@ -473,10 +475,24 @@ impl Scene for GameScene {
                         let p = 1.0 - (rem - (n - 1.0));
                         big_text(&mut tm, &format!("{}", n as i32), (48.0 - 20.0 * p) as i32);
                     }
+
+                    let text = format_time(0.);
+                    tm.draw_text(&text, 14, 14, 20, Color::BLACK);
+                    tm.draw_text(&text, 12, 12, 20, Color::WHITE);
                 }
                 StartPhase::Racing => {
                     if self.clock - self.go_at < 1.0 {
                         big_text(&mut tm, "GO", 48);
+                    }
+
+                    let text = format_time(self.clock - self.go_at);
+                    tm.draw_text(&text, 14, 14, 20, Color::BLACK);
+                    tm.draw_text(&text, 12, 12, 20, Color::WHITE);
+
+                    if self.last_lap != 0. {
+                        let text = format_time(self.last_lap);
+                        tm.draw_text(&text, 13, 33, 10, Color::BLACK);
+                        tm.draw_text(&text, 12, 32, 10, Color::WHITE);
                     }
                 }
             }
@@ -560,7 +576,7 @@ impl Scene for GameScene {
                 lap,
                 next: _,
                 finished,
-                lap_time: _,
+                lap_time,
             } => {
                 if *slot == self.my_id {
                     self.lap = *lap;
@@ -571,6 +587,9 @@ impl Scene for GameScene {
                                 self.following = next;
                             }
                         }
+                    }
+                    if let Some(lap_time) = lap_time {
+                        self.last_lap = *lap_time;
                     }
                 } else if *finished {
                     self.remote_finished.insert(*slot);

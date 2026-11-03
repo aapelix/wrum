@@ -3,9 +3,8 @@
 multiplayer racing game made with raylib
 
 todo:
-- timer in top left corner
 - spectate old games, top score runs
-- boost actiavting on grass
+- boost activating on grass
 - finish new map
 - music
 - flags
