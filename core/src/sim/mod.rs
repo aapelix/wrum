@@ -226,10 +226,9 @@ impl World {
             prev[i] = c.pos;
             c.pos += c.vel * DT;
             c.rot = wrap(c.rot + c.ang * DT);
-          
-            if !was_solid && c.status != Status::Drowning && c.z <= CLEARANCE && overlaps_wall(c, map) {
-              c.z = CLEARANCE + 0.01;
-              c.vz = 0.0;
+
+            if !was_solid && c.solid() {
+                eject_embedded(c, map);
             }
             if c.solid() {
                 collide_walls(c, map);
@@ -480,19 +479,6 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
     }
 }
 
-fn overlaps_wall(c: &Car, map: &Map) -> bool {
-    let (f, _) = axes(c.rot);
-    for sgn in [1.0f32, -1.0] {
-        let p = c.pos + f * (sgn * OFFSET);
-        for &si in map.nearby(p) {
-            let d = p - map.segs[si as usize].closest(p);
-            if d.length_squared() < RADIUS * RADIUS {
-                return true;
-            }
-        }
-    }
-    false
-}
 fn collide_walls(c: &mut Car, map: &Map) {
     let (f, _) = axes(c.rot);
     for sgn in [1.0f32, -1.0] {
@@ -577,6 +563,106 @@ fn bump(c: &mut Car, toward: Vec2, strength: f32, victim: bool) {
     c.timer = (STUN_TICKS as f32 * (0.5 + 0.5 * strength)) as u16;
     c.ang = dir * SPIN_RATE;
     c.vel -= toward * (40.0 * strength);
+}
+
+fn inside_poly(p: Vec2, poly: &[Vec2]) -> bool {
+    if poly.len() < 3 {
+        return false;
+    }
+
+    let mut inside = false;
+    let mut j = poly.len() - 1;
+
+    for i in 0..poly.len() {
+        let a = poly[i];
+        let b = poly[j];
+
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            inside = !inside;
+        }
+
+        j = i;
+    }
+
+    inside
+}
+fn eject_embedded(c: &mut Car, map: &Map) {
+    for _ in 0..4 {
+        let (f, _) = axes(c.rot);
+        let mut moved = false;
+
+        for sign in [1.0_f32, -1.0] {
+            let p = c.pos + f * (sign * OFFSET);
+
+            for poly in &map.solids {
+                if !inside_poly(p, poly) {
+                    continue;
+                }
+
+                let mut best_d2 = f32::INFINITY;
+                let mut nearest = p;
+                let mut best_edge = Vec2::ZERO;
+
+                for i in 0..poly.len() {
+                    let a = poly[i];
+                    let b = poly[(i + 1) % poly.len()];
+                    let e = b - a;
+                    let len2 = e.length_squared();
+
+                    let t = if len2 > 0.0 {
+                        ((p - a).dot(e) / len2).clamp(0.0, 1.0)
+                    } else {
+                        0.0
+                    };
+
+                    let q = a + e * t;
+                    let d2 = p.distance_squared(q);
+
+                    if d2 < best_d2 {
+                        best_d2 = d2;
+                        nearest = q;
+                        best_edge = e;
+                    }
+                }
+
+                let delta = nearest - p;
+                let dist = delta.length();
+
+                let n = if dist > 1e-5 {
+                    delta / dist
+                } else {
+                    let area: f32 = (0..poly.len())
+                        .map(|i| poly[i].perp_dot(poly[(i + 1) % poly.len()]))
+                        .sum();
+
+                    if area >= 0.0 {
+                        Vec2::new(best_edge.y, -best_edge.x)
+                    } else {
+                        Vec2::new(-best_edge.y, best_edge.x)
+                    }
+                    .normalize_or_zero()
+                };
+
+                if n.length_squared() < 0.5 {
+                    continue;
+                }
+
+                c.pos += n * (dist + RADIUS + 0.01);
+
+                let vn = c.vel.dot(n);
+                if vn < 0.0 {
+                    c.vel -= n * (vn * (1.0 + WALL_BOUNCE));
+                }
+
+                moved = true;
+                break;
+            }
+        }
+
+        if !moved {
+            break;
+        }
+    }
 }
 
 #[derive(Clone)]
