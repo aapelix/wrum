@@ -221,10 +221,16 @@ impl World {
             if !c.active {
                 continue;
             }
+            let was_solid = c.solid();
             drive(c, inputs[i].clamped(), map);
             prev[i] = c.pos;
             c.pos += c.vel * DT;
             c.rot = wrap(c.rot + c.ang * DT);
+          
+            if !was_solid && c.status != Status::Drowning && c.z <= CLEARANCE && overlaps_wall(c, map) {
+              c.z = CLEARANCE + 0.01;
+              c.vz = 0.0;
+            }
             if c.solid() {
                 collide_walls(c, map);
             }
@@ -474,6 +480,19 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
     }
 }
 
+fn overlaps_wall(c: &Car, map: &Map) -> bool {
+    let (f, _) = axes(c.rot);
+    for sgn in [1.0f32, -1.0] {
+        let p = c.pos + f * (sgn * OFFSET);
+        for &si in map.nearby(p) {
+            let d = p - mag.segs[si as usize].closest(p);
+            if d.length_squared() < RADIUS * RADIUS {
+                return true;
+            }
+        }
+    }
+    false
+}
 fn collide_walls(c: &mut Car, map: &Map) {
     let (f, _) = axes(c.rot);
     for sgn in [1.0f32, -1.0] {
