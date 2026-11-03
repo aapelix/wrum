@@ -4,7 +4,6 @@ multiplayer racing game made with raylib
 
 todo:
 - spectate old games, top score runs
-- boost activating on grass
 - finish new map
 - music
 - flags
