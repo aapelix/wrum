@@ -8,7 +8,6 @@ use wrum_proto::ClientMsg;
 
 const ERR_DECAY_ME: f32 = 12.0;
 const ERR_DECAY_REMOTE: f32 = 7.0;
-const REDUNDANCY: u32 = 4;
 
 pub struct NetSim {
     pub me: usize,
@@ -36,6 +35,7 @@ pub struct NetSim {
     pub rtt: f32,
     pub early: i32,
     pub max_err: f32,
+    last_log: f64,
 
     pub w: World,
     prev: World,
@@ -99,6 +99,7 @@ impl NetSim {
             margin: 3.0,
             last_late: 0.0,
             last_adj: 0.0,
+            last_log: 0.0,
         }
     }
 
@@ -135,6 +136,11 @@ impl NetSim {
     // ------------------------------------------------------------ update
 
     pub fn update(&mut self, dt: f32, input: Input, tx: &mut Vec<ClientMsg>) {
+        let dt = dt.min(1.0);
+        if dt > 0.05 {
+            eprintln!("FRAME stall {:.0}ms", dt * 1000.0);
+        }
+
         let now = self.now();
         if !self.playing {
             if self.pings < 8 && now - self.last_ping > 0.05 {
@@ -152,7 +158,8 @@ impl NetSim {
             self.apply_snapshot(s);
         }
 
-        self.acc = (self.acc + dt * self.rate).min(12.0 * DT);
+        self.acc = (self.acc + dt * self.rate).min(40.0 * DT);
+        let first = self.cur;
         self.out.clear();
         while self.acc >= DT {
             self.acc -= DT;
@@ -160,11 +167,11 @@ impl NetSim {
         }
         self.alpha = (self.acc / DT).clamp(0.0, 1.0);
         if !self.out.is_empty() {
-            let first = self.cur.wrapping_sub(REDUNDANCY);
-            let inputs = (0..REDUNDANCY)
-                .map(|k| self.my_in.at(first.wrapping_add(k)))
-                .collect();
-            tx.push(ClientMsg::Inputs { first, inputs });
+            let skip = self.out.len().saturating_sub(8);
+            tx.push(ClientMsg::Inputs {
+                first: first.wrapping_add(skip as u32),
+                inputs: self.out[skip..].to_vec(),
+            });
         }
 
         let k_me = (-ERR_DECAY_ME * dt).exp();
@@ -238,13 +245,16 @@ impl NetSim {
         if !self.playing || early == 127 || now < self.freeze_until {
             return;
         }
-        if early < 1 {
-            eprintln!(
-                "LATE early={early} margin={} rtt {:.0}ms",
-                self.margin,
-                self.rtt * 1000.0
-            );
-            if now - self.last_adj > 0.5 {
+        if early < 0 {
+            if now - self.last_log > 1.0 {
+                eprintln!(
+                    "LATE early={early} margin={} rtt {:.0}ms",
+                    self.margin,
+                    self.rtt * 1000.0
+                );
+                self.last_log = now;
+            }
+            if early >= -8 && now - self.last_adj > 0.5 {
                 self.margin = (self.margin + 1.0).min(8.0);
                 self.last_adj = now;
                 self.win_n = 0;

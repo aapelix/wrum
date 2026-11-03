@@ -914,7 +914,10 @@ impl Lobby {
     }
     fn on_inputs(&mut self, i: usize, first: u32, inputs: Vec<Input>) {
         let now = self.world.tick;
-        let n = inputs.len().min(16);
+        let skip = inputs.len().saturating_sub(16);
+        let inputs = inputs[skip..].to_vec();
+        let first = first.wrapping_add(skip as u32);
+        let n = inputs.len();
         if n == 0 {
             return;
         }

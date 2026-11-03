@@ -239,7 +239,7 @@ impl Scene for GameScene {
             sample_input(ctx.rl)
         };
         let mut out = Vec::new();
-        self.sim.update(dt.min(0.25), input, &mut out);
+        self.sim.update(dt, input, &mut out);
         for m in out {
             let _ = ctx.net.send(&m);
         }
