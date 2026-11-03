@@ -55,9 +55,7 @@ struct Otp {
 }
 
 struct Shared {
-    level: Level,
-    level_id: String,
-    map: Map,
+    levels: HashMap<String, (Level, Map)>,
     db: Db,
     lobbies: Mutex<HashMap<String, LobbyHandle>>,
     online: Mutex<HashMap<i64, Arc<Notify>>>,
@@ -112,23 +110,29 @@ enum Cmd {
     },
 }
 
+const LEVELS: [&str; 2] = ["assets/maps/untitled", "assets/maps/beach/beach"];
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let level_path = std::env::var("LEVEL").unwrap_or("assets/maps/untitled.json".into());
     let web = std::env::var("WEB").unwrap_or("web".into());
     let addr = std::env::var("ADDR").unwrap_or("0.0.0.0:8080".into());
     let key = std::env::var("RESEND_KEY")?;
 
-    let level = Level::load(&level_path)?;
-    let map = Map::from_level(&level);
     let db = Db::open(&std::env::var("DATABASE_URL")?).await?;
     let resend = Resend::new(&key);
     let mail_from = std::env::var("MAIL_FROM")?;
 
+    let mut levels = HashMap::new();
+    for l in LEVELS {
+        let path = format!("{l}.json");
+        println!("{path}");
+        let level = Level::load(&path)?;
+        let map = Map::from_level(&level);
+        levels.insert(l.into(), (level, map));
+    }
+
     let app = Arc::new(Shared {
-        level,
-        level_id: level_path.clone(),
-        map,
+        levels,
         db,
         lobbies: Default::default(),
         online: Default::default(),
@@ -389,7 +393,10 @@ async fn session(mut inbox: mpsc::Receiver<Bytes>, me: Peer, app: Arc<Shared>, i
                     continue;
                 }
                 last_board = Instant::now();
-                me.send(&enc(&app.db.board(app.level_id.clone(), kind, acct).await));
+                me.send(&enc(&app
+                    .db
+                    .board(format!("{}.json", LEVELS[0]), kind, acct)
+                    .await));
             }
 
             ClientMsg::RequestCode { email } => {
@@ -586,6 +593,12 @@ enum Target {
     Public,
 }
 
+fn random_level(app: &Shared) -> &str {
+    let mut rng = rand::rng();
+    let i = rng.random_range(0..app.levels.len());
+    app.levels.keys().nth(i).unwrap()
+}
+
 async fn join(
     app: &Arc<Shared>,
     me: &Peer,
@@ -596,7 +609,8 @@ async fn join(
 ) -> Option<(mpsc::UnboundedSender<Cmd>, u8)> {
     let reject = |r| me.send(&enc(&ServerMsg::Reject(r)));
     let handle = match t {
-        Target::Create => create_lobby(app, true),
+        // todo: Target::Create(level_id)
+        Target::Create => create_lobby(app, true, random_level(app)),
         Target::Code(c) => match find(app, |k, _| k == c) {
             Some((_, h)) => h,
             None => {
@@ -608,7 +622,7 @@ async fn join(
             !h.private && h.open.load(Relaxed) && h.count.load(Relaxed) < MAX_CARS
         }) {
             Some((_, h)) => h,
-            None => create_lobby(app, false),
+            None => create_lobby(app, false, random_level(app)),
         },
     };
     let (reply, rx) = oneshot::channel();
@@ -646,7 +660,7 @@ fn find(app: &Shared, f: impl Fn(&str, &LobbyHandle) -> bool) -> Option<(String,
         .find(|(k, h)| f(k, h))
         .map(|(k, h)| (k.clone(), h.clone()))
 }
-fn create_lobby(app: &Arc<Shared>, private: bool) -> LobbyHandle {
+fn create_lobby(app: &Arc<Shared>, private: bool, level_id: &str) -> LobbyHandle {
     let mut map = app.lobbies.lock().unwrap();
     let code = loop {
         let c = format!("{:06}", rand::rng().random_range(0..1_000_000));
@@ -661,8 +675,19 @@ fn create_lobby(app: &Arc<Shared>, private: bool) -> LobbyHandle {
         open: Arc::new(AtomicBool::new(true)),
         private,
     };
+
     map.insert(code.clone(), handle.clone());
-    let lobby = Lobby::new(app.clone(), code, handle.clone());
+
+    let (level, map) = app.levels.get(level_id).expect("unknown level");
+    let lobby = Lobby::new(
+        app.clone(),
+        code,
+        handle.clone(),
+        level_id.to_owned(),
+        level.clone(),
+        map.clone(),
+    );
+
     tokio::spawn(lobby.run(rx));
     handle
 }
@@ -692,6 +717,9 @@ struct Slot {
 
 struct Lobby {
     app: Arc<Shared>,
+    level_id: String,
+    level: Level,
+    map: Map,
     code: String,
     h: LobbyHandle,
     world: World,
@@ -703,11 +731,21 @@ struct Lobby {
 }
 
 impl Lobby {
-    fn new(app: Arc<Shared>, code: String, h: LobbyHandle) -> Self {
+    fn new(
+        app: Arc<Shared>,
+        code: String,
+        h: LobbyHandle,
+        level_id: String,
+        level: Level,
+        map: Map,
+    ) -> Self {
         Self {
             app,
             code,
             h,
+            level_id,
+            level,
+            map,
             world: World {
                 tick: 600,
                 ..Default::default()
@@ -826,7 +864,8 @@ impl Lobby {
         let Some(i) = self.slots.iter().position(Option::is_none) else {
             return Err(RejectReason::LobbyFull);
         };
-        let (pos, rot) = self.app.level.spawns[i % self.app.level.spawns.len()];
+
+        let (pos, rot) = self.level.spawns[i % self.level.spawns.len()];
         self.world.spawn(i, pos, rot);
         let mut inbuf = InputBuf::default();
         inbuf.reset(self.world.tick);
@@ -858,6 +897,7 @@ impl Lobby {
             code: self.code.clone(),
             private: self.h.private,
             players,
+            map: self.level_id.clone(),
         }));
         let joined = enc(&ServerMsg::PlayerJoined {
             slot: i as u8,
@@ -988,12 +1028,12 @@ impl Lobby {
         }
         let mut crossed: Vec<(usize, u32)> = Vec::new();
         self.world
-            .step(&self.app.map, &ins, true, &mut |i, g| crossed.push((i, g)));
+            .step(&self.map, &ins, true, &mut |i, g| crossed.push((i, g)));
         self.tick_at = Instant::now();
         let now = self.world.tick;
 
         if self.phase == Phase::Racing {
-            let n_cp = self.app.level.checkpoint_count;
+            let n_cp = self.level.checkpoint_count;
             let mut msgs = Vec::new();
             let mut finished_now = false;
             let mut finished_slots: Vec<usize> = Vec::new();
@@ -1120,7 +1160,7 @@ impl Lobby {
             tick,
             ..Default::default()
         };
-        let spawns = &self.app.level.spawns;
+        let spawns = &self.level.spawns;
         for (i, s) in self.slots.iter_mut().enumerate() {
             let Some(s) = s else { continue };
             let (pos, rot) = spawns[i % spawns.len()];
@@ -1137,12 +1177,12 @@ impl Lobby {
     }
 
     fn ranking(&self) -> Vec<PlayerId> {
-        let n = self.app.level.checkpoint_count;
+        let n = self.level.checkpoint_count;
         let mut v: Vec<_> = self
             .players()
             .map(|(i, s)| {
                 let p = &s.progress;
-                let d = self.app.level.dist_to_gate(p.next, self.world.cars[i].pos);
+                let d = self.level.dist_to_gate(p.next, self.world.cars[i].pos);
                 (i as u8, p.finish_tick, p.score(n), d)
             })
             .collect();
@@ -1174,6 +1214,6 @@ impl Lobby {
         eprintln!("record: account {account} pos {pos}/{of} total {total:?} lap {best_lap:?}");
         self.app
             .db
-            .record(account, self.app.level_id.clone(), pos, of, total, best_lap);
+            .record(account, self.level_id.clone(), pos, of, total, best_lap);
     }
 }

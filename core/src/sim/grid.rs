@@ -21,6 +21,7 @@ impl Seg {
     }
 }
 
+#[derive(Clone)]
 pub struct Gate {
     pub a: Vec2,
     pub b: Vec2,
@@ -39,6 +40,7 @@ pub fn crossed(g: &Gate, p0: Vec2, p1: Vec2) -> bool {
     (0.0..=1.0).contains(&((hit - g.a).dot(e) / e.dot(e)))
 }
 
+#[derive(Clone)]
 pub struct Map {
     pub cell: f32,
     pub sw: usize,

@@ -110,14 +110,13 @@ impl GameScene {
         players: &Vec<(PlayerId, String, [char; 2])>,
         code: &str,
         private: bool,
+        map_path: &str,
     ) -> Self {
-        let level = Level::load("assets/maps/untitled.json").unwrap();
-        let map = Map::load(
-            ctx,
-            "assets/maps/untitled.png",
-            "assets/maps/untitled.json",
-            1,
-        );
+        let json_path = format!("{map_path}.json");
+        let png_path = format!("{map_path}.png");
+
+        let level = Level::load(&json_path).unwrap();
+        let map = Map::load(ctx, &png_path, &json_path, 1);
 
         let map_grid = grid::Map::from_level(&level);
         let sim = NetSim::new(map_grid, my_id as usize);
@@ -643,10 +642,11 @@ impl Scene for GameScene {
                 players,
                 code,
                 private,
+                map,
                 ..
             } => {
                 return super::Transition::Switch(Box::new(GameScene::new(
-                    ctx, *slot, players, code, *private,
+                    ctx, *slot, players, code, *private, map,
                 )));
             }
             _ => {}

@@ -2,6 +2,7 @@ use glam::Vec2;
 
 use crate::map::{PropKind, load_map};
 
+#[derive(Clone)]
 pub enum Shape {
     Box { hw: f32, hh: f32 },
     Convex { points: Vec<Vec2> },
@@ -11,6 +12,7 @@ pub enum Shape {
 
 use crate::sim::Surface;
 
+#[derive(Clone)]
 pub struct Checkpoint {
     pub index: u32,
     pub pos: Vec2,
@@ -18,6 +20,7 @@ pub struct Checkpoint {
     pub hw: f32,
     pub hh: f32,
 }
+#[derive(Clone)]
 pub struct Obstacle {
     pub pos: Vec2,
     pub rot: f32,
@@ -107,6 +110,7 @@ impl Zone {
     }
 }
 
+#[derive(Clone)]
 pub struct Level {
     pub obstacles: Vec<Obstacle>,
     pub spawns: Vec<(Vec2, f32)>,

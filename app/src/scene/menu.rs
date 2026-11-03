@@ -501,9 +501,10 @@ impl Scene for MenuScene {
                 players,
                 code,
                 private,
+                map,
                 ..
             } => super::Transition::Switch(Box::new(GameScene::new(
-                ctx, *slot, players, code, *private,
+                ctx, *slot, players, code, *private, map,
             ))),
             ServerMsg::Leaderboard { kind, rows, mine } => {
                 self.boards[idx(*kind)] = Some((rows.clone(), *mine));

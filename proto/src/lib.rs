@@ -79,6 +79,7 @@ pub enum ServerMsg {
         code: String,
         private: bool,
         players: Vec<(PlayerId, String, [char; 2])>,
+        map: String,
     },
     PlayerJoined {
         slot: PlayerId,
