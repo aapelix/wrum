@@ -97,6 +97,8 @@ pub struct GameScene {
 
     button: Button,
 
+    requested_new: bool,
+
     #[cfg(feature = "debug-renderer")]
     show_debug: bool,
 }
@@ -161,6 +163,7 @@ impl GameScene {
                 .collect(),
             button: Button::new(ctx),
             last_lap: 0.,
+            requested_new: false,
             #[cfg(feature = "debug-renderer")]
             show_debug: false,
         };
@@ -290,6 +293,17 @@ impl Scene for GameScene {
                 self.last_tier = c.tier;
                 self.last_status = c.status;
             }
+
+            if matches!(self.phase, StartPhase::Racing) {
+                if !self.requested_new && ctx.rl.is_key_pressed(KeyboardKey::KEY_O) {
+                    self.requested_new = true;
+                    if self.private {
+                        ctx.net.send(&ClientMsg::CreateLobby).unwrap();
+                    } else {
+                        ctx.net.send(&ClientMsg::JoinPublic).unwrap();
+                    }
+                }
+            }
         } else {
             let mp = mouse_canvas(ctx.rl).into();
             let pressed = ctx
@@ -301,8 +315,10 @@ impl Scene for GameScene {
                     ctx.net.send(&ClientMsg::LeaveLobby).unwrap();
                     return Transition::Switch(Box::new(MenuScene::new("", ctx)));
                 } else if !self.private
+                    && !self.requested_new
                     && self.button.inside(NEW_GAME.0, NEW_GAME.1, NEW_GAME.2, mp)
                 {
+                    self.requested_new = true;
                     ctx.net.send(&ClientMsg::JoinPublic).unwrap();
                 }
             }
