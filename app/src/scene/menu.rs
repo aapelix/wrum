@@ -1,3 +1,4 @@
+use rand::seq::IndexedRandom;
 use raylib::{
     drawing::{RaylibDraw, RaylibTextureModeExt},
     ffi::{Color, KeyboardKey, MouseButton, Vector2},
@@ -10,12 +11,17 @@ use crate::{
     scene::{
         Scene,
         auth::{Auth, AuthScene},
+        basic::DisconnectedScene,
         game::{GameScene, format_time},
+        replay::ReplayScene,
     },
     ui::Button,
 };
 
-const MAPS: &[&str] = &["assets/maps/untitled/untitled_bot.json"];
+const MAPS: &[&str] = &[
+    "assets/maps/untitled/untitled_bot.json",
+    "assets/maps/beach/beach_bot.json",
+];
 
 type R = (f32, f32, f32, f32);
 
@@ -42,6 +48,8 @@ const SETTINGS: R = (16., 136., 100., 0.);
 const JOIN2: R = (109., 83., 50., 0.);
 const CANCEL: R = (161., 83., 50., 0.);
 
+const REPLAY_CANCEL: R = (109., 99., 102., 0.);
+
 const LCANCEL: R = (16., 16., 55., 0.);
 const TOTAL: R = (190., 16., 58., 0.);
 const LAP: R = (250., 16., 58., 0.);
@@ -57,7 +65,10 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
 
 const RED: Color = rgb(240, 90, 90);
 
-type Board = (Vec<(String, f32, [char; 2])>, Option<(u32, f32)>);
+type Board = (
+    Vec<(String, f32, [char; 2], Option<i64>)>,
+    Option<(u32, f32)>,
+);
 
 fn idx(k: BoardKind) -> usize {
     match k {
@@ -71,6 +82,11 @@ pub struct MenuScene {
     status: String,
     join_open: bool,
     leaderboard_open: bool,
+    replay_options_open: bool,
+    maybe_replay: Option<i64>,
+    ghost: bool,
+    ghost_data: Option<(u8, Vec<u8>)>,
+    requested_replay: bool,
     auth_open: bool,
     code: String,
     auth: Auth,
@@ -87,17 +103,18 @@ pub struct MenuScene {
 
 impl MenuScene {
     pub fn new(status: &str, ctx: &mut crate::ctx::Context) -> Self {
-        let pick = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos() as usize)
-            .unwrap_or(0)
-            % MAPS.len();
+        let map = MAPS.choose(&mut rand::rng()).unwrap();
 
         Self {
             logo: ctx.rl.load_texture(ctx.thread, "assets/logo.png").unwrap(),
             status: status.into(),
             join_open: false,
             leaderboard_open: false,
+            replay_options_open: false,
+            requested_replay: false,
+            ghost: false,
+            ghost_data: None,
+            maybe_replay: None,
             auth_open: false,
             code: String::new(),
             auth: ctx.auth.clone().unwrap(),
@@ -108,7 +125,7 @@ impl MenuScene {
             want_fetch: false,
             next_fetch: 0.0,
             refresh_at: 20.0,
-            backdrop: Backdrop::new(ctx, MAPS[pick]),
+            backdrop: Backdrop::new(ctx, *map),
             button: Button::new(ctx),
         }
     }
@@ -228,6 +245,39 @@ impl Scene for MenuScene {
                     self.kind = BoardKind::Lap;
                     self.want_fetch = true;
                 }
+
+                let board = self.boards[idx(self.kind)].as_ref();
+                match board {
+                    Some((rows, _)) => {
+                        for (i, (_, _, _, replay)) in rows.iter().take(10).enumerate() {
+                            if let Some(replay) = replay {
+                                let y = 49 + i * 11;
+                                if self.button.inside(16., y as f32, 300., mp) {
+                                    self.replay_options_open = true;
+                                    self.maybe_replay = Some(*replay);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
+                if self.replay_options_open {
+                    if self.button.inside(JOIN2.0, JOIN2.1, JOIN2.2, mp) {
+                        self.requested_replay = true;
+                    } else if self.button.inside(CANCEL.0, CANCEL.1, CANCEL.2, mp) {
+                        self.ghost = true;
+                        self.requested_replay = true;
+                    } else if self.button.inside(
+                        REPLAY_CANCEL.0,
+                        REPLAY_CANCEL.1,
+                        REPLAY_CANCEL.2,
+                        mp,
+                    ) {
+                        self.replay_options_open = false;
+                        self.maybe_replay = None;
+                    }
+                }
             }
         }
 
@@ -251,6 +301,15 @@ impl Scene for MenuScene {
             let _ = ctx.net.send(&ClientMsg::GetLeaderboard { kind: self.kind });
             self.want_fetch = false;
             self.next_fetch = self.clock + 1.2;
+        }
+
+        if self.requested_replay
+            && let Some(maybe_replay) = self.maybe_replay
+        {
+            self.requested_replay = false;
+            ctx.net
+                .send(&ClientMsg::GetReplay { id: maybe_replay })
+                .unwrap();
         }
         super::Transition::None
     }
@@ -447,7 +506,7 @@ impl Scene for MenuScene {
                     tm.draw_text("No times yet", 160 - w / 2, 86, 8, Color::WHITE);
                 }
                 Some((rows, _)) => {
-                    for (i, (name, t, country)) in rows.iter().take(10).enumerate() {
+                    for (i, (name, t, country, _replay)) in rows.iter().take(10).enumerate() {
                         let y = 49 + i as i32 * 11;
                         let me = name.eq_ignore_ascii_case(&self.auth.name);
                         if i % 2 == 0 {
@@ -463,6 +522,7 @@ impl Scene for MenuScene {
                         };
 
                         tm.draw_text(&format!("{}", i + 1), 21, y + 1, 8, rc);
+
                         tm.draw_text(&format!("{}{}", country[0], country[1]), 56, y + 1, 8, DIM);
                         tm.draw_text(&name, 73, y + 1, 8, if me { RED } else { Color::WHITE });
                         let ts = format_time(*t);
@@ -491,6 +551,36 @@ impl Scene for MenuScene {
                 }
                 None => tm.draw_text("Finish a race to get ranked", 21, 167, 8, Color::WHITE),
             }
+
+            if self.replay_options_open {
+                tm.draw_rectangle(0, 0, 320, 180, Color::new(0, 0, 0, 150));
+
+                let w = tm.measure_text("Replay this record?", 8);
+                tm.draw_text("Replay this record?", 160 - w / 2, 50, 8, Color::WHITE);
+                let w = tm.measure_text(&self.code, 20);
+                tm.draw_text(&self.code, 160 - w / 2, 60, 20, Color::WHITE);
+
+                self.button.draw(
+                    ctx.assets, &mut tm, JOIN2.0, JOIN2.1, JOIN2.2, mp, pressed, "Replay", true,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets, &mut tm, CANCEL.0, CANCEL.1, CANCEL.2, mp, pressed, "Ghost", true,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    REPLAY_CANCEL.0,
+                    REPLAY_CANCEL.1,
+                    REPLAY_CANCEL.2,
+                    mp,
+                    pressed,
+                    "Cancel",
+                    true,
+                    false,
+                );
+            }
         }
     }
 
@@ -503,9 +593,13 @@ impl Scene for MenuScene {
                 private,
                 map,
                 ..
-            } => super::Transition::Switch(Box::new(GameScene::new(
-                ctx, *slot, players, code, *private, map,
-            ))),
+            } => {
+                let mut g = GameScene::new(ctx, *slot, players, code, *private, map);
+                if let Some((ghost_slot, data)) = &self.ghost_data {
+                    g.replay(ctx, *ghost_slot, data);
+                }
+                super::Transition::Switch(Box::new(g))
+            }
             ServerMsg::Leaderboard { kind, rows, mine } => {
                 self.boards[idx(*kind)] = Some((rows.clone(), *mine));
                 super::Transition::None
@@ -525,8 +619,21 @@ impl Scene for MenuScene {
                 let _ = ctx.net.reconnect();
                 return super::Transition::Switch(Box::new(AuthScene::new(ctx)));
             }
+            ServerMsg::Replay { id: _, slot, data } => {
+                if !self.ghost {
+                    return super::Transition::Switch(Box::new(ReplayScene::new(ctx, data)));
+                }
+                self.ghost_data = Some((*slot, data.clone()));
+                self.replay_options_open = false;
+                self.maybe_replay = None;
+                super::Transition::None
+            }
             _ => super::Transition::None,
         }
+    }
+
+    fn on_disconnect(&mut self, _ctx: &mut crate::ctx::Context) -> super::Transition {
+        super::Transition::Switch(Box::new(DisconnectedScene))
     }
 
     fn blocks_draw(&self) -> bool {

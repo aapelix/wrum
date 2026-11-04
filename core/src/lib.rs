@@ -2,6 +2,7 @@ pub mod bot;
 pub mod level;
 pub mod map;
 pub mod race;
+pub mod replay;
 pub mod sim;
 
 pub type PlayerId = u8;

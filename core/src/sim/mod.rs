@@ -117,7 +117,7 @@ pub enum Status {
     Drowning,
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
 pub struct Car {
     pub active: bool,
     pub pos: Vec2,
@@ -159,7 +159,7 @@ impl Car {
     }
 }
 
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct World {
     pub cars: [Car; MAX_CARS],
     pub tick: u32,

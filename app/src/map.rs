@@ -117,7 +117,7 @@ impl Map {
             Some(&format!("{shader_dir}/water.fs")),
         );
 
-        let map_asset = ctx.assets.load(ctx.rl, ctx.thread, path);
+        let map_asset = ctx.assets.load(ctx.rl, ctx.thread, path, None);
 
         let loc_time = water_shader.get_shader_location("uTime");
         let loc_origin = water_shader.get_shader_location("uOrigin");
@@ -129,7 +129,7 @@ impl Map {
         let loc_mask = water_shader.get_shader_location("uMask");
 
         let (w, h) = {
-            let tex = ctx.assets.load(ctx.rl, ctx.thread, path);
+            let tex = ctx.assets.load(ctx.rl, ctx.thread, path, None);
             let tex = ctx.assets.get(&tex);
             (tex.width() as f32, tex.height() as f32)
         };
@@ -285,6 +285,7 @@ impl Map {
     }
     pub fn draw_shadows(
         &mut self,
+        assets: &Assets,
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         camera: &Camera,
     ) {
@@ -297,7 +298,7 @@ impl Map {
 
             let kind = &self.kinds[prop.kind];
             kind.stack
-                .draw_shadow(tm, prop.pos, prop.a, camera, SHADOW_OFFSET, 255);
+                .draw_shadow(assets, tm, prop.pos, prop.a, camera, SHADOW_OFFSET, 255);
         }
     }
     pub fn draw_prop(

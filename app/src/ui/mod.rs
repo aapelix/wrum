@@ -39,7 +39,7 @@ pub struct Button {
 
 impl Button {
     pub fn new(ctx: &mut ctx::Context) -> Button {
-        let asset_id = ctx.assets.load(ctx.rl, ctx.thread, "assets/box.png");
+        let asset_id = ctx.assets.load(ctx.rl, ctx.thread, "assets/box.png", None);
         Button { asset_id }
     }
     pub fn inside(&self, x: f32, y: f32, w: f32, point: Vector2) -> bool {

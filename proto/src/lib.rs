@@ -5,7 +5,7 @@ use wrum_core::{
     sim::{Input, World},
 };
 
-pub const PROTO_VERSION: usize = 5;
+pub const PROTO_VERSION: usize = 6;
 
 pub const TICK_RATE: u32 = 60;
 pub const SNAPSHOT_EVERY: u32 = 1;
@@ -64,6 +64,10 @@ pub enum ClientMsg {
         everywhere: bool,
     },
     DeleteAccount,
+
+    GetReplay {
+        id: i64,
+    },
 }
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub enum ServerMsg {
@@ -139,7 +143,7 @@ pub enum ServerMsg {
     NameRejected(NameError),
     Leaderboard {
         kind: BoardKind,
-        rows: Vec<(String, f32, [char; 2])>,
+        rows: Vec<(String, f32, [char; 2], Option<i64>)>,
         mine: Option<(u32, f32)>,
     },
 
@@ -162,6 +166,13 @@ pub enum ServerMsg {
         list: Vec<DeviceInfo>,
     },
     LoggedOut,
+
+    Replay {
+        id: i64,
+        slot: u8,
+        data: Vec<u8>,
+    },
+    ReplayUnavailable,
 }
 
 impl ClientMsg {

@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use sqlx::{AssertSqlSafe, PgPool, postgres::PgPoolOptions};
+use wrum_core::replay::{REPLAY_FORMAT_VERSION, REPLAY_SIM_VERSION};
 use wrum_proto::{BoardKind, DeviceInfo, NameError, ServerMsg};
 
 #[derive(Clone, Debug)]
@@ -115,7 +116,7 @@ impl Db {
         .flatten()
         .map(account)
     }
-    pub fn record(
+    pub async fn record(
         &self,
         player: i64,
         level: String,
@@ -123,13 +124,112 @@ impl Db {
         of: u32,
         total: Option<f32>,
         best_lap: Option<f32>,
-    ) {
-        let pool = self.0.clone();
-        tokio::spawn(async move {
-            if let Err(e) = record(&pool, player, &level, pos, of, total, best_lap).await {
-                eprintln!("db record: {e}");
+        replay: Option<(Vec<u8>, u8)>,
+    ) -> sqlx::Result<()> {
+        let mut tx = self.0.begin().await?;
+        sqlx::query(
+            "INSERT INTO results(player_id, level, position, players_in_race, total_time, best_lap, at)
+             VALUES($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(player)
+        .bind(&level)
+        .bind(pos as i32)
+        .bind(of as i32)
+        .bind(total)
+        .bind(best_lap)
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO records(player_id, level, best_lap, best_total) VALUES($1, $2, NULL, NULL)
+             ON CONFLICT (player_id, level) DO NOTHING",
+        )
+        .bind(player)
+        .bind(&level)
+        .execute(&mut *tx)
+        .await?;
+
+        let (old_total,): (Option<f32>,) = sqlx::query_as(
+            "SELECT best_total
+            FROM records
+            WHERE player_id = $1 AND level = $2
+            FOR UPDATE",
+        )
+        .bind(player)
+        .bind(&level)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let improved_total = total.is_some_and(|t| old_total.is_none_or(|old| t < old));
+
+        let mut replay_id: Option<i64> = None;
+        let mut replay_slot: Option<i16> = None;
+
+        if improved_total {
+            if let Some((bytes, slot)) = replay {
+                let id: i64 = sqlx::query_scalar(
+                    "INSERT INTO replays (
+                        level,
+                        format_version,
+                        sim_version,
+                        data,
+                        created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5)
+                    RETURNING id",
+                )
+                .bind(&level)
+                .bind(REPLAY_FORMAT_VERSION as i16)
+                .bind(REPLAY_SIM_VERSION as i16)
+                .bind(bytes)
+                .bind(now())
+                .fetch_one(&mut *tx)
+                .await?;
+
+                replay_id = Some(id);
+                replay_slot = Some(slot as i16);
             }
-        });
+        }
+
+        sqlx::query(
+            r#"
+                UPDATE records
+                SET
+                    best_lap = CASE
+                        WHEN $3::REAL IS NULL THEN best_lap
+                        WHEN best_lap IS NULL THEN $3
+                        ELSE LEAST(best_lap, $3)
+                    END,
+                    best_total = CASE
+                        WHEN $4::REAL IS NOT NULL
+                         AND (best_total IS NULL OR $4 < best_total)
+                        THEN $4
+                        ELSE best_total
+                    END,
+                    best_total_replay = CASE
+                        WHEN $6 THEN $5
+                        ELSE best_total_replay
+                    END,
+                    best_total_slot = CASE
+                        WHEN $6 THEN $7
+                        ELSE best_total_slot
+                    END
+                WHERE player_id = $1 AND level = $2
+                "#,
+        )
+        .bind(player)
+        .bind(&level)
+        .bind(best_lap)
+        .bind(total)
+        .bind(replay_id)
+        .bind(improved_total)
+        .bind(replay_slot)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
     }
     pub async fn board(&self, level: String, kind: BoardKind, player: Option<i64>) -> ServerMsg {
         board(&self.0, &level, kind, player)
@@ -142,6 +242,19 @@ impl Db {
                     mine: None,
                 }
             })
+    }
+    pub async fn replay(&self, id: i64) -> sqlx::Result<Option<(Vec<u8>, u8)>> {
+        let row: Option<(Vec<u8>, i16)> = sqlx::query_as(
+            "SELECT r.data, rec.best_total_slot
+            FROM replays r
+            JOIN records rec ON rec.best_total_replay = r.id
+            WHERE r.id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.0)
+        .await?;
+
+        Ok(row.and_then(|(data, slot)| u8::try_from(slot).ok().map(|slot| (data, slot))))
     }
 
     pub async fn email_verified(
@@ -255,53 +368,16 @@ fn country_arr(s: &str) -> [char; 2] {
     [c.next().unwrap_or('?'), c.next().unwrap_or('?')]
 }
 
-async fn record(
-    pool: &PgPool,
-    player: i64,
-    level: &str,
-    pos: u32,
-    of: u32,
-    total: Option<f32>,
-    best_lap: Option<f32>,
-) -> sqlx::Result<()> {
-    let mut tx = pool.begin().await?;
-    sqlx::query(
-        "INSERT INTO results(player_id, level, position, players_in_race, total_time, best_lap, at)
-         VALUES($1, $2, $3, $4, $5, $6, $7)",
-    )
-    .bind(player)
-    .bind(level)
-    .bind(pos as i32)
-    .bind(of as i32)
-    .bind(total)
-    .bind(best_lap)
-    .bind(now())
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query(
-        "INSERT INTO records(player_id, level, best_lap, best_total) VALUES($1, $2, $3, $4)
-         ON CONFLICT (player_id, level) DO UPDATE SET
-           best_lap   = LEAST(records.best_lap,   EXCLUDED.best_lap),
-           best_total = LEAST(records.best_total, EXCLUDED.best_total)",
-    )
-    .bind(player)
-    .bind(level)
-    .bind(best_lap)
-    .bind(total)
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await
-}
 async fn board(
     pool: &PgPool,
     level: &str,
     kind: BoardKind,
     player: Option<i64>,
 ) -> sqlx::Result<ServerMsg> {
-    let rows: Vec<(String, f32, String)> = match kind {
+    let rows: Vec<(String, f32, String, Option<i64>)> = match kind {
         BoardKind::Lap => {
             sqlx::query_as(
-                "SELECT p.name, r.best_lap, p.country
+                "SELECT p.name, r.best_lap, p.country, NULL::BIGINT
                  FROM records r
                  JOIN players p ON p.id = r.player_id
                  WHERE r.level = $1 AND r.best_lap IS NOT NULL
@@ -314,7 +390,7 @@ async fn board(
         }
         BoardKind::Total => {
             sqlx::query_as(
-                "SELECT p.name, r.best_total, p.country
+                "SELECT p.name, r.best_total, p.country, r.best_total_replay
                  FROM records r
                  JOIN players p ON p.id = r.player_id
                  WHERE r.level = $1 AND r.best_total IS NOT NULL
@@ -328,7 +404,7 @@ async fn board(
     };
     let rows = rows
         .into_iter()
-        .map(|(n, t, c)| (n, t, country_arr(&c)))
+        .map(|(n, t, c, r)| (n, t, country_arr(&c), r))
         .collect();
 
     let mut mine = None;

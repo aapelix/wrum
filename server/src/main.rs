@@ -29,8 +29,8 @@ use wrum_core::{
     PlayerId,
     level::Level,
     race::{RaceEvent, RaceProgress},
-    sim::grid::Map,
-    sim::{DT, Input, InputBuf, MAX_CARS, World},
+    replay::{ReplayPlayer, ReplayRecorder},
+    sim::{DT, Input, InputBuf, MAX_CARS, World, grid::Map},
 };
 use wrum_proto::*;
 
@@ -110,7 +110,7 @@ enum Cmd {
     },
 }
 
-const LEVELS: [&str; 1] = [
+const LEVELS: &[&str] = &[
     "assets/maps/untitled/untitled",
     //"assets/maps/beach/beach"
 ];
@@ -128,10 +128,9 @@ async fn main() -> anyhow::Result<()> {
     let mut levels = HashMap::new();
     for l in LEVELS {
         let path = format!("{l}.json");
-        println!("{path}");
         let level = Level::load(&path)?;
         let map = Map::from_level(&level);
-        levels.insert(l.into(), (level, map));
+        levels.insert((*l).into(), (level, map));
     }
 
     let app = Arc::new(Shared {
@@ -179,7 +178,7 @@ async fn ws_handler(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse().ok())
         .unwrap_or(addr.ip());
-    ws.max_message_size(16 * 1024)
+    ws.max_message_size(2 * 1024 * 1024)
         .on_upgrade(move |s| ws_session(s, app, ip))
 }
 
@@ -396,10 +395,7 @@ async fn session(mut inbox: mpsc::Receiver<Bytes>, me: Peer, app: Arc<Shared>, i
                     continue;
                 }
                 last_board = Instant::now();
-                me.send(&enc(&app
-                    .db
-                    .board(format!("{}.json", LEVELS[0]), kind, acct)
-                    .await));
+                me.send(&enc(&app.db.board(LEVELS[0].into(), kind, acct).await));
             }
 
             ClientMsg::RequestCode { email } => {
@@ -521,6 +517,24 @@ async fn session(mut inbox: mpsc::Receiver<Bytes>, me: Peer, app: Arc<Shared>, i
                 reply(ServerMsg::LoggedOut);
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 break;
+            }
+
+            ClientMsg::GetReplay { id } => {
+                if !allow(&app, ip, "replay", 5, 60) {
+                    reply(ServerMsg::ReplayUnavailable);
+                    continue;
+                }
+
+                match app.db.replay(id).await {
+                    Ok(Some((data, slot))) => {
+                        reply(ServerMsg::Replay { id, slot, data });
+                    }
+                    Ok(None) => reply(ServerMsg::ReplayUnavailable),
+                    Err(e) => {
+                        eprintln!("replay fetch failed: {e}");
+                        reply(ServerMsg::ReplayUnavailable);
+                    }
+                }
             }
 
             // lobby
@@ -731,6 +745,8 @@ struct Lobby {
     host: u8,
     tick_at: Instant,
     waiting_since: Instant,
+
+    recorder: Option<ReplayRecorder>,
 }
 
 impl Lobby {
@@ -758,6 +774,7 @@ impl Lobby {
             host: 0,
             tick_at: Instant::now(),
             waiting_since: Instant::now(),
+            recorder: None,
         }
     }
 
@@ -828,6 +845,10 @@ impl Lobby {
                 if self.phase == Phase::Racing {
                     let of = self.count() as u32;
                     self.record_slot(i, of, of);
+
+                    if let Some(recorder) = &mut self.recorder {
+                        recorder.remove(slot);
+                    }
                 }
                 if self.slots[i].take().is_none() {
                     return false;
@@ -1011,6 +1032,23 @@ impl Lobby {
         match self.phase {
             Phase::Countdown { go_tick } if (t.wrapping_sub(go_tick) as i32) >= 0 => {
                 self.phase = Phase::Racing;
+
+                let players = self
+                    .players()
+                    .map(|(i, s)| ReplayPlayer {
+                        slot: i as u8,
+                        name: s.name.clone(),
+                        country: s.country,
+                        finish_tick: None,
+                    })
+                    .collect();
+
+                self.recorder = Some(ReplayRecorder::new(
+                    self.level_id.clone(),
+                    self.world,
+                    players,
+                ));
+
                 for s in self.slots.iter_mut().flatten() {
                     s.progress = RaceProgress::new(t);
                     s.last_control = Instant::now();
@@ -1029,9 +1067,17 @@ impl Lobby {
                 ins[i] = s.inbuf.at(t);
             }
         }
+
+        if self.phase == Phase::Racing {
+            if let Some(recorder) = &mut self.recorder {
+                recorder.push(&ins);
+            }
+        }
+
         let mut crossed: Vec<(usize, u32)> = Vec::new();
         self.world
             .step(&self.map, &ins, true, &mut |i, g| crossed.push((i, g)));
+
         self.tick_at = Instant::now();
         let now = self.world.tick;
 
@@ -1071,6 +1117,11 @@ impl Lobby {
             }
             for m in &msgs {
                 self.broadcast(m);
+            }
+            if let Some(recorder) = &mut self.recorder {
+                for &i in &finished_slots {
+                    recorder.finish(i as u8);
+                }
             }
             for i in finished_slots {
                 let of = self.count() as u32;
@@ -1158,6 +1209,7 @@ impl Lobby {
         }
     }
     fn reset_race(&mut self) {
+        self.recorder = None;
         let tick = self.world.tick;
         self.world = World {
             tick,
@@ -1214,9 +1266,35 @@ impl Lobby {
         let p = &s.progress;
         let best_lap = p.lap_times.iter().copied().reduce(f32::min);
         let total = p.finished.then(|| p.lap_times.iter().sum::<f32>());
+
+        let replay = if total.is_some() {
+            self.recorder
+                .as_ref()
+                .and_then(|r| r.snapshot_for(i as u8))
+                .and_then(|r| match r.encode() {
+                    Ok(bytes) => Some((bytes, i as u8)),
+                    Err(e) => {
+                        eprintln!("replay serialization failed: {e:?}");
+                        None
+                    }
+                })
+        } else {
+            None
+        };
+
         eprintln!("record: account {account} pos {pos}/{of} total {total:?} lap {best_lap:?}");
-        self.app
-            .db
-            .record(account, self.level_id.clone(), pos, of, total, best_lap);
+
+        let app = self.app.clone();
+        let level = self.level_id.clone();
+
+        tokio::spawn(async move {
+            if let Err(e) = app
+                .db
+                .record(account, level, pos, of, total, best_lap, replay)
+                .await
+            {
+                eprintln!("record save failed: {e}");
+            }
+        });
     }
 }

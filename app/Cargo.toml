@@ -10,6 +10,7 @@ libm.workspace = true
 wrum_net = { path = "../net" }
 wrum_core = { path = "../core" }
 wrum_proto = { path = "../proto" }
+rand = "0.10.3"
 
 [features]
 debug-renderer = ["wrum_core/debug-renderer"]

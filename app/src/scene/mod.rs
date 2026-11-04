@@ -6,6 +6,7 @@ pub mod auth;
 pub mod basic;
 pub mod game;
 pub mod menu;
+pub mod replay;
 
 pub enum Transition {
     None,

@@ -11,6 +11,7 @@ use wrum_core::{
     PlayerId,
     level::Level,
     race::TOTAL_LAPS,
+    replay::{Replay, ReplayPlayback},
     sim::{DT, Input, MAX_CARS, Status, V2, grid},
 };
 use wrum_proto::{ClientMsg, PlayerResult, ServerMsg};
@@ -37,17 +38,28 @@ enum StartPhase {
     Racing,
 }
 
-struct Pose {
-    pos: V2,
-    rot: f32,
-    z: f32,
-    status: Status,
-    invuln: u8,
-    drift_dir: i8,
-    tier: u8,
-    charge: u16,
-    boost: u8,
-    boost_lvl: u8,
+#[derive(Clone, Copy)]
+pub struct Pose {
+    pub pos: V2,
+    pub rot: f32,
+    pub z: f32,
+    pub status: Status,
+    pub invuln: u8,
+    pub drift_dir: i8,
+    pub tier: u8,
+    pub charge: u16,
+    pub boost: u8,
+    pub boost_lvl: u8,
+}
+struct Ghost {
+    playback: ReplayPlayback,
+    slot: u8,
+    car: Car,
+
+    previous: Pose,
+    current: Pose,
+
+    acc: f32,
 }
 
 pub struct GameScene {
@@ -98,6 +110,9 @@ pub struct GameScene {
     button: Button,
 
     requested_new: bool,
+
+    ghost: Option<Ghost>,
+    level_id: String,
 
     #[cfg(feature = "debug-renderer")]
     show_debug: bool,
@@ -163,10 +178,88 @@ impl GameScene {
             button: Button::new(ctx),
             last_lap: 0.,
             requested_new: false,
+            ghost: None,
+            level_id: map_path.into(),
             #[cfg(feature = "debug-renderer")]
             show_debug: false,
         };
         s
+    }
+    pub fn replay(&mut self, ctx: &mut ctx::Context, slot: u8, data: &[u8]) {
+        let replay = match Replay::decode(data) {
+            Ok(replay) if replay.level == self.level_id => replay,
+            Ok(_) => return,
+            Err(e) => {
+                eprintln!("replay decode failed: {e:?}");
+                return;
+            }
+        };
+
+        let mut playback = match ReplayPlayback::new(replay) {
+            Ok(playback) => playback,
+            Err(e) => {
+                eprintln!("invalid replay: {e:?}");
+                return;
+            }
+        };
+
+        let slot_index = slot as usize;
+        if slot_index >= MAX_CARS {
+            return;
+        }
+
+        let Some(mut current) = replay_pose(&playback, slot_index) else {
+            return;
+        };
+
+        let mut previous = current;
+
+        let elapsed = if matches!(self.phase, StartPhase::Racing) {
+            (self.clock - self.go_at).max(0.0)
+        } else {
+            0.0
+        };
+
+        let target_tick = (elapsed / DT).floor() as u32;
+
+        while playback.tick() < target_tick && !playback.finished() {
+            if !playback.step(&self.sim.map) {
+                break;
+            }
+
+            previous = current;
+
+            if let Some(pose) = replay_pose(&playback, slot_index) {
+                current = pose;
+            }
+        }
+
+        let mut car = Car::new(
+            ctx,
+            Vector2 {
+                x: current.pos.x,
+                y: current.pos.y,
+            },
+            current.rot.to_degrees(),
+            0.0,
+        );
+
+        apply_pose(&mut car, self.clock, &current);
+
+        let acc = if playback.finished() {
+            0.0
+        } else {
+            (elapsed - playback.tick() as f32 * DT).clamp(0.0, DT)
+        };
+
+        self.ghost = Some(Ghost {
+            playback,
+            slot,
+            car,
+            previous,
+            current,
+            acc,
+        });
     }
 
     fn ensure_car(&mut self, ctx: &mut ctx::Context, id: PlayerId, pos: V2, rot_rad: f32) {
@@ -276,9 +369,48 @@ impl Scene for GameScene {
             }
         }
 
+        if matches!(self.phase, StartPhase::Racing) {
+            let map = &self.sim.map;
+
+            if let Some(ghost) = &mut self.ghost {
+                ghost.acc += dt.min(0.25);
+
+                while ghost.acc >= DT && !ghost.playback.finished() {
+                    ghost.acc -= DT;
+
+                    if !ghost.playback.step(map) {
+                        ghost.acc = 0.0;
+                        break;
+                    }
+
+                    ghost.previous = ghost.current;
+
+                    if let Some(pose) = replay_pose(&ghost.playback, ghost.slot as usize) {
+                        ghost.current = pose;
+                    }
+                }
+
+                let alpha = if ghost.playback.finished() {
+                    1.0
+                } else {
+                    (ghost.acc / DT).clamp(0.0, 1.0)
+                };
+
+                let pose = interpolate_pose(ghost.previous, ghost.current, alpha);
+
+                apply_pose(&mut ghost.car, self.clock, &pose);
+            }
+        }
+
+        let mut fx_cars = self.cars.clone();
+
+        if let Some(ghost) = &self.ghost {
+            fx_cars.insert(PlayerId::MAX, ghost.car.clone());
+        }
+
         let map = &self.map;
         self.fx
-            .update(dt, &self.cars, &self.level, &|p| map.is_water(p));
+            .update(dt, &fx_cars, &self.level, &|p| map.is_water(p));
 
         if !self.game_finished {
             if let Some(c) = self.cars.get(&self.following) {
@@ -353,10 +485,14 @@ impl Scene for GameScene {
                 .rl
                 .begin_texture_mode(&ctx.thread, &mut self.shadow_canvas);
             tm.clear_background(Color::BLANK);
-            self.map.draw_shadows(&mut tm, &self.camera);
+            self.map.draw_shadows(ctx.assets, &mut tm, &self.camera);
 
             for (_, car) in &self.cars {
-                car.draw_shadow(&mut tm, &self.camera);
+                car.draw_shadow(ctx.assets, &mut tm, &self.camera);
+            }
+
+            if let Some(ghost) = &self.ghost {
+                ghost.car.draw_shadow(ctx.assets, &mut tm, &self.camera);
             }
         }
 
@@ -391,6 +527,10 @@ impl Scene for GameScene {
             let (pos, _) = self.camera.apply(prop.pos, prop.a);
             drawables.push((pos.y, i, Drawable::Prop));
         }
+        if let Some(ghost) = &self.ghost {
+            let (pos, _) = self.camera.apply(ghost.car.p, ghost.car.a);
+            drawables.push((pos.y, usize::MAX, Drawable::Ghost));
+        }
 
         drawables.sort_by(|a, b| {
             a.0.partial_cmp(&b.0)
@@ -411,10 +551,26 @@ impl Scene for GameScene {
                         |tm, pos, depth| {
                             map.draw_water_overlay(ctx.assets, tm, cam, pos, depth);
                         },
+                        false,
                     );
                 }
                 Drawable::Prop => {
                     self.map.draw_prop(ctx.assets, &mut tm, i, &self.camera);
+                }
+                Drawable::Ghost => {
+                    let ghost = self.ghost.as_ref().unwrap();
+                    let car = &ghost.car;
+                    let (map, cam) = (&mut self.map, &self.camera);
+                    car.draw(
+                        ctx.assets,
+                        &mut tm,
+                        &self.camera,
+                        self.clock,
+                        |tm, pos, depth| {
+                            map.draw_water_overlay(ctx.assets, tm, cam, pos, depth);
+                        },
+                        true,
+                    );
                 }
             }
         }
@@ -667,6 +823,7 @@ impl Scene for GameScene {
 
 pub enum Drawable {
     Car(PlayerId),
+    Ghost,
     Prop,
 }
 
@@ -843,7 +1000,7 @@ fn sample_input(rl: &RaylibHandle) -> Input {
         drift: rl.is_key_down(KeyboardKey::KEY_SPACE),
     }
 }
-fn apply_pose(car: &mut Car, now: f32, p: &Pose) {
+pub fn apply_pose(car: &mut Car, now: f32, p: &Pose) {
     car.p = Vector2 {
         x: p.pos.x,
         y: p.pos.y,
@@ -870,6 +1027,44 @@ pub fn format_time(seconds: f32) -> String {
     let cs = centiseconds % 100;
 
     format!("{minutes}:{secs:02}.{cs:02}")
+}
+
+fn replay_pose(playback: &ReplayPlayback, slot: usize) -> Option<Pose> {
+    let c = playback.world().cars[slot];
+
+    c.active.then_some(Pose {
+        pos: c.pos,
+        rot: c.rot,
+        z: c.z,
+        status: c.status,
+        invuln: c.invuln,
+        drift_dir: c.drift_dir,
+        tier: c.tier(),
+        charge: c.charge,
+        boost: c.boost,
+        boost_lvl: c.boost_lvl,
+    })
+}
+fn interpolate_pose(a: Pose, b: Pose, t: f32) -> Pose {
+    Pose {
+        pos: a.pos.lerp(b.pos, t),
+        rot: lerp_angle(a.rot, b.rot, t),
+        z: a.z + (b.z - a.z) * t,
+
+        status: b.status,
+        invuln: b.invuln,
+        drift_dir: b.drift_dir,
+        tier: b.tier,
+        charge: b.charge,
+        boost: b.boost,
+        boost_lvl: b.boost_lvl,
+    }
+}
+fn lerp_angle(a: f32, b: f32, t: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+
+    let delta = (b - a + PI).rem_euclid(TAU) - PI;
+    a + delta * t
 }
 
 #[cfg(feature = "debug-renderer")]

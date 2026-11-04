@@ -16,6 +16,7 @@ pub const TIRE_POSITIONS: [Vector2; 4] = [
     Vector2 { x: 3.5, y: 4.0 },
 ];
 
+#[derive(Clone)]
 pub struct Car {
     pub p: Vector2,
     pub z: f32,
@@ -55,6 +56,7 @@ impl Car {
         camera: &Camera,
         now: f32,
         overlay: impl FnOnce(&mut RaylibTextureMode<'_, '_, RaylibHandle>, Vector2, f32),
+        ghost: bool,
     ) {
         let mut a = self.a;
         if self.status == Status::Drowning {
@@ -66,6 +68,7 @@ impl Car {
         } else {
             255
         };
+        let alpha = if ghost { 160 } else { alpha };
 
         if self.z >= 0.0 {
             self.body
@@ -79,7 +82,12 @@ impl Car {
         self.body
             .draw_part(assets, tm, self.p, a, camera, self.z, Part::Dry, alpha);
     }
-    pub fn draw_shadow(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
+    pub fn draw_shadow(
+        &self,
+        assets: &Assets,
+        tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+        camera: &Camera,
+    ) {
         let lift = (self.z / 30.0).clamp(0.0, 1.0);
         let fade = (1.0 + self.z / 6.0).clamp(0.0, 1.0);
         let alpha = (255.0 * (1.0 - 0.55 * lift) * fade) as u8;
@@ -88,6 +96,6 @@ impl Car {
         }
         let off = SHADOW_OFFSET * (1.0 + self.z.max(0.0) * 0.05);
         self.body
-            .draw_shadow(tm, self.p, self.a, camera, off, alpha);
+            .draw_shadow(assets, tm, self.p, self.a, camera, off, alpha);
     }
 }

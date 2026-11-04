@@ -3148,6 +3148,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "libm",
+ "rand 0.10.3",
  "raylib",
  "wrum_core",
  "wrum_net",

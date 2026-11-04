@@ -77,19 +77,17 @@ impl Backdrop {
         self.camera.set_boost(cb);
         self.camera.update(cp, ca, dt);
     }
-
     pub fn prepare(&mut self, ctx: &mut ctx::Context) {
         self.fx.flush(ctx);
         let mut tm = ctx
             .rl
             .begin_texture_mode(&ctx.thread, &mut self.shadow_canvas);
         tm.clear_background(Color::BLANK);
-        self.map.draw_shadows(&mut tm, &self.camera);
+        self.map.draw_shadows(ctx.assets, &mut tm, &self.camera);
         for car in self.cars.values() {
-            car.draw_shadow(&mut tm, &self.camera);
+            car.draw_shadow(ctx.assets, &mut tm, &self.camera);
         }
     }
-
     pub fn draw(&mut self, assets: AssetsRef, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>) {
         self.map.draw_layers(assets, tm, &self.camera);
         self.fx.draw_marks(tm, &self.camera);
@@ -122,9 +120,16 @@ impl Backdrop {
                 Drawable::Car(id) => {
                     let car = self.cars.get(&id).unwrap();
                     let (map, cam) = (&mut self.map, &self.camera);
-                    car.draw(assets, tm, cam, self.clock, |tm, pos, depth| {
-                        map.draw_water_overlay(assets, tm, cam, pos, depth);
-                    });
+                    car.draw(
+                        assets,
+                        tm,
+                        cam,
+                        self.clock,
+                        |tm, pos, depth| {
+                            map.draw_water_overlay(assets, tm, cam, pos, depth);
+                        },
+                        false,
+                    );
                 }
                 Drawable::Prop => {
                     self.map.draw_prop(assets, tm, i, &self.camera);

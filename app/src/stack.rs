@@ -1,9 +1,9 @@
 use raylib::{
     RaylibHandle,
     color::Color,
-    drawing::{RaylibDraw, RaylibTextureMode, RaylibTextureModeExt},
+    drawing::{RaylibDraw, RaylibTextureMode},
     math::{Rectangle, Vector2},
-    texture::{RaylibRenderTexture2D, RaylibTexture2D, RenderTexture2D},
+    texture::{RaylibRenderTexture2D, RaylibTexture2D},
 };
 
 use crate::{
@@ -20,9 +20,10 @@ pub enum Part {
 }
 const WATER_FADE: f32 = 12.0;
 
+#[derive(Clone)]
 pub struct Stack {
     asset_id: AssetId,
-    shadow: RenderTexture2D,
+    path: String,
     center: Vector2,
     sw: f32,
     h: f32,
@@ -32,39 +33,15 @@ pub struct Stack {
 
 impl Stack {
     pub fn new(ctx: &mut Context, path: &str, sw: f32) -> Self {
-        let asset_id = ctx.assets.load(ctx.rl, ctx.thread, path);
+        let asset_id = ctx.assets.load(ctx.rl, ctx.thread, path, Some(sw));
         let tex = ctx.assets.get(&asset_id);
 
         let w = tex.width();
         let h = tex.height();
         let c = w / sw as i32;
 
-        let mut shadow = ctx
-            .rl
-            .load_render_texture(&ctx.thread, w as u32, h as u32)
-            .unwrap();
-        {
-            let mut tm = ctx.rl.begin_texture_mode(&ctx.thread, &mut shadow);
-            tm.clear_background(Color::BLANK);
-
-            for i in 0..c {
-                tm.draw_texture_rec(
-                    &tex,
-                    Rectangle {
-                        x: i as f32 * sw,
-                        y: 0.,
-                        width: sw,
-                        height: h as f32,
-                    },
-                    Vector2::zero(),
-                    Color::BLACK,
-                );
-            }
-        }
-
         Self {
             asset_id,
-            shadow,
             center: Vector2 {
                 x: sw / 2.,
                 y: h as f32 / 2.,
@@ -73,6 +50,7 @@ impl Stack {
             h: h as f32,
             c,
             spacing: 1.,
+            path: path.into(),
         }
     }
     // pub fn with_spacing(mut self, spacing: f32) -> Self {
@@ -139,6 +117,7 @@ impl Stack {
     }
     pub fn draw_shadow(
         &self,
+        assets: &Assets,
         tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
         pos: Vector2,
         a: f32,
@@ -146,9 +125,10 @@ impl Stack {
         offset: Vector2,
         alpha: u8,
     ) {
+        let tex = assets.get_shadow(&self.path);
         let (pos, a) = camera.apply(pos + offset, a);
         tm.draw_texture_pro(
-            &self.shadow.texture(),
+            &tex.texture(),
             Rectangle {
                 x: 0.,
                 y: 0.,

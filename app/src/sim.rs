@@ -11,7 +11,7 @@ const ERR_DECAY_REMOTE: f32 = 7.0;
 
 pub struct NetSim {
     pub me: usize,
-    map: Map,
+    pub map: Map,
     t0: Instant,
 
     cur: u32,
