@@ -15,7 +15,7 @@ use crate::{
     ui::Button,
 };
 
-const MAPS: &[&str] = &["assets/maps/untitled_bot.json"];
+const MAPS: &[&str] = &["assets/maps/untitled/untitled_bot.json"];
 
 type R = (f32, f32, f32, f32);
 

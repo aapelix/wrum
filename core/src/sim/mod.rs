@@ -350,13 +350,7 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
     };
 
     if c.drift_dir == 0 {
-        if inp.drift
-            && grounded
-            && !stunned
-            && c.boost == 0
-            && fwd > DRIFT_MIN_SPEED
-            && inp.steer != 0
-        {
+        if inp.drift && grounded && !stunned && fwd > DRIFT_MIN_SPEED && inp.steer != 0 {
             c.drift_dir = inp.steer;
             c.charge = 0;
         }
@@ -369,8 +363,9 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
             let valid_release = !inp.drift && grounded && !stunned;
 
             if valid_release && t > 0 {
-                c.boost = BOOST_TICKS[t as usize - 1];
-                c.boost_lvl = t;
+                c.boost = c.boost.max(BOOST_TICKS[t as usize - 1]);
+                c.boost_lvl = c.boost_lvl.max(t);
+
                 fwd = fwd.max(MAX_SPEED) + BOOST_KICK;
                 lat *= 0.3;
             } else {
@@ -418,6 +413,7 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
             } else {
                 ACCEL * sp.accel
             };
+
             fwd += th * rate * DT;
         } else {
             let d = COAST_DECEL * DT;

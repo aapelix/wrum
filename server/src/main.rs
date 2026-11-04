@@ -110,7 +110,10 @@ enum Cmd {
     },
 }
 
-const LEVELS: [&str; 2] = ["assets/maps/untitled", "assets/maps/beach/beach"];
+const LEVELS: [&str; 1] = [
+    "assets/maps/untitled/untitled",
+    //"assets/maps/beach/beach"
+];
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
