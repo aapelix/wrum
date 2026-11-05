@@ -439,7 +439,7 @@ async fn board(
                 BoardKind::Lap => {
                     sqlx::query_scalar(
                         "SELECT COUNT(*) FROM records
-                         WHERE level = $1 AND best_lap < $2",
+                         WHERE level = $1 AND best_lap < $2 AND player_id <> 2",
                     )
                     .bind(level)
                     .bind(v)
@@ -449,7 +449,7 @@ async fn board(
                 BoardKind::Total => {
                     sqlx::query_scalar(
                         "SELECT COUNT(*) FROM records
-                         WHERE level = $1 AND best_total < $2",
+                         WHERE level = $1 AND best_total < $2 AND player_id <> 2",
                     )
                     .bind(level)
                     .bind(v)

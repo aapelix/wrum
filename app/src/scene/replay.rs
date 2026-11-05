@@ -426,7 +426,7 @@ impl Scene for ReplayScene {
         }
 
         let mut tm = ctx.rl.begin_texture_mode(ctx.thread, ctx.canvas);
-        tm.clear_background(Color::BLACK);
+        tm.clear_background(Color::new(20, 160, 46, 255));
 
         self.map.draw_layers(ctx.assets, &mut tm, &self.camera);
         self.fx.draw_marks(&mut tm, &self.camera);
