@@ -130,14 +130,20 @@ impl GameScene {
         let json_path = format!("{map_path}.json");
         let png_path = format!("{map_path}.png");
 
+        eprintln!("loading level");
         let level = Level::load(&json_path).unwrap();
+        eprintln!("loading map");
         let map = Map::load(ctx, &png_path, &json_path, 1);
 
+        eprintln!("loading grid");
         let map_grid = grid::Map::from_level(&level);
+        eprintln!("loading sim");
         let sim = NetSim::new(map_grid, my_id as usize);
 
+        eprintln!("loading shadow");
         let shadow_canvas = ctx.rl.load_render_texture(ctx.thread, 320, 180).unwrap();
 
+         eprintln!("loading fx");
         let fx = Fx::new(ctx, Vector2::zero(), map.size);
 
         let s = Self {
