@@ -1022,7 +1022,7 @@ fn draw_results(
     tm.draw_rectangle(14, 176, (292.0 * frac) as i32, 2, fade(Color::WHITE, bg));
 }
 
-fn draw_drift_hud(
+pub fn draw_drift_hud(
     tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
     c: &Car,
     now: f32,

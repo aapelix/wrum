@@ -57,6 +57,9 @@ pub struct ReplayScene {
 
     last_tier: u8,
     last_status: Status,
+
+    perfect_at: f32,
+    last_perfect: bool,
 }
 
 pub enum Drawable {
@@ -149,6 +152,8 @@ impl ReplayScene {
             loading_fade: 1.0,
             last_tier: 0,
             last_status: Status::Normal,
+            perfect_at: -10.0,
+            last_perfect: false,
         }
     }
 
@@ -380,6 +385,16 @@ impl Scene for ReplayScene {
             (tick as f32 - 1.0 + self.render_alpha) * DT
         };
 
+        let slot = self.following as usize;
+
+        if let Some(Some(pose)) = self.current.get(slot) {
+            if pose.perfect && !self.last_perfect {
+                self.perfect_at = self.clock;
+            }
+
+            self.last_perfect = pose.perfect;
+        }
+
         self.sync_cars(ctx, tick as f32 * DT);
 
         self.update_follow_target();
@@ -503,6 +518,10 @@ impl Scene for ReplayScene {
         let map = &self.map;
         self.fx
             .draw_droplets(&mut tm, &self.camera, &|p| map.is_water(p));
+
+        if let Some(car) = self.cars.get(&self.following) {
+            crate::scene::game::draw_drift_hud(&mut tm, car, self.clock, self.perfect_at);
+        }
 
         let state = if self.playback.finished() {
             "FINISHED".to_string()

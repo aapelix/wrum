@@ -380,7 +380,9 @@ async fn board(
                 "SELECT p.name, r.best_lap, p.country, NULL::BIGINT
                  FROM records r
                  JOIN players p ON p.id = r.player_id
-                 WHERE r.level = $1 AND r.best_lap IS NOT NULL
+                 WHERE r.level = $1
+                   AND r.best_lap IS NOT NULL
+                   AND p.id <> 2
                  ORDER BY r.best_lap
                  LIMIT 10",
             )
@@ -393,7 +395,9 @@ async fn board(
                 "SELECT p.name, r.best_total, p.country, r.best_total_replay
                  FROM records r
                  JOIN players p ON p.id = r.player_id
-                 WHERE r.level = $1 AND r.best_total IS NOT NULL
+                 WHERE r.level = $1
+                   AND r.best_total IS NOT NULL
+                   AND p.id <> 2
                  ORDER BY r.best_total
                  LIMIT 10",
             )
