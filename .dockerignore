@@ -4,3 +4,7 @@ game.db*
 node_modules
 web/wrum*
 .env
+*.aseprite
+Justfile
+README.md
+LICENSE
