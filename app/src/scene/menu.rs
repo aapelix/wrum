@@ -606,7 +606,7 @@ impl Scene for MenuScene {
                 super::Transition::Switch(Box::new(g))
             }
             ServerMsg::Leaderboard { kind, rows, mine } => {
-                eprintln!("leaderboard: {:?}", rows.iter().map(|(name, _, _, replay)| (name, replay)).collect::<Vec<_>>)
+                eprintln!("leaderboard: {:?}", rows.iter().map(|(name, _, _, replay)| (name, replay)).collect::<Vec<_>>);
                 self.boards[idx(*kind)] = Some((rows.clone(), *mine));
                 super::Transition::None
             }
