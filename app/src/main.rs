@@ -1,6 +1,3 @@
-#[cfg(target_arch = "wasm32")]
-extern crate console_error_panic_hook;
-
 mod app;
 mod assets;
 mod backdrop;
@@ -24,9 +21,6 @@ pub const GLSL_VERSION: i32 = 330;
 
 fn main() -> anyhow::Result<()> {
     let (mut rl, thread) = raylib::init().size(1280, 720).title("wrum").build();
-
-    #[cfg(target_arch = "wasm32")]
-    console_error_panic_hook::set_once();
   
     let mut app = app::App::new(&mut rl, &thread)?;
 
