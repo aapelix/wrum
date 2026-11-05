@@ -235,34 +235,6 @@ impl Scene for MenuScene {
                     self.code = String::new();
                 }
             } else if self.leaderboard_open {
-                if self.button.inside(LCANCEL.0, LCANCEL.1, LCANCEL.2, mp) {
-                    self.leaderboard_open = false;
-                    self.want_fetch = true;
-                } else if self.button.inside(TOTAL.0, TOTAL.1, TOTAL.2, mp) {
-                    self.kind = BoardKind::Total;
-                    self.want_fetch = true;
-                } else if self.button.inside(LAP.0, LAP.1, LAP.2, mp) {
-                    self.kind = BoardKind::Lap;
-                    self.want_fetch = true;
-                }
-
-                let board = self.boards[idx(self.kind)].as_ref();
-                match board {
-                    Some((rows, _)) => {
-                        for (i, (_, _, _, replay)) in rows.iter().take(10).enumerate() {
-                            if let Some(replay) = replay {
-                                let y = 49 + i * 11;
-                                if self.button.inside(16., y as f32, 300., mp) {
-                                    self.replay_options_open = true;
-                                    self.maybe_replay = Some(*replay);
-                                    self.ghost = false;
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-
                 if self.replay_options_open {
                     if self.button.inside(JOIN2.0, JOIN2.1, JOIN2.2, mp) {
                         self.ghost = false;
@@ -278,6 +250,33 @@ impl Scene for MenuScene {
                     ) {
                         self.replay_options_open = false;
                         self.maybe_replay = None;
+                    }
+                } else if self.button.inside(LCANCEL.0, LCANCEL.1, LCANCEL.2, mp) {
+                    self.leaderboard_open = false;
+                    self.want_fetch = true;
+                } else if self.button.inside(TOTAL.0, TOTAL.1, TOTAL.2, mp) {
+                    self.kind = BoardKind::Total;
+                    self.want_fetch = true;
+                } else if self.button.inside(LAP.0, LAP.1, LAP.2, mp) {
+                    self.kind = BoardKind::Lap;
+                    self.want_fetch = true;
+                } else {
+                    let board = self.boards[idx(self.kind)].as_ref();
+                    match board {
+                        Some((rows, _)) => {
+                            for (i, (_, _, _, replay)) in rows.iter().take(10).enumerate() {
+                                if let Some(replay) = replay {
+                                    let y = 49 + i * 11;
+                                    if self.button.inside(16., y as f32, 300., mp) {
+                                        self.replay_options_open = true;
+                                        self.maybe_replay = Some(*replay);
+                                        self.ghost = false;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -308,7 +307,6 @@ impl Scene for MenuScene {
         if self.requested_replay
             && let Some(maybe_replay) = self.maybe_replay
         {
-            eprintln!("{:?}", maybe_replay);
             self.requested_replay = false;
             ctx.net
                 .send(&ClientMsg::GetReplay { id: maybe_replay })
@@ -597,16 +595,13 @@ impl Scene for MenuScene {
                 map,
                 ..
             } => {
-                eprintln!("before gamescene::new");
                 let mut g = GameScene::new(ctx, *slot, players, code, *private, map);
-                eprintln!("after gamescene::new");
                 if let Some((ghost_slot, data)) = &self.ghost_data {
                     g.replay(ctx, *ghost_slot, data);
                 }
                 super::Transition::Switch(Box::new(g))
             }
             ServerMsg::Leaderboard { kind, rows, mine } => {
-                eprintln!("leaderboard: {:?}", rows.iter().map(|(name, _, _, replay)| (name, replay)).collect::<Vec<_>>());
                 self.boards[idx(*kind)] = Some((rows.clone(), *mine));
                 super::Transition::None
             }
