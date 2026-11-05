@@ -594,7 +594,9 @@ impl Scene for MenuScene {
                 map,
                 ..
             } => {
+                eprintln!("before gamescene::new");
                 let mut g = GameScene::new(ctx, *slot, players, code, *private, map);
+                eprintln!("after gamescene::new");
                 if let Some((ghost_slot, data)) = &self.ghost_data {
                     g.replay(ctx, *ghost_slot, data);
                 }
