@@ -20,6 +20,9 @@ pub const GLSL_VERSION: i32 = 100;
 pub const GLSL_VERSION: i32 = 330;
 
 fn main() -> anyhow::Result<()> {
+    #[cfg(target_arch = "wasm32")]
+    console_error_panic_hook::set_once();
+  
     let (mut rl, thread) = raylib::init().size(1280, 720).title("wrum").build();
 
     let mut app = app::App::new(&mut rl, &thread)?;
