@@ -308,6 +308,7 @@ impl Scene for MenuScene {
         if self.requested_replay
             && let Some(maybe_replay) = self.maybe_replay
         {
+            eprintln!("{:?}", maybe_replay)
             self.requested_replay = false;
             ctx.net
                 .send(&ClientMsg::GetReplay { id: maybe_replay })
@@ -605,6 +606,7 @@ impl Scene for MenuScene {
                 super::Transition::Switch(Box::new(g))
             }
             ServerMsg::Leaderboard { kind, rows, mine } => {
+                eprintln!("leaderboard: {:?}", rows.iter().map(|(name, _, _, replay)| (name, replay)).collect::<Vec<_>>)
                 self.boards[idx(*kind)] = Some((rows.clone(), *mine));
                 super::Transition::None
             }
