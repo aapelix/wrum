@@ -3,7 +3,9 @@
 multiplayer racing game made with raylib
 
 todo:
-- spectate old games, top score runs
+- setting to use arrow keys instead of wasd
+- warning if you skip checkpoint, tp back when out o fmap
+- better bot
 - finish new map
 - music
 - flags
@@ -17,3 +19,4 @@ todo:
 - more cars
 - minimap
 - rapier2d?
+- macroquad? or smthing else

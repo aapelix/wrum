@@ -55,7 +55,7 @@ fn smooth(a: f32, b: f32, x: f32) -> f32 {
 enum Kind {
     Trail,
     Spark(u8),
-    Flame,
+    Flame(u8),
 }
 struct Bit {
     kind: Kind,
@@ -78,7 +78,7 @@ struct Puff {
     r0: f32,
     r1: f32,
     a: f32,
-    dust: bool,
+    tone: u8,
 }
 
 struct Droplet {
@@ -113,6 +113,11 @@ struct Track {
     prev_z: f32,
     fall: f32,
     was_wet: bool,
+    tier_prev: u8,
+    charge_prev: u16,
+    perfect_prev: bool,
+    dsmoke: [f32; 2],
+    soot: f32,
 }
 
 pub struct Fx {
@@ -222,7 +227,7 @@ impl Fx {
                         b.vz *= -0.3;
                     }
                 }
-                Kind::Flame => {
+                Kind::Flame(_) => {
                     b.v *= (-3.0 * dt).exp();
                     let n = Vector2::new(-b.dir.y, b.dir.x);
                     let sway = (b.age * 28.0 + b.vz * 40.0).sin() * 45.0 * (b.age / b.life);
@@ -362,6 +367,7 @@ impl Fx {
         let frac = (car.charge as f32 / 360.0).min(1.0);
 
         let sk = smooth(150.0, 260.0, speed);
+        let sk = if car.draft { sk.max(0.75) } else { sk };
         if grounded && !grass && sk > 0.0 {
             tr.streak += (5.0 + 48.0 * sk) * dt;
             while tr.streak >= 1.0 && self.bits.len() < 900 {
@@ -387,28 +393,47 @@ impl Fx {
         }
 
         if car.boost > 0 && car.status != Status::Drowning {
+            let flame_lvl = if car.perfect { 4 } else { car.boost_lvl };
             if tr.boost_prev == 0 {
-                for _ in 0..14 {
+                let n = 10 + 8 * car.boost_lvl as usize + if car.perfect { 10 } else { 0 };
+                for _ in 0..n {
                     let r = &mut self.rng;
                     self.bits.push(Bit {
-                        kind: Kind::Spark(car.boost_lvl),
+                        kind: Kind::Spark(flame_lvl),
                         p: car.p - fwd_v * 8.0,
-                        v: -fwd_v * r.range(60.0, 140.0) + right_v * r.range(-60.0, 60.0),
+                        v: -fwd_v * r.range(60.0, 150.0) + right_v * r.range(-70.0, 70.0),
                         dir: fwd_v,
                         z: car.z + 1.0,
                         vz: r.range(8.0, 24.0),
                         age: 0.0,
-                        life: r.range(0.3, 0.5),
+                        life: r.range(0.3, 0.55),
                         len: 0.0,
                     });
                 }
+                for k in 0..6 {
+                    let side = if k % 2 == 0 { 1.0 } else { -1.0 };
+                    let r = &mut self.rng;
+                    self.puffs.push(Puff {
+                        p: car.p - fwd_v * 6.0 + right_v * (side * 3.0),
+                        v: right_v * (side * r.range(30.0, 55.0)) - fwd_v * r.range(10.0, 40.0),
+                        z: 1.0,
+                        vz: r.range(4.0, 12.0),
+                        age: 0.0,
+                        life: r.range(0.3, 0.5),
+                        r0: 1.5,
+                        r1: r.range(3.0, 5.0),
+                        a: 0.6,
+                        tone: if grass { 1 } else { 0 },
+                    });
+                }
             }
+            let boost_size = if car.perfect { 1.25 } else { 1.0 };
             tr.flame += (140.0 + 40.0 * car.boost_lvl as f32) * dt;
             while tr.flame >= 1.0 && self.bits.len() < 900 {
                 tr.flame -= 1.0;
                 let r = &mut self.rng;
                 self.bits.push(Bit {
-                    kind: Kind::Flame,
+                    kind: Kind::Flame(flame_lvl),
                     p: car.p - fwd_v * (8.0 + r.range(0.0, 4.0)) + right_v * r.range(-2.5, 2.5),
                     v: -fwd_v * r.range(70.0, 130.0) + right_v * r.range(-6.0, 6.0) + tr.vel * 0.3,
                     dir: fwd_v,
@@ -416,11 +441,106 @@ impl Fx {
                     vz: r.next(),
                     age: 0.0,
                     life: r.range(0.2, 0.4),
-                    len: r.range(0.5, 1.6),
+                    len: r.range(0.5, 1.6) * boost_size,
                 });
             }
         } else {
             tr.flame = 0.0;
+        }
+        if car.perfect && !tr.perfect_prev {
+            for n in 0..26 {
+                let ang = n as f32 / 26.0 * std::f32::consts::TAU;
+                let d = right_v * ang.cos() + fwd_v * ang.sin();
+                let r = &mut self.rng;
+                self.bits.push(Bit {
+                    kind: Kind::Spark(4),
+                    p: car.p,
+                    v: d * r.range(60.0, 130.0) + tr.vel * 0.4,
+                    dir: fwd_v,
+                    z: car.z + 2.0,
+                    vz: r.range(10.0, 30.0),
+                    age: 0.0,
+                    life: r.range(0.35, 0.6),
+                    len: 0.0,
+                });
+            }
+        }
+        tr.perfect_prev = car.perfect;
+
+        if car.drift_dir != 0 && car.tier > tr.tier_prev {
+            for n in 0..12 {
+                let ang = n as f32 / 12.0 * std::f32::consts::TAU + self.rng.range(-0.2, 0.2);
+                let d = right_v * ang.cos() + fwd_v * ang.sin();
+                let r = &mut self.rng;
+                self.bits.push(Bit {
+                    kind: Kind::Spark(car.tier),
+                    p: car.p - fwd_v * 3.0,
+                    v: d * r.range(40.0, 85.0) + tr.vel * 0.5,
+                    dir: fwd_v,
+                    z: car.z + 2.0,
+                    vz: r.range(10.0, 26.0),
+                    age: 0.0,
+                    life: r.range(0.25, 0.45),
+                    len: 0.0,
+                });
+            }
+        }
+        if car.drift_dir != 0 && car.charge + 30 < tr.charge_prev {
+            for n in 0..14 {
+                let r = &mut self.rng;
+                let ang = n as f32 / 14.0 * std::f32::consts::TAU;
+                let d = right_v * ang.cos() + fwd_v * ang.sin();
+                self.bits.push(Bit {
+                    kind: Kind::Spark(5),
+                    p: car.p,
+                    v: d * r.range(25.0, 70.0) + tr.vel * 0.5,
+                    dir: fwd_v,
+                    z: car.z + 2.0,
+                    vz: r.range(6.0, 20.0),
+                    age: 0.0,
+                    life: r.range(0.2, 0.4),
+                    len: 0.0,
+                });
+            }
+            for _ in 0..5 {
+                let r = &mut self.rng;
+                self.puffs.push(Puff {
+                    p: car.p - fwd_v * 6.0 + Vector2::new(r.range(-3.0, 3.0), r.range(-3.0, 3.0)),
+                    v: tr.vel * 0.3 + Vector2::new(r.range(-12.0, 12.0), r.range(-12.0, 12.0)),
+                    z: car.z + 1.0,
+                    vz: r.range(10.0, 20.0),
+                    age: 0.0,
+                    life: r.range(0.4, 0.7),
+                    r0: 1.5,
+                    r1: r.range(4.0, 6.0),
+                    a: 0.6,
+                    tone: 2,
+                });
+            }
+        }
+        tr.tier_prev = if car.drift_dir != 0 { car.tier } else { 0 };
+        tr.charge_prev = car.charge;
+
+        if car.heat > 50 && grounded {
+            tr.soot += (car.heat as f32 - 50.0) / 50.0 * 12.0 * dt;
+            while tr.soot >= 1.0 && self.puffs.len() < 400 {
+                tr.soot -= 1.0;
+                let r = &mut self.rng;
+                self.puffs.push(Puff {
+                    p: car.p - fwd_v * 9.0 + right_v * r.range(-1.5, 1.5),
+                    v: tr.vel * 0.2 - fwd_v * r.range(10.0, 25.0),
+                    z: car.z + 2.0,
+                    vz: r.range(8.0, 16.0),
+                    age: 0.0,
+                    life: r.range(0.4, 0.8),
+                    r0: 1.0,
+                    r1: r.range(2.5, 4.0),
+                    a: 0.5,
+                    tone: 2,
+                });
+            }
+        } else {
+            tr.soot = 0.0;
         }
         tr.boost_prev = car.boost;
 
@@ -465,7 +585,7 @@ impl Fx {
                         r0: 1.5,
                         r1: r.range(4.0, 6.0) * (0.7 + 0.5 * k),
                         a: (0.35 + 0.35 * k).min(0.75),
-                        dust: true,
+                        tone: 1,
                     });
                 }
             } else {
@@ -474,13 +594,39 @@ impl Fx {
 
             if i >= 2 {
                 let n = i - 2;
+                if drifting && !grass && self.puffs.len() < 400 && slide > 0.3 {
+                    tr.dsmoke[n] += (5.0 + 14.0 * frac + 6.0 * car.tier as f32) * slide * dt;
+                    while tr.dsmoke[n] >= 1.0 {
+                        tr.dsmoke[n] -= 1.0;
+                        let r = &mut self.rng;
+                        self.puffs.push(Puff {
+                            p: w + Vector2::new(r.range(-1.0, 1.0), r.range(-1.0, 1.0)),
+                            v: tr.vel * 0.15 + Vector2::new(r.range(-6.0, 6.0), r.range(-6.0, 6.0)),
+                            z: car.z + 1.0,
+                            vz: r.range(8.0, 16.0),
+                            age: 0.0,
+                            life: r.range(0.3, 0.55),
+                            r0: 1.0,
+                            r1: r.range(2.5, 4.0) * (0.8 + 0.6 * frac),
+                            a: 0.4 + 0.2 * frac,
+                            tone: 0,
+                        });
+                    }
+                } else {
+                    tr.dsmoke[n] = 0.0;
+                }
                 if drifting && self.bits.len() < 700 {
-                    tr.spark[n] += (8.0 + 25.0 * frac + 25.0 * car.tier as f32) * dt;
+                    let warn = if car.over > 20 { 60.0 } else { 0.0 };
+                    tr.spark[n] += (8.0 + 25.0 * frac + 25.0 * car.tier as f32 + warn) * dt;
                     while tr.spark[n] >= 1.0 {
                         tr.spark[n] -= 1.0;
                         let r = &mut self.rng;
                         self.bits.push(Bit {
-                            kind: Kind::Spark(car.tier),
+                            kind: Kind::Spark(if car.over > 20 && car.tier == 3 {
+                                0
+                            } else {
+                                car.tier
+                            }),
                             p: w,
                             v: -fwd_v * r.range(20.0, 55.0)
                                 - right_v * (car.drift_dir as f32 * r.range(10.0, 35.0))
@@ -514,7 +660,7 @@ impl Fx {
                 r0: 1.5,
                 r1: r.range(3.5, 5.5) * strength.max(0.6),
                 a: 0.55,
-                dust: grass,
+                tone: if grass { 1 } else { 0 },
             });
         }
     }
@@ -613,10 +759,10 @@ impl Fx {
 
             let (s, _) = camera.apply(p.p, 0.0);
             let (x, y) = (s.x.round() as i32, (s.y - p.z).round() as i32);
-            let ((br, bg, bb), (sr, sg, sb), (hr, hg, hb)) = if p.dust {
-                ((158, 146, 108), (122, 110, 78), (190, 178, 140))
-            } else {
-                ((232, 232, 236), (176, 178, 190), (250, 250, 252))
+            let ((br, bg, bb), (sr, sg, sb), (hr, hg, hb)) = match p.tone {
+                1 => ((158, 146, 108), (122, 110, 78), (190, 178, 140)),
+                2 => ((70, 68, 74), (40, 38, 44), (104, 100, 108)),
+                _ => ((232, 232, 236), (176, 178, 190), (250, 250, 252)),
             };
             tm.draw_circle(x + 1, y + 1, r, Color::new(sr, sg, sb, al));
             tm.draw_circle(x, y, r, Color::new(br, bg, bb, al));
@@ -647,7 +793,7 @@ impl Fx {
                     );
                     tm.draw_line_ex(a, e, 1.0, Color::new(hr, hg, hb, al));
                 }
-                Kind::Flame => continue,
+                Kind::Flame(_) => continue,
             }
         }
     }
@@ -697,40 +843,20 @@ impl Fx {
     pub fn draw_flames(&self, tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>, camera: &Camera) {
         for layer in 0..3 {
             for b in &self.bits {
-                if !matches!(b.kind, Kind::Flame) {
+                let Kind::Flame(lvl) = b.kind else {
                     continue;
-                }
+                };
                 let t = b.age / b.life;
 
                 if t > 0.55 && (b.vz * 97.0).fract() < (t - 0.55) * 2.2 {
                     continue;
                 }
 
+                let pal = Self::flame_pal(lvl);
                 let (scale, col) = match layer {
-                    0 => (
-                        1.0,
-                        if t < 0.5 {
-                            (255, 120, 25)
-                        } else {
-                            (200, 45, 30)
-                        },
-                    ),
-                    1 if t < 0.7 => (
-                        0.7,
-                        if t < 0.3 {
-                            (255, 190, 50)
-                        } else {
-                            (255, 150, 35)
-                        },
-                    ),
-                    2 if t < 0.4 => (
-                        0.4,
-                        if t < 0.12 {
-                            (255, 250, 215)
-                        } else {
-                            (255, 224, 90)
-                        },
-                    ),
+                    0 => (1.0, if t < 0.5 { pal[0].0 } else { pal[0].1 }),
+                    1 if t < 0.7 => (0.7, if t < 0.3 { pal[1].0 } else { pal[1].1 }),
+                    2 if t < 0.4 => (0.4, if t < 0.12 { pal[2].0 } else { pal[2].1 }),
                     _ => continue,
                 };
 
@@ -813,12 +939,38 @@ impl Fx {
         }
     }
 
+    fn flame_pal(lvl: u8) -> [((u8, u8, u8), (u8, u8, u8)); 3] {
+        match lvl {
+            1 => [
+                ((40, 120, 255), (25, 60, 210)),
+                ((90, 190, 255), (60, 150, 255)),
+                ((225, 245, 255), (160, 215, 255)),
+            ],
+            3 => [
+                ((195, 85, 255), (115, 45, 205)),
+                ((235, 140, 255), (200, 100, 255)),
+                ((255, 235, 255), (240, 190, 255)),
+            ],
+            4 => [
+                ((255, 190, 40), (235, 105, 20)),
+                ((255, 235, 110), (255, 200, 60)),
+                ((255, 255, 235), (255, 245, 190)),
+            ],
+            _ => [
+                ((255, 120, 25), (200, 45, 30)),
+                ((255, 190, 50), (255, 150, 35)),
+                ((255, 250, 215), (255, 224, 90)),
+            ],
+        }
+    }
     fn tier_cols(t: u8) -> ((u8, u8, u8), (u8, u8, u8)) {
         match t {
             0 => ((255, 240, 210), (255, 255, 255)),
             1 => ((60, 160, 255), (140, 215, 255)),
             2 => ((255, 150, 40), (255, 220, 120)),
-            _ => ((190, 90, 255), (230, 170, 255)),
+            3 => ((190, 90, 255), (230, 170, 255)),
+            4 => ((255, 200, 50), (255, 250, 200)),
+            _ => ((230, 60, 50), (255, 150, 120)),
         }
     }
 }

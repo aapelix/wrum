@@ -5,7 +5,7 @@ use wrum_core::{
     sim::{Input, World},
 };
 
-pub const PROTO_VERSION: usize = 6;
+pub const PROTO_VERSION: usize = 7;
 
 pub const TICK_RATE: u32 = 60;
 pub const SNAPSHOT_EVERY: u32 = 1;

@@ -3,7 +3,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 use crate::sim::{Input, MAX_CARS, World, grid::Map};
 
 pub const REPLAY_FORMAT_VERSION: u16 = 1;
-pub const REPLAY_SIM_VERSION: u16 = 1;
+pub const REPLAY_SIM_VERSION: u16 = 2;
 
 pub const MAX_REPLAY_TICKS: u32 = 60 * 60 * 10;
 

@@ -50,6 +50,11 @@ pub struct Pose {
     pub charge: u16,
     pub boost: u8,
     pub boost_lvl: u8,
+    pub heat: u8,
+    pub over: u8,
+    pub perfect: bool,
+    pub draft: bool,
+    pub scrape: bool,
 }
 struct Ghost {
     playback: ReplayPlayback,
@@ -104,6 +109,9 @@ pub struct GameScene {
 
     last_tier: u8,
     last_status: Status,
+    last_perfect: bool,
+    last_charge: u16,
+    perfect_at: f32,
 
     names: HashMap<PlayerId, String>,
 
@@ -130,20 +138,14 @@ impl GameScene {
         let json_path = format!("{map_path}.json");
         let png_path = format!("{map_path}.png");
 
-        eprintln!("loading level");
         let level = Level::load(&json_path).unwrap();
-        eprintln!("loading map");
         let map = Map::load(ctx, &png_path, &json_path, 1);
 
-        eprintln!("loading grid");
         let map_grid = grid::Map::from_level(&level);
-        eprintln!("loading sim");
         let sim = NetSim::new(map_grid, my_id as usize);
 
-        eprintln!("loading shadow");
         let shadow_canvas = ctx.rl.load_render_texture(ctx.thread, 320, 180).unwrap();
 
-         eprintln!("loading fx");
         let fx = Fx::new(ctx, Vector2::zero(), map.size);
 
         let s = Self {
@@ -177,6 +179,9 @@ impl GameScene {
             level,
             last_tier: 0,
             last_status: Status::Normal,
+            last_perfect: false,
+            last_charge: 0,
+            perfect_at: -10.0,
             names: players
                 .iter()
                 .map(|(id, name, _)| (*id, name.clone()))
@@ -368,6 +373,11 @@ impl Scene for GameScene {
                     charge: c.charge,
                     boost: c.boost,
                     boost_lvl: c.boost_lvl,
+                    heat: c.heat,
+                    over: c.over,
+                    perfect: c.perfect,
+                    draft: c.drafting(),
+                    scrape: c.wall_hit,
                 };
                 if let Some(car) = self.cars.get_mut(&id) {
                     apply_pose(car, self.clock, &pose);
@@ -424,6 +434,15 @@ impl Scene for GameScene {
                 if c.tier > self.last_tier {
                     self.camera.add_shake(0.25);
                 }
+                if c.drift_dir != 0 && c.charge + 30 < self.last_charge {
+                    self.camera.add_shake(0.35);
+                }
+                if c.perfect && !self.last_perfect {
+                    self.camera.add_shake(0.6);
+                    self.perfect_at = self.clock;
+                }
+                self.last_perfect = c.perfect;
+                self.last_charge = c.charge;
                 if c.status == Status::Spun && self.last_status != Status::Spun {
                     self.camera.add_shake(0.8);
                 }
@@ -503,7 +522,7 @@ impl Scene for GameScene {
         }
 
         let mut tm = ctx.rl.begin_texture_mode(ctx.thread, ctx.canvas);
-        tm.clear_background(Color::BLACK);
+        tm.clear_background(Color::new(20, 160, 46, 255));
 
         self.map.draw_layers(ctx.assets, &mut tm, &self.camera);
         self.fx.draw_marks(&mut tm, &self.camera);
@@ -671,6 +690,11 @@ impl Scene for GameScene {
                         tm.draw_text(&text, 13, 33, 10, Color::BLACK);
                         tm.draw_text(&text, 12, 32, 10, Color::WHITE);
                     }
+                }
+            }
+            if matches!(self.phase, StartPhase::Racing) {
+                if let Some(c) = self.cars.get(&self.my_id) {
+                    draw_drift_hud(&mut tm, c, self.clock, self.perfect_at);
                 }
             }
         } else if let Some((order, players)) = &self.results {
@@ -998,6 +1022,73 @@ fn draw_results(
     tm.draw_rectangle(14, 176, (292.0 * frac) as i32, 2, fade(Color::WHITE, bg));
 }
 
+fn draw_drift_hud(
+    tm: &mut RaylibTextureMode<'_, '_, RaylibHandle>,
+    c: &Car,
+    now: f32,
+    perfect_at: f32,
+) {
+    use wrum_core::sim::{CHARGE_TIERS, HEAT_MAX, OVER_TICKS};
+
+    const TIER_COL: [Color; 4] = [
+        Color::new(230, 230, 235, 255),
+        Color::new(60, 160, 255, 255),
+        Color::new(255, 150, 40, 255),
+        Color::new(190, 90, 255, 255),
+    ];
+    let (x, y, w, h) = (12, 160, 70, 5);
+    let max = CHARGE_TIERS[2] as f32;
+
+    if c.drift_dir != 0 {
+        tm.draw_rectangle(x - 1, y - 1, w + 2, h + 2, Color::new(0, 0, 0, 170));
+        let frac = (c.charge as f32 / max).clamp(0.0, 1.0);
+        let mut col = TIER_COL[c.tier as usize];
+        if c.over > 20 && ((now * 14.0) as i32) % 2 == 0 {
+            col = Color::WHITE;
+        }
+        tm.draw_rectangle(x, y, (w as f32 * frac) as i32, h, col);
+        for t in CHARGE_TIERS {
+            let tx = x + (w as f32 * t as f32 / max) as i32;
+            tm.draw_rectangle(tx, y, 1, h, Color::new(0, 0, 0, 200));
+        }
+        if c.over > 0 {
+            let f = 1.0 - c.over as f32 / OVER_TICKS as f32;
+            tm.draw_rectangle(
+                x,
+                y + h + 1,
+                (w as f32 * f) as i32,
+                1,
+                Color::new(255, 80, 60, 255),
+            );
+        }
+    }
+
+    if c.heat > 8 {
+        let hy = y + h + 3;
+        let f = c.heat as f32 / HEAT_MAX as f32;
+        tm.draw_rectangle(x - 1, hy - 1, w + 2, 4, Color::new(0, 0, 0, 140));
+        let hot = Color::new(255, (200.0 - 150.0 * f) as u8, 40, 255);
+        tm.draw_rectangle(x, hy, (w as f32 * f) as i32, 2, hot);
+    }
+
+    let since = now - perfect_at;
+    if since < 0.8 {
+        let a = (1.0 - since / 0.8).clamp(0.0, 1.0);
+        let lift = (since * 14.0) as i32;
+        let s = "PERFECT!";
+        let sw = tm.measure_text(s, 10);
+        let gold = fade(Color::new(255, 215, 64, 255), a);
+        tm.draw_text(
+            s,
+            160 - sw / 2 + 1,
+            120 - lift + 1,
+            10,
+            fade(Color::BLACK, a),
+        );
+        tm.draw_text(s, 160 - sw / 2, 120 - lift, 10, gold);
+    }
+}
+
 fn sample_input(rl: &RaylibHandle) -> Input {
     Input {
         steer: rl.is_key_down(KeyboardKey::KEY_D) as i8 - rl.is_key_down(KeyboardKey::KEY_A) as i8,
@@ -1024,6 +1115,11 @@ pub fn apply_pose(car: &mut Car, now: f32, p: &Pose) {
     car.charge = p.charge;
     car.boost = p.boost;
     car.boost_lvl = p.boost_lvl;
+    car.heat = p.heat;
+    car.over = p.over;
+    car.perfect = p.perfect;
+    car.draft = p.draft;
+    car.scrape = p.scrape;
 }
 
 pub fn format_time(seconds: f32) -> String {
@@ -1049,6 +1145,11 @@ fn replay_pose(playback: &ReplayPlayback, slot: usize) -> Option<Pose> {
         charge: c.charge,
         boost: c.boost,
         boost_lvl: c.boost_lvl,
+        heat: c.heat,
+        over: c.over,
+        perfect: c.perfect,
+        draft: c.drafting(),
+        scrape: c.wall_hit,
     })
 }
 fn interpolate_pose(a: Pose, b: Pose, t: f32) -> Pose {
@@ -1064,6 +1165,11 @@ fn interpolate_pose(a: Pose, b: Pose, t: f32) -> Pose {
         charge: b.charge,
         boost: b.boost,
         boost_lvl: b.boost_lvl,
+        heat: b.heat,
+        over: b.over,
+        perfect: b.perfect,
+        draft: b.draft,
+        scrape: b.scrape,
     }
 }
 fn lerp_angle(a: f32, b: f32, t: f32) -> f32 {

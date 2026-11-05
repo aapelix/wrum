@@ -29,6 +29,11 @@ pub struct Car {
     pub charge: u16,
     pub boost: u8,
     pub boost_lvl: u8,
+    pub heat: u8,
+    pub over: u8,
+    pub perfect: bool,
+    pub draft: bool,
+    pub scrape: bool,
     body: Stack,
 }
 
@@ -47,6 +52,11 @@ impl Car {
             charge: 0,
             boost: 0,
             boost_lvl: 0,
+            heat: 0,
+            over: 0,
+            perfect: false,
+            draft: false,
+            scrape: false,
         }
     }
     pub fn draw(

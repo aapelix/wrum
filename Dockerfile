@@ -32,7 +32,7 @@ FROM base AS build
 ARG WRUM_SERVER_URL
 ENV WRUM_SERVER_URL=${WRUM_SERVER_URL}
 
-ENV EMCC_CFLAGS="-O3 -sUSE_GLFW=3 -sASSERTIONS=2 -sSTACK_OVERFLOW_CHECK=2 -sSTACK_SIZE=1048576 -sWASM=1 -sASYNCIFY -sGL_ENABLE_GET_PROC_ADDRESS=1 -sALLOW_MEMORY_GROWTH=1"
+ENV EMCC_CFLAGS="-O3 -sUSE_GLFW=3 -sSTACK_SIZE=1048576 -sWASM=1 -sASYNCIFY -sGL_ENABLE_GET_PROC_ADDRESS=1 -sALLOW_MEMORY_GROWTH=1"
 ENV BINDGEN_EXTRA_CLANG_ARGS="--sysroot=/emsdk/upstream/emscripten/cache/sysroot"
 
 COPY --from=planner /src/recipe.json recipe.json
@@ -43,8 +43,7 @@ COPY . .
 
 RUN cargo build --release \
     --target wasm32-unknown-emscripten \
-    --bin wrum_app \
-    --features debug-renderer -j 2
+    --bin wrum_app -j 2
 
 RUN cp target/wasm32-unknown-emscripten/release/wrum_app.wasm web/ \
     && cp target/wasm32-unknown-emscripten/release/wrum_app.js web/ \
@@ -67,7 +66,6 @@ COPY --from=build /src/web /app/web
 COPY --from=build /src/assets /app/assets
 
 ENV WEB=/app/web
-ENV LEVEL=/app/assets/maps/untitled.json
 ENV ADDR=0.0.0.0:8080
 
 CMD ["/app/server"]

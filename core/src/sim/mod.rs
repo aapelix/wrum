@@ -52,7 +52,36 @@ const BOOST_TICKS: [u8; 3] = [40, 65, 95];
 const BOOST_MULT: [f32; 3] = [1.22, 1.32, 1.42];
 const BOOST_ACCEL: f32 = 700.0;
 const BOOST_KICK: f32 = 25.0;
+const PAD_KICK: f32 = 45.0;
 const ABS_MAX: f32 = MAX_SPEED * 1.5;
+
+const DRIFT_STEER: f32 = 0.55;
+const DRIFT_MIN_SLIP: f32 = 0.20;
+const DRIFT_FULL_SLIP: f32 = 0.45;
+const CHARGE_RATE_MIN: f32 = 0.30;
+const CHARGE_RATE_SLIP: f32 = 0.40;
+const DRIFT_MIN_TICKS: u16 = 22;
+const COUNTER_LIMIT: u8 = 30;
+pub const HEAT_MAX: u8 = 100;
+const HEAT_ADD: [u8; 3] = [18, 30, 45];
+const HEAT_CHARGE_PEN: f32 = 0.75;
+const HEAT_BOOST_PEN: f32 = 0.50;
+pub const OVER_TICKS: u8 = 40;
+const PERFECT_TICKS: u8 = 10;
+const PERFECT_DURATION: f32 = 1.15;
+const PERFECT_KICK: f32 = 1.6;
+const BOOST_GRIP: f32 = 10.0;
+const WALL_SCRAPE: f32 = 0.97;
+const WALL_HIT_SPEED: f32 = 60.0;
+const WALL_HIT_LOSS: f32 = 0.88;
+const WALL_CHARGE_DRAIN: u16 = 2;
+const DRAFT_RANGE: f32 = 70.0;
+const DRAFT_WIDTH: f32 = 9.0;
+const DRAFT_MIN_SPEED: f32 = 110.0;
+const DRAFT_TICKS: u8 = 60;
+const DRAFT_MAX: u8 = 90;
+const DRAFT_MULT: f32 = 1.08;
+const DRAFT_ACCEL: f32 = 1.15;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
@@ -139,8 +168,36 @@ pub struct Car {
     pub charge: u16,
     pub boost: u8,
     pub boost_lvl: u8,
+
+    pub boost_pow: u8,
+    pub perfect: bool,
+    pub heat: u8,
+    pub over: u8,
+    pub tier_age: u8,
+    pub counter: u8,
+    pub drift_t: u16,
+    pub charge_rem: f32,
+    pub draft_t: u8,
+    pub wall_hit: bool,
 }
 impl Car {
+    pub fn heat_frac(&self) -> f32 {
+        self.heat as f32 / HEAT_MAX as f32
+    }
+    pub fn drafting(&self) -> bool {
+        self.draft_t >= DRAFT_TICKS
+    }
+    fn boost_rank(&self) -> u16 {
+        if self.boost > 0 {
+            self.boost_lvl as u16 * 100 + self.boost_pow as u16
+        } else {
+            0
+        }
+    }
+    fn boost_mult(&self) -> f32 {
+        let m = BOOST_MULT[self.boost_lvl.max(1) as usize - 1];
+        1.0 + (m - 1.0) * self.boost_pow as f32 / 100.0
+    }
     pub fn speed(&self) -> f32 {
         self.vel.length()
     }
@@ -208,6 +265,37 @@ impl World {
         self.cars[slot] = Car::default();
     }
 
+    fn slipstream(&self) -> [bool; MAX_CARS] {
+        let mut behind = [false; MAX_CARS];
+        for i in 0..MAX_CARS {
+            let a = &self.cars[i];
+            if !a.active || a.status != Status::Normal || a.z > 0.0 {
+                continue;
+            }
+            let (f, r) = axes(a.rot);
+            if a.vel.dot(f) < DRAFT_MIN_SPEED {
+                continue;
+            }
+            for j in 0..MAX_CARS {
+                let b = &self.cars[j];
+                if i == j || !b.active || b.status == Status::Drowning {
+                    continue;
+                }
+                let d = b.pos - a.pos;
+                let ahead = d.dot(f);
+                if ahead < 2.0 * HL || ahead > DRAFT_RANGE || d.dot(r).abs() > DRAFT_WIDTH {
+                    continue;
+                }
+                if b.vel.dot(f) < DRAFT_MIN_SPEED {
+                    continue;
+                }
+                behind[i] = true;
+                break;
+            }
+        }
+        behind
+    }
+
     pub fn step(
         &mut self,
         map: &Map,
@@ -216,11 +304,17 @@ impl World {
         on_gate: &mut dyn FnMut(usize, u32),
     ) {
         let mut prev = [Vec2::ZERO; MAX_CARS];
+        let behind = self.slipstream();
         for i in 0..MAX_CARS {
             let c = &mut self.cars[i];
             if !c.active {
                 continue;
             }
+            c.draft_t = if behind[i] {
+                (c.draft_t + 1).min(DRAFT_MAX)
+            } else {
+                c.draft_t.saturating_sub(2)
+            };
             let was_solid = c.solid();
             drive(c, inputs[i].clamped(), map);
             prev[i] = c.pos;
@@ -257,11 +351,60 @@ impl World {
     }
 }
 
+fn start_drift(c: &mut Car, dir: i8) {
+    c.drift_dir = dir;
+    c.charge = 0;
+    c.charge_rem = 0.0;
+    c.counter = 0;
+    c.drift_t = 0;
+    c.tier_age = 0;
+    c.over = 0;
+}
+fn end_drift(c: &mut Car) {
+    c.drift_dir = 0;
+    c.charge = 0;
+    c.charge_rem = 0.0;
+    c.counter = 0;
+    c.drift_t = 0;
+    c.tier_age = 0;
+    c.over = 0;
+}
+fn clear_boost(c: &mut Car) {
+    c.boost = 0;
+    c.boost_lvl = 0;
+    c.boost_pow = 0;
+    c.perfect = false;
+}
+
+fn release_boost(c: &mut Car, tier: u8, fwd: &mut f32) {
+    let ti = tier as usize - 1;
+    let ks = 1.0 - HEAT_BOOST_PEN * c.heat_frac();
+    let perfect = c.tier_age <= PERFECT_TICKS;
+
+    let ticks = BOOST_TICKS[ti] as f32 * ks * if perfect { PERFECT_DURATION } else { 1.0 };
+    let pow = (100.0 * ks) as u8;
+    let kick = BOOST_KICK * ks * if perfect { PERFECT_KICK } else { 1.0 };
+
+    if tier as u16 * 100 + pow as u16 >= c.boost_rank() {
+        c.boost_lvl = tier;
+        c.boost_pow = pow;
+        c.perfect = perfect;
+    }
+    c.boost = c.boost.max(ticks.round().min(255.0) as u8);
+
+    *fwd = fwd.max(MAX_SPEED * (0.8 + 0.2 * ks)) + kick;
+    c.heat = (c.heat + HEAT_ADD[ti]).min(HEAT_MAX);
+}
+
 fn drive(c: &mut Car, inp: Input, map: &Map) {
     let surf = map.surface_at(c.pos);
     let sp = surf.params();
     c.invuln = c.invuln.saturating_sub(1);
     c.age = c.age.wrapping_add(1);
+    let hit = std::mem::take(&mut c.wall_hit);
+    if c.age % 2 == 0 {
+        c.heat = c.heat.saturating_sub(1);
+    }
 
     let mut landed = 0.0;
     if c.status != Status::Drowning && (c.z > 0.0 || c.vz > 0.0) {
@@ -280,10 +423,9 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
         c.timer = DROWN_TICKS;
         c.vz = landed * 0.35 - 25.0;
 
-        c.drift_dir = 0;
-        c.charge = 0;
-        c.boost = 0;
-        c.boost_lvl = 0;
+        end_drift(c);
+        clear_boost(c);
+        c.heat = 0;
     }
     if c.status == Status::Drowning {
         c.vz = (c.vz - SINK_ACCEL * DT) * decay(SINK_DRAG);
@@ -322,17 +464,22 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
     // speed pad
     if grounded && c.status == Status::Normal {
         if let Some(level) = map.speed_pad_at(c.pos) {
-            let level = level as usize - 1;
+            let li = level as usize - 1;
+            let entry = c.boost == 0 || (level as u16 * 100 + 100) > c.boost_rank();
 
-            c.boost = c.boost.max(BOOST_TICKS[level]);
-            c.boost_lvl = c.boost_lvl.max(level as u8 + 1);
+            c.boost = c.boost.max(BOOST_TICKS[li]);
+            if entry {
+                c.boost_lvl = level as u8;
+                c.boost_pow = 100;
+                c.perfect = false;
 
-            let (f, _) = axes(c.rot);
-            c.vel += f * (BOOST_KICK + 20.0).max(0.0);
-
-            let forward = c.vel.dot(f);
-            if forward < MAX_SPEED * BOOST_MULT[level] {
-                c.vel += f * (MAX_SPEED * BOOST_MULT[level] - forward);
+                let (f, _) = axes(c.rot);
+                c.vel += f * PAD_KICK;
+                let forward = c.vel.dot(f);
+                let target = MAX_SPEED * BOOST_MULT[li];
+                if forward < target {
+                    c.vel += f * (target - forward);
+                }
             }
         }
     }
@@ -351,67 +498,134 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
 
     if c.drift_dir == 0 {
         if inp.drift && grounded && !stunned && fwd > DRIFT_MIN_SPEED && inp.steer != 0 {
-            c.drift_dir = inp.steer;
-            c.charge = 0;
+            start_drift(c, inp.steer);
         }
     } else {
         let keep = inp.drift && !stunned;
 
         if !keep {
             let t = c.tier();
-
             let valid_release = !inp.drift && grounded && !stunned;
 
             if valid_release && t > 0 {
-                c.boost = c.boost.max(BOOST_TICKS[t as usize - 1]);
-                c.boost_lvl = c.boost_lvl.max(t);
-
-                fwd = fwd.max(MAX_SPEED) + BOOST_KICK;
+                release_boost(c, t, &mut fwd);
                 lat *= 0.3;
             } else {
                 fwd *= 0.9;
             }
+            end_drift(c);
+        } else {
+            if inp.steer * c.drift_dir == -1 {
+                c.counter = c.counter.saturating_add(1);
+            } else {
+                c.counter = c.counter.saturating_sub(1);
+            }
 
-            c.drift_dir = 0;
-            c.charge = 0;
-        } else if grounded && c.ang * c.drift_dir as f32 > DRIFT_MIN_ANG {
-            let inc = match inp.steer * c.drift_dir {
-                1 => 3,
-                0 => 2,
-                _ => 1,
-            };
+            if c.counter > COUNTER_LIMIT {
+                fwd *= 0.95;
+                end_drift(c);
+            } else {
+                c.drift_t = c.drift_t.saturating_add(1);
+                let old_tier = c.tier();
 
-            c.charge = (c.charge + inc).min(CHARGE_TIERS[2] + 30);
+                if grounded {
+                    if hit {
+                        c.charge = c.charge.saturating_sub(WALL_CHARGE_DRAIN);
+                        c.charge_rem = 0.0;
+                    } else if surf == Surface::Road && c.ang * c.drift_dir as f32 > DRIFT_MIN_ANG {
+                        let slip = lat.abs() / fwd.abs().max(1.0);
+                        if slip > DRIFT_MIN_SLIP {
+                            let sk = ((slip - DRIFT_MIN_SLIP) / (DRIFT_FULL_SLIP - DRIFT_MIN_SLIP))
+                                .clamp(0.0, 1.0);
+                            let base = match inp.steer * c.drift_dir {
+                                1 => 3.0,
+                                0 => 2.0,
+                                _ => 1.0,
+                            };
+                            let rate = base
+                                * (CHARGE_RATE_MIN + CHARGE_RATE_SLIP * sk)
+                                * (1.0 - HEAT_CHARGE_PEN * c.heat_frac());
+                            c.charge_rem += rate;
+                            let whole = c.charge_rem as u16;
+                            c.charge_rem -= whole as f32;
+                            c.charge += whole;
+                        }
+                    }
+                }
+
+                let cap = if c.drift_t < DRIFT_MIN_TICKS {
+                    CHARGE_TIERS[0] - 1
+                } else {
+                    CHARGE_TIERS[2]
+                };
+                if c.charge >= cap {
+                    c.charge = cap;
+                    c.charge_rem = 0.0;
+                }
+
+                if c.charge >= CHARGE_TIERS[2] {
+                    c.over += 1;
+                    if c.over >= OVER_TICKS {
+                        c.charge = CHARGE_TIERS[1] + 10;
+                        c.over = 0;
+                    }
+                } else {
+                    c.over = 0;
+                }
+
+                if c.tier() > old_tier {
+                    c.tier_age = 0;
+                } else {
+                    c.tier_age = c.tier_age.saturating_add(1);
+                }
+            }
         }
     }
     let drifting = c.drift_dir != 0;
+    let boosting = c.boost > 0;
+
+    let draft = c.drafting() && !boosting;
+    let top = if boosting {
+        ABS_MAX
+    } else if draft {
+        MAX_SPEED * DRAFT_MULT
+    } else {
+        MAX_SPEED
+    };
 
     if air {
         // momentum only
     } else if stunned {
         fwd *= decay(2.0);
     } else {
-        let max_f = if c.boost > 0 {
-            MAX_SPEED * BOOST_MULT[c.boost_lvl as usize - 1]
+        let half = |x: f32| 1.0 - (1.0 - x) * 0.5;
+        let (s_speed, s_accel, s_extra) = if boosting {
+            (half(sp.max_speed), half(sp.accel), sp.extra_decel * 0.5)
         } else {
-            MAX_SPEED * sp.max_speed
+            (sp.max_speed, sp.accel, sp.extra_decel)
+        };
+
+        let max_f = if boosting {
+            MAX_SPEED * c.boost_mult() * s_speed
+        } else if draft {
+            MAX_SPEED * DRAFT_MULT * s_speed
+        } else {
+            MAX_SPEED * s_speed
         };
 
         let max_r = MAX_REVERSE * sp.max_speed;
-        let th = if c.boost > 0 {
-            1.0
-        } else {
-            inp.throttle as f32
-        };
+        let th = if boosting { 1.0 } else { inp.throttle as f32 };
 
         if th != 0.0 {
             let braking = fwd != 0.0 && th.signum() != fwd.signum();
-            let rate = if c.boost > 0 {
-                BOOST_ACCEL
+            let rate = if boosting {
+                BOOST_ACCEL * s_accel
             } else if braking {
                 BRAKE
+            } else if draft {
+                ACCEL * s_accel * DRAFT_ACCEL
             } else {
-                ACCEL * sp.accel
+                ACCEL * s_accel
             };
 
             fwd += th * rate * DT;
@@ -424,7 +638,7 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
             };
         }
 
-        let over = (COAST_DECEL + sp.extra_decel) * DT;
+        let over = (COAST_DECEL + s_extra) * DT;
         if fwd > max_f {
             fwd = (fwd - over).max(max_f);
         } else if fwd < -max_r {
@@ -433,23 +647,30 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
     }
 
     if !air {
-        let max_speed = if c.boost > 0 { ABS_MAX } else { MAX_SPEED };
-        fwd = fwd.clamp(-MAX_REVERSE, max_speed);
+        fwd = fwd.clamp(-MAX_REVERSE, top);
     }
 
-    c.boost = c.boost.saturating_sub(1);
+    let bleed = if boosting && surf == Surface::Grass {
+        2
+    } else {
+        1
+    };
+    c.boost = c.boost.saturating_sub(bleed);
     if c.boost == 0 {
-        c.boost_lvl = 0;
+        clear_boost(c);
     }
 
     if !air {
-        let g = if stunned { DRIFT_GRIP * 0.5 } else { grip };
+        let mut g = if stunned { DRIFT_GRIP * 0.5 } else { grip };
+        if boosting && !inp.drift && !stunned {
+            g += BOOST_GRIP;
+        }
         lat *= decay(g * sp.grip);
     }
     c.vel = f * fwd + r * lat;
 
     let steer = if drifting {
-        c.drift_dir as f32 + 0.5 * inp.steer as f32
+        (c.drift_dir + inp.steer) as f32 * DRIFT_STEER
     } else {
         inp.steer as f32
     };
@@ -478,6 +699,8 @@ fn drive(c: &mut Car, inp: Input, map: &Map) {
 
 fn collide_walls(c: &mut Car, map: &Map) {
     let (f, _) = axes(c.rot);
+    let mut touched = false;
+    let mut hard = false;
     for sgn in [1.0f32, -1.0] {
         let mut p = c.pos + f * (sgn * OFFSET);
         for &si in map.nearby(p) {
@@ -486,6 +709,7 @@ fn collide_walls(c: &mut Car, map: &Map) {
             if d2 >= RADIUS * RADIUS || d2 == 0.0 {
                 continue;
             }
+            touched = true;
             let dist = d2.sqrt();
             let n = d / dist;
             let push = n * (RADIUS - dist);
@@ -493,8 +717,18 @@ fn collide_walls(c: &mut Car, map: &Map) {
             p += push;
             let vn = c.vel.dot(n);
             if vn < 0.0 {
+                hard |= -vn > WALL_HIT_SPEED;
                 c.vel -= n * (vn * (1.0 + WALL_BOUNCE));
             }
+        }
+    }
+    if touched {
+        c.wall_hit = true;
+        c.vel *= if hard { WALL_HIT_LOSS } else { WALL_SCRAPE };
+        if hard {
+            c.charge = 0;
+            c.charge_rem = 0.0;
+            c.over = 0;
         }
     }
 }

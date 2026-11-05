@@ -170,6 +170,11 @@ impl ReplayScene {
             charge: c.charge,
             boost: c.boost,
             boost_lvl: c.boost_lvl,
+            heat: c.heat,
+            over: c.over,
+            perfect: c.perfect,
+            draft: false, // todo
+            scrape: c.wall_hit,
         })
     }
 
@@ -241,6 +246,11 @@ impl ReplayScene {
                     charge: b.charge,
                     boost: b.boost,
                     boost_lvl: b.boost_lvl,
+                    heat: b.heat,
+                    over: b.over,
+                    perfect: b.perfect,
+                    draft: b.draft,
+                    scrape: b.scrape,
                 })
             }
             (None, Some(current)) => Some(current),
