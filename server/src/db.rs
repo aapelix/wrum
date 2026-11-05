@@ -244,7 +244,6 @@ impl Db {
             })
     }
     pub async fn replay(&self, id: i64) -> sqlx::Result<Option<(Vec<u8>, u8)>> {
-        eprintln!("replay: {id}");
         let row: Option<(Vec<u8>, i16)> = sqlx::query_as(
             "SELECT r.data, rec.best_total_slot
             FROM replays r
