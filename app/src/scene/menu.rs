@@ -255,6 +255,7 @@ impl Scene for MenuScene {
                                 if self.button.inside(16., y as f32, 300., mp) {
                                     self.replay_options_open = true;
                                     self.maybe_replay = Some(*replay);
+                                    self.ghost = false;
                                 }
                             }
                         }
@@ -264,6 +265,7 @@ impl Scene for MenuScene {
 
                 if self.replay_options_open {
                     if self.button.inside(JOIN2.0, JOIN2.1, JOIN2.2, mp) {
+                        self.ghost = false;
                         self.requested_replay = true;
                     } else if self.button.inside(CANCEL.0, CANCEL.1, CANCEL.2, mp) {
                         self.ghost = true;
