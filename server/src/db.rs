@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use sqlx::{AssertSqlSafe, PgPool, postgres::PgPoolOptions};
 use wrum_core::replay::{REPLAY_FORMAT_VERSION, REPLAY_SIM_VERSION};
-use wrum_proto::{BoardKind, DeviceInfo, NameError, ServerMsg};
+use wrum_proto::{BoardKind, DeviceInfo, MapKind, NameError, ServerMsg};
 
 #[derive(Clone, Debug)]
 pub struct Account {
@@ -231,13 +231,20 @@ impl Db {
         tx.commit().await?;
         Ok(())
     }
-    pub async fn board(&self, level: String, kind: BoardKind, player: Option<i64>) -> ServerMsg {
-        board(&self.0, &level, kind, player)
+    pub async fn board(
+        &self,
+        level: String,
+        kind: BoardKind,
+        map: MapKind,
+        player: Option<i64>,
+    ) -> ServerMsg {
+        board(&self.0, &level, kind, map, player)
             .await
             .unwrap_or_else(|e| {
                 eprintln!("db board: {e}");
                 ServerMsg::Leaderboard {
                     kind,
+                    map,
                     rows: vec![],
                     mine: None,
                 }
@@ -372,6 +379,7 @@ async fn board(
     pool: &PgPool,
     level: &str,
     kind: BoardKind,
+    map: MapKind,
     player: Option<i64>,
 ) -> sqlx::Result<ServerMsg> {
     let rows: Vec<(String, f32, String, Option<i64>)> = match kind {
@@ -460,7 +468,12 @@ async fn board(
             mine = Some((better as u32 + 1, v));
         }
     }
-    Ok(ServerMsg::Leaderboard { kind, rows, mine })
+    Ok(ServerMsg::Leaderboard {
+        kind,
+        map,
+        rows,
+        mine,
+    })
 }
 
 async fn insert_device(

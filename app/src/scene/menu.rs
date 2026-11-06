@@ -4,7 +4,7 @@ use raylib::{
     ffi::{Color, KeyboardKey, MouseButton, Vector2},
     texture::Texture2D,
 };
-use wrum_proto::{BoardKind, ClientMsg, RejectReason, ServerMsg};
+use wrum_proto::{BoardKind, ClientMsg, MapKind, RejectReason, ServerMsg};
 
 use crate::{
     backdrop::Backdrop,
@@ -18,10 +18,12 @@ use crate::{
     ui::Button,
 };
 
-const MAPS: &[&str] = &[
+const BOT_MAPS: &[&str] = &[
     "assets/maps/untitled/untitled_bot.json",
     "assets/maps/beach/beach_bot.json",
 ];
+
+const MAPS: &[MapKind] = &[MapKind::Untitled, MapKind::Beach];
 
 type R = (f32, f32, f32, f32);
 
@@ -31,6 +33,9 @@ const QUICK: R = (16., 59., 100., 0.);
 const CREATE: R = (16., 75., 100., 0.);
 const JOIN: R = (16., 91., 100., 0.);
 const EDIT: R = (268., 41., 36., 0.);
+const MAP_UNTITLED: R = (67., 77., 88., 0.);
+const MAP_BEACH: R = (165., 77., 88., 0.);
+const MAP_CANCEL: R = (109., 101., 102., 0.);
 
 const LOG_IN: R = (268., 41., 36., 0.);
 const LINK_IN: R = (230., 41., 36., 0.);
@@ -53,6 +58,7 @@ const REPLAY_CANCEL: R = (109., 99., 102., 0.);
 const LCANCEL: R = (16., 16., 55., 0.);
 const TOTAL: R = (190., 16., 58., 0.);
 const LAP: R = (250., 16., 58., 0.);
+const BOARD_MAP: R = (16., 32., 140., 0.);
 
 const GOLD: Color = Color::new(255, 215, 64, 255);
 const SILVER: Color = Color::new(200, 205, 215, 255);
@@ -77,12 +83,29 @@ fn idx(k: BoardKind) -> usize {
     }
 }
 
+fn map_idx(k: MapKind) -> usize {
+    match k {
+        MapKind::Untitled => 0,
+        MapKind::Beach => 1,
+    }
+}
+
+fn map_name(k: MapKind) -> &'static str {
+    match k {
+        MapKind::Untitled => "Untitled",
+        MapKind::Beach => "Beach",
+    }
+}
+
 pub struct MenuScene {
     logo: Texture2D,
     status: String,
     join_open: bool,
     leaderboard_open: bool,
+    leaderboard_map_open: bool,
     replay_options_open: bool,
+    select_map_open: bool,
+    msg_to_send: Option<ClientMsg>,
     maybe_replay: Option<i64>,
     ghost: bool,
     ghost_data: Option<(u8, Vec<u8>)>,
@@ -90,8 +113,9 @@ pub struct MenuScene {
     auth_open: bool,
     code: String,
     auth: Auth,
-    boards: [Option<Board>; 2],
+    boards: [[Option<Board>; 2]; 2],
     kind: BoardKind,
+    map: MapKind,
     mouse: (f32, f32),
     clock: f32,
     want_fetch: bool,
@@ -103,23 +127,27 @@ pub struct MenuScene {
 
 impl MenuScene {
     pub fn new(status: &str, ctx: &mut crate::ctx::Context) -> Self {
-        let map = MAPS.choose(&mut rand::rng()).unwrap();
+        let map = BOT_MAPS.choose(&mut rand::rng()).unwrap();
 
         Self {
             logo: ctx.rl.load_texture(ctx.thread, "assets/logo.png").unwrap(),
             status: status.into(),
             join_open: false,
             leaderboard_open: false,
+            leaderboard_map_open: false,
             replay_options_open: false,
             requested_replay: false,
+            select_map_open: false,
+            msg_to_send: None,
             ghost: false,
             ghost_data: None,
             maybe_replay: None,
             auth_open: false,
             code: String::new(),
             auth: ctx.auth.clone().unwrap(),
-            boards: [None, None],
+            boards: std::array::from_fn(|_| std::array::from_fn(|_| None)),
             kind: BoardKind::Total,
+            map: MapKind::Untitled,
             mouse: (-1.0, -1.0),
             clock: 0.0,
             want_fetch: false,
@@ -143,6 +171,18 @@ impl MenuScene {
         });
         self.code = String::new();
     }
+
+    fn select_map(&mut self, ctx: &mut crate::ctx::Context, map: MapKind) {
+        if let Some(msg) = self.msg_to_send.take() {
+            let msg = match msg {
+                ClientMsg::JoinPublic(_) => ClientMsg::JoinPublic(map),
+                ClientMsg::CreateLobby(_) => ClientMsg::CreateLobby(map),
+                msg => msg,
+            };
+            let _ = ctx.net.send(&msg);
+        }
+        self.select_map_open = false;
+    }
 }
 
 impl Scene for MenuScene {
@@ -157,11 +197,52 @@ impl Scene for MenuScene {
             .is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
         {
             let mp = self.mouse.into();
-            if !self.join_open && !self.leaderboard_open {
+            if self.leaderboard_map_open {
+                if self
+                    .button
+                    .inside(MAP_UNTITLED.0, MAP_UNTITLED.1, MAP_UNTITLED.2, mp)
+                {
+                    self.map = MAPS[0];
+                    self.leaderboard_map_open = false;
+                    self.want_fetch = self.boards[map_idx(self.map)][idx(self.kind)].is_none();
+                } else if self
+                    .button
+                    .inside(MAP_BEACH.0, MAP_BEACH.1, MAP_BEACH.2, mp)
+                {
+                    self.map = MAPS[1];
+                    self.leaderboard_map_open = false;
+                    self.want_fetch = self.boards[map_idx(self.map)][idx(self.kind)].is_none();
+                } else if self
+                    .button
+                    .inside(MAP_CANCEL.0, MAP_CANCEL.1, MAP_CANCEL.2, mp)
+                {
+                    self.leaderboard_map_open = false;
+                }
+            } else if self.select_map_open {
+                if self
+                    .button
+                    .inside(MAP_UNTITLED.0, MAP_UNTITLED.1, MAP_UNTITLED.2, mp)
+                {
+                    self.select_map(ctx, MAPS[0]);
+                } else if self
+                    .button
+                    .inside(MAP_BEACH.0, MAP_BEACH.1, MAP_BEACH.2, mp)
+                {
+                    self.select_map(ctx, MAPS[1]);
+                } else if self
+                    .button
+                    .inside(MAP_CANCEL.0, MAP_CANCEL.1, MAP_CANCEL.2, mp)
+                {
+                    self.msg_to_send = None;
+                    self.select_map_open = false;
+                }
+            } else if !self.join_open && !self.leaderboard_open {
                 if self.button.inside(QUICK.0, QUICK.1, QUICK.2, mp) {
-                    let _ = ctx.net.send(&ClientMsg::JoinPublic);
+                    self.msg_to_send = Some(ClientMsg::JoinPublic(MapKind::Untitled));
+                    self.select_map_open = true;
                 } else if self.button.inside(CREATE.0, CREATE.1, CREATE.2, mp) {
-                    let _ = ctx.net.send(&ClientMsg::CreateLobby);
+                    self.msg_to_send = Some(ClientMsg::CreateLobby(MapKind::Untitled));
+                    self.select_map_open = true;
                 } else if self.button.inside(JOIN.0, JOIN.1, JOIN.2, mp) {
                     self.join_open = true;
                 } else if self
@@ -169,7 +250,8 @@ impl Scene for MenuScene {
                     .inside(LEADERBOARD.0, LEADERBOARD.1, LEADERBOARD.2, mp)
                 {
                     self.leaderboard_open = true;
-                    self.want_fetch = true;
+                    self.map = MapKind::Untitled;
+                    self.want_fetch = self.boards[map_idx(self.map)][idx(self.kind)].is_none();
                 } else if self.button.inside(SETTINGS.0, SETTINGS.1, SETTINGS.2, mp) {
                     // todo: settings scene
                 } else if self.button.inside(EDIT.0, EDIT.1, EDIT.2, mp) && !self.is_guest() {
@@ -254,14 +336,19 @@ impl Scene for MenuScene {
                 } else if self.button.inside(LCANCEL.0, LCANCEL.1, LCANCEL.2, mp) {
                     self.leaderboard_open = false;
                     self.want_fetch = true;
+                } else if self
+                    .button
+                    .inside(BOARD_MAP.0, BOARD_MAP.1, BOARD_MAP.2, mp)
+                {
+                    self.leaderboard_map_open = true;
                 } else if self.button.inside(TOTAL.0, TOTAL.1, TOTAL.2, mp) {
                     self.kind = BoardKind::Total;
-                    self.want_fetch = true;
+                    self.want_fetch = self.boards[map_idx(self.map)][idx(self.kind)].is_none();
                 } else if self.button.inside(LAP.0, LAP.1, LAP.2, mp) {
                     self.kind = BoardKind::Lap;
-                    self.want_fetch = true;
+                    self.want_fetch = self.boards[map_idx(self.map)][idx(self.kind)].is_none();
                 } else {
-                    let board = self.boards[idx(self.kind)].as_ref();
+                    let board = self.boards[map_idx(self.map)][idx(self.kind)].as_ref();
                     match board {
                         Some((rows, _)) => {
                             for (i, (_, _, _, replay)) in rows.iter().take(10).enumerate() {
@@ -299,7 +386,10 @@ impl Scene for MenuScene {
             self.refresh_at = self.clock + 20.0;
         }
         if self.want_fetch && self.clock >= self.next_fetch {
-            let _ = ctx.net.send(&ClientMsg::GetLeaderboard { kind: self.kind });
+            let _ = ctx.net.send(&ClientMsg::GetLeaderboard {
+                kind: self.kind,
+                map: self.map,
+            });
             self.want_fetch = false;
             self.next_fetch = self.clock + 1.2;
         }
@@ -329,7 +419,11 @@ impl Scene for MenuScene {
             }
 
             {
-                let mp = if self.join_open { Vector2::zero() } else { mp };
+                let mp = if self.join_open || self.select_map_open {
+                    Vector2::zero()
+                } else {
+                    mp
+                };
 
                 self.button.draw(
                     ctx.assets,
@@ -466,6 +560,50 @@ impl Scene for MenuScene {
                     false,
                 );
             }
+
+            if self.select_map_open {
+                tm.draw_rectangle(0, 0, 320, 180, Color::new(0, 0, 0, 150));
+
+                let w = tm.measure_text("Select a map", 8);
+                tm.draw_text("Select a map", 160 - w / 2, 55, 8, Color::WHITE);
+
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    MAP_UNTITLED.0,
+                    MAP_UNTITLED.1,
+                    MAP_UNTITLED.2,
+                    mp,
+                    pressed,
+                    "Untitled",
+                    true,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    MAP_BEACH.0,
+                    MAP_BEACH.1,
+                    MAP_BEACH.2,
+                    mp,
+                    pressed,
+                    "Beach",
+                    true,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    MAP_CANCEL.0,
+                    MAP_CANCEL.1,
+                    MAP_CANCEL.2,
+                    mp,
+                    pressed,
+                    "Cancel",
+                    true,
+                    false,
+                );
+            }
         } else {
             self.button.draw(
                 ctx.assets, &mut tm, LCANCEL.0, LCANCEL.1, LCANCEL.2, mp, pressed, "Go back", true,
@@ -496,7 +634,20 @@ impl Scene for MenuScene {
                 self.kind == BoardKind::Lap,
             );
 
-            let board = self.boards[idx(self.kind)].as_ref();
+            self.button.draw(
+                ctx.assets,
+                &mut tm,
+                BOARD_MAP.0,
+                BOARD_MAP.1,
+                BOARD_MAP.2,
+                mp,
+                pressed,
+                &format!("Map: {}", map_name(self.map)),
+                false,
+                false,
+            );
+
+            let board = self.boards[map_idx(self.map)][idx(self.kind)].as_ref();
             match board {
                 None => {
                     let w = tm.measure_text("Loading...", 8);
@@ -582,6 +733,50 @@ impl Scene for MenuScene {
                     false,
                 );
             }
+
+            if self.leaderboard_map_open {
+                tm.draw_rectangle(0, 0, 320, 180, Color::new(0, 0, 0, 150));
+
+                let w = tm.measure_text("Select a map", 8);
+                tm.draw_text("Select a map", 160 - w / 2, 55, 8, Color::WHITE);
+
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    MAP_UNTITLED.0,
+                    MAP_UNTITLED.1,
+                    MAP_UNTITLED.2,
+                    mp,
+                    pressed,
+                    "Untitled",
+                    true,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    MAP_BEACH.0,
+                    MAP_BEACH.1,
+                    MAP_BEACH.2,
+                    mp,
+                    pressed,
+                    "Beach",
+                    true,
+                    false,
+                );
+                self.button.draw(
+                    ctx.assets,
+                    &mut tm,
+                    MAP_CANCEL.0,
+                    MAP_CANCEL.1,
+                    MAP_CANCEL.2,
+                    mp,
+                    pressed,
+                    "Cancel",
+                    true,
+                    false,
+                );
+            }
         }
     }
 
@@ -593,16 +788,22 @@ impl Scene for MenuScene {
                 code,
                 private,
                 map,
+                map_kind,
                 ..
             } => {
-                let mut g = GameScene::new(ctx, *slot, players, code, *private, map);
+                let mut g = GameScene::new(ctx, *slot, players, code, *private, map, *map_kind);
                 if let Some((ghost_slot, data)) = &self.ghost_data {
                     g.replay(ctx, *ghost_slot, data);
                 }
                 super::Transition::Switch(Box::new(g))
             }
-            ServerMsg::Leaderboard { kind, rows, mine } => {
-                self.boards[idx(*kind)] = Some((rows.clone(), *mine));
+            ServerMsg::Leaderboard {
+                kind,
+                map,
+                rows,
+                mine,
+            } => {
+                self.boards[map_idx(*map)][idx(*kind)] = Some((rows.clone(), *mine));
                 super::Transition::None
             }
             ServerMsg::Reject(reason) => {

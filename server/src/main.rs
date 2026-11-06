@@ -72,6 +72,7 @@ struct LobbyHandle {
     count: Arc<AtomicUsize>,
     open: Arc<AtomicBool>,
     private: bool,
+    map: MapKind,
 }
 
 #[derive(Clone)]
@@ -110,10 +111,7 @@ enum Cmd {
     },
 }
 
-const LEVELS: &[&str] = &[
-    "assets/maps/untitled/untitled",
-    //"assets/maps/beach/beach"
-];
+const LEVELS: &[&str] = &["assets/maps/untitled/untitled", "assets/maps/beach/beach"];
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -390,12 +388,15 @@ async fn session(mut inbox: mpsc::Receiver<Bytes>, me: Peer, app: Arc<Shared>, i
                     Err(e) => me.send(&enc(&ServerMsg::NameRejected(e))),
                 }
             }
-            ClientMsg::GetLeaderboard { kind } => {
+            ClientMsg::GetLeaderboard { kind, map } => {
                 if last_board.elapsed() < Duration::from_secs(1) {
                     continue;
                 }
                 last_board = Instant::now();
-                me.send(&enc(&app.db.board(LEVELS[0].into(), kind, acct).await));
+                me.send(&enc(&app
+                    .db
+                    .board(get_level(&map).into(), kind, map, acct)
+                    .await));
             }
 
             ClientMsg::RequestCode { email } => {
@@ -538,17 +539,17 @@ async fn session(mut inbox: mpsc::Receiver<Bytes>, me: Peer, app: Arc<Shared>, i
             }
 
             // lobby
-            ClientMsg::CreateLobby => {
+            ClientMsg::CreateLobby(map) => {
                 leave(&mut cur);
-                cur = join(&app, &me, &name, country, acct, Target::Create).await;
+                cur = join(&app, &me, &name, country, acct, Target::Create(map)).await;
             }
             ClientMsg::JoinLobby { code } => {
                 leave(&mut cur);
                 cur = join(&app, &me, &name, country, acct, Target::Code(code)).await;
             }
-            ClientMsg::JoinPublic => {
+            ClientMsg::JoinPublic(map) => {
                 leave(&mut cur);
-                cur = join(&app, &me, &name, country, acct, Target::Public).await;
+                cur = join(&app, &me, &name, country, acct, Target::Public(map)).await;
             }
             ClientMsg::LeaveLobby => leave(&mut cur),
             msg => {
@@ -605,15 +606,16 @@ fn leave(cur: &mut Option<(mpsc::UnboundedSender<Cmd>, u8)>) {
 }
 
 enum Target {
-    Create,
+    Create(MapKind),
     Code(String),
-    Public,
+    Public(MapKind),
 }
 
-fn random_level(app: &Shared) -> &str {
-    let mut rng = rand::rng();
-    let i = rng.random_range(0..app.levels.len());
-    app.levels.keys().nth(i).unwrap()
+fn get_level(map: &MapKind) -> &str {
+    match map {
+        MapKind::Untitled => LEVELS[0],
+        MapKind::Beach => LEVELS[1],
+    }
 }
 
 async fn join(
@@ -626,8 +628,7 @@ async fn join(
 ) -> Option<(mpsc::UnboundedSender<Cmd>, u8)> {
     let reject = |r| me.send(&enc(&ServerMsg::Reject(r)));
     let handle = match t {
-        // todo: Target::Create(level_id)
-        Target::Create => create_lobby(app, true, random_level(app)),
+        Target::Create(map) => create_lobby(app, true, &map),
         Target::Code(c) => match find(app, |k, _| k == c) {
             Some((_, h)) => h,
             None => {
@@ -635,11 +636,11 @@ async fn join(
                 return None;
             }
         },
-        Target::Public => match find(app, |_, h| {
-            !h.private && h.open.load(Relaxed) && h.count.load(Relaxed) < MAX_CARS
+        Target::Public(map) => match find(app, |_, h| {
+            !h.private && h.open.load(Relaxed) && h.count.load(Relaxed) < MAX_CARS && h.map == map
         }) {
             Some((_, h)) => h,
-            None => create_lobby(app, false, random_level(app)),
+            None => create_lobby(app, false, &map),
         },
     };
     let (reply, rx) = oneshot::channel();
@@ -677,7 +678,7 @@ fn find(app: &Shared, f: impl Fn(&str, &LobbyHandle) -> bool) -> Option<(String,
         .find(|(k, h)| f(k, h))
         .map(|(k, h)| (k.clone(), h.clone()))
 }
-fn create_lobby(app: &Arc<Shared>, private: bool, level_id: &str) -> LobbyHandle {
+fn create_lobby(app: &Arc<Shared>, private: bool, map_kind: &MapKind) -> LobbyHandle {
     let mut map = app.lobbies.lock().unwrap();
     let code = loop {
         let c = format!("{:06}", rand::rng().random_range(0..1_000_000));
@@ -691,10 +692,12 @@ fn create_lobby(app: &Arc<Shared>, private: bool, level_id: &str) -> LobbyHandle
         count: Arc::new(AtomicUsize::new(0)),
         open: Arc::new(AtomicBool::new(true)),
         private,
+        map: map_kind.clone(),
     };
 
     map.insert(code.clone(), handle.clone());
 
+    let level_id = get_level(map_kind);
     let (level, map) = app.levels.get(level_id).expect("unknown level");
     let lobby = Lobby::new(
         app.clone(),
@@ -922,6 +925,7 @@ impl Lobby {
             private: self.h.private,
             players,
             map: self.level_id.clone(),
+            map_kind: self.h.map,
         }));
         let joined = enc(&ServerMsg::PlayerJoined {
             slot: i as u8,

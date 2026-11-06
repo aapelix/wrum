@@ -14,7 +14,7 @@ use wrum_core::{
     replay::{Replay, ReplayPlayback},
     sim::{DT, Input, MAX_CARS, Status, V2, grid},
 };
-use wrum_proto::{ClientMsg, PlayerResult, ServerMsg};
+use wrum_proto::{ClientMsg, MapKind, PlayerResult, ServerMsg};
 
 use crate::{
     assets::Assets,
@@ -122,6 +122,8 @@ pub struct GameScene {
     ghost: Option<Ghost>,
     level_id: String,
 
+    map_kind: MapKind,
+
     #[cfg(feature = "debug-renderer")]
     show_debug: bool,
 }
@@ -134,6 +136,7 @@ impl GameScene {
         code: &str,
         private: bool,
         map_path: &str,
+        map_kind: MapKind,
     ) -> Self {
         let json_path = format!("{map_path}.json");
         let png_path = format!("{map_path}.png");
@@ -191,6 +194,7 @@ impl GameScene {
             requested_new: false,
             ghost: None,
             level_id: map_path.into(),
+            map_kind,
             #[cfg(feature = "debug-renderer")]
             show_debug: false,
         };
@@ -454,9 +458,11 @@ impl Scene for GameScene {
                 if !self.requested_new && ctx.rl.is_key_pressed(KeyboardKey::KEY_O) {
                     self.requested_new = true;
                     if self.private {
-                        ctx.net.send(&ClientMsg::CreateLobby).unwrap();
+                        ctx.net
+                            .send(&ClientMsg::CreateLobby(self.map_kind))
+                            .unwrap();
                     } else {
-                        ctx.net.send(&ClientMsg::JoinPublic).unwrap();
+                        ctx.net.send(&ClientMsg::JoinPublic(self.map_kind)).unwrap();
                     }
                 }
             }
@@ -475,7 +481,9 @@ impl Scene for GameScene {
                     && self.button.inside(NEW_GAME.0, NEW_GAME.1, NEW_GAME.2, mp)
                 {
                     self.requested_new = true;
-                    ctx.net.send(&ClientMsg::JoinPublic).unwrap();
+                    ctx.net
+                        .send(&ClientMsg::JoinPublic(MapKind::Untitled))
+                        .unwrap();
                 }
             }
         }
@@ -829,10 +837,11 @@ impl Scene for GameScene {
                 code,
                 private,
                 map,
+                map_kind,
                 ..
             } => {
                 return super::Transition::Switch(Box::new(GameScene::new(
-                    ctx, *slot, players, code, *private, map,
+                    ctx, *slot, players, code, *private, map, *map_kind,
                 )));
             }
             _ => {}

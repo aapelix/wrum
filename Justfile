@@ -20,3 +20,6 @@ web-release:
     cp target/wasm32-unknown-emscripten/release/wrum_app.{wasm,js} web/
     cp target/wasm32-unknown-emscripten/release/deps/wrum_app.data web/
     BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$EMSDK/upstream/emscripten/cache/sysroot" cargo build --release --target wasm32-unknown-emscripten --bin wrum_app
+
+trainer *args:
+    cargo run --release --bin trainer -- {{args}}

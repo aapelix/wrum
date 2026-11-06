@@ -5,7 +5,7 @@ use wrum_core::{
     sim::{Input, World},
 };
 
-pub const PROTO_VERSION: usize = 7;
+pub const PROTO_VERSION: usize = 8;
 
 pub const TICK_RATE: u32 = 60;
 pub const SNAPSHOT_EVERY: u32 = 1;
@@ -24,11 +24,11 @@ pub enum ClientMsg {
         country: [char; 2],
         name: String,
     },
-    CreateLobby,
+    CreateLobby(MapKind),
     JoinLobby {
         code: String,
     },
-    JoinPublic,
+    JoinPublic(MapKind),
     LeaveLobby,
     Ready(bool),
     StartRace,
@@ -43,6 +43,7 @@ pub enum ClientMsg {
     },
     GetLeaderboard {
         kind: BoardKind,
+        map: MapKind,
     },
 
     RequestCode {
@@ -84,6 +85,7 @@ pub enum ServerMsg {
         private: bool,
         players: Vec<(PlayerId, String, [char; 2])>,
         map: String,
+        map_kind: MapKind,
     },
     PlayerJoined {
         slot: PlayerId,
@@ -143,6 +145,7 @@ pub enum ServerMsg {
     NameRejected(NameError),
     Leaderboard {
         kind: BoardKind,
+        map: MapKind,
         rows: Vec<(String, f32, [char; 2], Option<i64>)>,
         mine: Option<(u32, f32)>,
     },
@@ -224,6 +227,11 @@ pub enum CodeError {
 pub enum BoardKind {
     Lap,
     Total,
+}
+#[derive(Archive, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapKind {
+    Untitled,
+    Beach,
 }
 
 fn aligned(b: &[u8]) -> AlignedVec<16> {

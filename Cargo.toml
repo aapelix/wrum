@@ -10,7 +10,6 @@ futures-channel = "0.3.34"
 futures-util = "0.3.34"
 libm = "0.2.16"
 
-
 [profile.release]
 lto = true
 codegen-units = 1
